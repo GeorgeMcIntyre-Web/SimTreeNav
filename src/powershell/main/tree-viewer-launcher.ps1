@@ -830,9 +830,10 @@ function Generate-TreeHTML {
         }
     }
     Write-Host "  Using TNS: $tnsToUse (Instance: $($Server.Instance))" -ForegroundColor Gray
-    
-    # Call the tree generation script
-    & ".\generate-tree-html.ps1" -TNSName $tnsToUse -Schema $Schema -ProjectId $Project.ObjectId -ProjectName $Project.Caption -OutputFile $outputFile
+
+    # Call the tree generation script (use full path from script's directory)
+    $scriptPath = Join-Path $PSScriptRoot "generate-tree-html.ps1"
+    & $scriptPath -TNSName $tnsToUse -Schema $Schema -ProjectId $Project.ObjectId -ProjectName $Project.Caption -OutputFile $outputFile
     
     if (Test-Path $outputFile) {
         Write-Host "`nTree generated successfully!" -ForegroundColor Green
