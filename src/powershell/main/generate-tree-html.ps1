@@ -281,7 +281,8 @@ if (Test-Path $tempOutputFile) { Remove-Item $tempOutputFile -Force }
 
 # Generate HTML with extracted TYPE_IDs
 Write-Host "Generating HTML with database icons..." -ForegroundColor Yellow
-& ".\generate-full-tree-html.ps1" -DataFile $cleanFile -ProjectName $ProjectName -ProjectId $ProjectId -Schema $Schema -OutputFile $OutputFile -ExtractedTypeIds $extractedTypeIdsJson
+$fullTreeScriptPath = Join-Path $PSScriptRoot "generate-full-tree-html.ps1"
+& $fullTreeScriptPath -DataFile $cleanFile -ProjectName $ProjectName -ProjectId $ProjectId -Schema $Schema -OutputFile $OutputFile -ExtractedTypeIds $extractedTypeIdsJson
 
 # Cleanup
 Remove-Item $sqlFile -ErrorAction SilentlyContinue
