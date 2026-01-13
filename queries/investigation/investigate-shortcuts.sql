@@ -1,0 +1,61 @@
+SET PAGESIZE 100
+SET LINESIZE 300
+SET FEEDBACK OFF
+
+-- Investigate how shortcuts/RobcadStudy nodes are stored
+-- Looking at node "9A-010" which is a shortcut under "DDMP P736_9A_010_9A_050"
+
+-- First, find the parent node
+SELECT
+    c.OBJECT_ID,
+    c.CAPTION_S_,
+    cd.NAME AS CLASS_NAME,
+    cd.NICE_NAME,
+    cd.TYPE_ID
+FROM DESIGN12.COLLECTION_ c
+LEFT JOIN DESIGN12.CLASS_DEFINITIONS cd ON c.CLASS_ID = cd.TYPE_ID
+WHERE c.CAPTION_S_ LIKE '%9A_010_9A_050%'
+  AND ROWNUM <= 5;
+
+-- Now find shortcuts that might be children (look for '9A-010')
+SELECT
+    c.OBJECT_ID,
+    c.CAPTION_S_,
+    c.EXTERNALID_S_,
+    cd.NAME AS CLASS_NAME,
+    cd.NICE_NAME,
+    cd.TYPE_ID,
+    r.FORWARD_OBJECT_ID AS PARENT_ID
+FROM DESIGN12.COLLECTION_ c
+LEFT JOIN DESIGN12.CLASS_DEFINITIONS cd ON c.CLASS_ID = cd.TYPE_ID
+LEFT JOIN DESIGN12.REL_COMMON r ON c.OBJECT_ID = r.OBJECT_ID
+WHERE c.CAPTION_S_ = '9A-010'
+ORDER BY c.OBJECT_ID;
+
+-- Check if there's a specific class for shortcuts
+SELECT DISTINCT
+    cd.TYPE_ID,
+    cd.NAME,
+    cd.NICE_NAME
+FROM DESIGN12.CLASS_DEFINITIONS cd
+WHERE cd.NAME LIKE '%Shortcut%'
+   OR cd.NAME LIKE '%Link%'
+   OR cd.NICE_NAME LIKE '%Shortcut%'
+   OR cd.NICE_NAME LIKE '%Link%';
+
+-- Check the REL_COMMON structure for shortcuts
+SELECT
+    r.FORWARD_OBJECT_ID AS PARENT_ID,
+    r.OBJECT_ID AS CHILD_ID,
+    r.SEQ_NUMBER,
+    c_parent.CAPTION_S_ AS PARENT_CAPTION,
+    c_child.CAPTION_S_ AS CHILD_CAPTION,
+    cd.NICE_NAME AS CHILD_TYPE
+FROM DESIGN12.REL_COMMON r
+INNER JOIN DESIGN12.COLLECTION_ c_parent ON r.FORWARD_OBJECT_ID = c_parent.OBJECT_ID
+INNER JOIN DESIGN12.COLLECTION_ c_child ON r.OBJECT_ID = c_child.OBJECT_ID
+LEFT JOIN DESIGN12.CLASS_DEFINITIONS cd ON c_child.CLASS_ID = cd.TYPE_ID
+WHERE c_parent.CAPTION_S_ LIKE '%9A_010_9A_050%'
+ORDER BY r.SEQ_NUMBER;
+
+EXIT;

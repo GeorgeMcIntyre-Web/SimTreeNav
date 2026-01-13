@@ -1,0 +1,96 @@
+SET PAGESIZE 1000
+SET LINESIZE 300
+SET FEEDBACK OFF
+SET HEADING ON
+
+PROMPT ========================================
+PROMPT Navigation Tree for J7337_Rosslyn (DESIGN1)
+PROMPT Using SUB_TREE table for hierarchy
+PROMPT ========================================
+
+PROMPT 
+PROMPT 1. SUB_TREE entries for project 60 (root):
+PROMPT ========================================
+SELECT * FROM DESIGN1.SUB_TREE
+WHERE OBJECT_ID = 60
+ORDER BY DEPTH, OBJECT_ID;
+
+PROMPT 
+PROMPT 2. All SUB_TREE entries starting from project 60 (hierarchy):
+PROMPT ========================================
+-- This should show the tree structure
+SELECT 
+    st.OBJECT_ID,
+    st.DEPTH,
+    st.TABLE_NAME,
+    c.CAPTION_S_,
+    c.NAME1_S_,
+    c.EXTERNALID_S_,
+    c.STATUS_S_
+FROM DESIGN1.SUB_TREE st
+LEFT JOIN DESIGN1.COLLECTION_ c ON st.OBJECT_ID = c.OBJECT_ID
+WHERE st.OBJECT_ID IN (
+    -- Get all descendants of project 60
+    SELECT OBJECT_ID FROM DESIGN1.SUB_TREE
+    WHERE OBJECT_ID = 60
+    CONNECT BY PRIOR OBJECT_ID = OBJECT_ID
+    START WITH OBJECT_ID = 60
+)
+OR st.OBJECT_ID = 60
+ORDER BY st.DEPTH, st.OBJECT_ID
+FETCH FIRST 100 ROWS ONLY;
+
+PROMPT 
+PROMPT 3. Direct children (depth 1) of project 60:
+PROMPT ========================================
+SELECT 
+    st.OBJECT_ID,
+    st.DEPTH,
+    c.CAPTION_S_,
+    c.NAME1_S_,
+    c.EXTERNALID_S_,
+    c.CHILDREN_VR_,
+    c.STATUS_S_
+FROM DESIGN1.SUB_TREE st
+LEFT JOIN DESIGN1.COLLECTION_ c ON st.OBJECT_ID = c.OBJECT_ID
+WHERE st.OBJECT_ID IN (
+    SELECT OBJECT_ID FROM DESIGN1.SUB_TREE
+    WHERE OBJECT_ID = 60
+    CONNECT BY PRIOR OBJECT_ID = OBJECT_ID AND DEPTH = PRIOR DEPTH + 1
+    START WITH OBJECT_ID = 60 AND DEPTH = 0
+)
+AND st.DEPTH = 1
+ORDER BY st.OBJECT_ID;
+
+PROMPT 
+PROMPT 4. REL_COMMON relationships from project 60:
+PROMPT ========================================
+SELECT 
+    RELATIONSHIP_ID,
+    FORWARD_OBJECT_ID,
+    OBJECT_ID,
+    REL_TYPE,
+    SEQ_NUMBER
+FROM DESIGN1.REL_COMMON
+WHERE FORWARD_OBJECT_ID = 60
+ORDER BY SEQ_NUMBER
+FETCH FIRST 50 ROWS ONLY;
+
+PROMPT 
+PROMPT 5. Collections referenced by REL_COMMON from project 60:
+PROMPT ========================================
+SELECT DISTINCT
+    r.OBJECT_ID AS CHILD_OBJECT_ID,
+    c.CAPTION_S_,
+    c.NAME1_S_,
+    c.EXTERNALID_S_,
+    c.CHILDREN_VR_,
+    r.REL_TYPE,
+    r.SEQ_NUMBER
+FROM DESIGN1.REL_COMMON r
+LEFT JOIN DESIGN1.COLLECTION_ c ON r.OBJECT_ID = c.OBJECT_ID
+WHERE r.FORWARD_OBJECT_ID = 60
+ORDER BY r.SEQ_NUMBER
+FETCH FIRST 50 ROWS ONLY;
+
+EXIT;

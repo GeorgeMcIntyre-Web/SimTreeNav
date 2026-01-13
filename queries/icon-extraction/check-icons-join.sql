@@ -1,0 +1,17 @@
+SET PAGESIZE 30
+SET LINESIZE 500
+SET FEEDBACK OFF
+SET HEADING ON
+
+-- Try to join DF_ICONS_DATA with CLASS_DEFINITIONS
+SELECT cd.NAME, cd.NICE_NAME, di.*
+FROM DESIGN12.CLASS_DEFINITIONS cd
+LEFT JOIN DESIGN12.DF_ICONS_DATA di ON cd.TYPE_ID = di.CLASS_ID
+WHERE cd.NAME IN (
+    'class PmProject',
+    'class PmCollection',
+    'class PmPartLibrary',
+    'class PmMfgLibrary'
+)
+ORDER BY cd.NAME;
+EXIT;

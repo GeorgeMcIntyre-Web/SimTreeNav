@@ -1,0 +1,68 @@
+SET PAGESIZE 50000
+SET LINESIZE 500
+SET FEEDBACK OFF
+SET HEADING ON
+
+-- Find StudyFolder nodes and their children
+SELECT 
+    'StudyFolder Info' as INFO,
+    c.OBJECT_ID,
+    c.CAPTION_S_,
+    c.NAME1_S_,
+    c.EXTERNALID_S_
+FROM DESIGN1.COLLECTION_ c
+WHERE UPPER(c.CAPTION_S_) LIKE '%STUDY%' 
+   OR UPPER(c.NAME1_S_) LIKE '%STUDY%'
+ORDER BY c.OBJECT_ID;
+
+-- Find children of StudyFolder nodes
+SELECT 
+    'Children of StudyFolder' as INFO,
+    r.FORWARD_OBJECT_ID as PARENT_ID,
+    c_parent.CAPTION_S_ as PARENT_NAME,
+    r.OBJECT_ID as CHILD_ID,
+    c_child.CAPTION_S_ as CHILD_NAME,
+    c_child.NAME1_S_,
+    r.REL_TYPE,
+    r.SEQ_NUMBER
+FROM DESIGN1.REL_COMMON r
+INNER JOIN DESIGN1.COLLECTION_ c_parent ON r.FORWARD_OBJECT_ID = c_parent.OBJECT_ID
+INNER JOIN DESIGN1.COLLECTION_ c_child ON r.OBJECT_ID = c_child.OBJECT_ID
+WHERE UPPER(c_parent.CAPTION_S_) LIKE '%STUDY%' 
+   OR UPPER(c_parent.NAME1_S_) LIKE '%STUDY%'
+ORDER BY r.FORWARD_OBJECT_ID, r.SEQ_NUMBER;
+
+-- Check for StudyFolder under root project (ID 60)
+SELECT 
+    'StudyFolder under Root' as INFO,
+    r.FORWARD_OBJECT_ID as PARENT_ID,
+    c_parent.CAPTION_S_ as PARENT_NAME,
+    r.OBJECT_ID as CHILD_ID,
+    c_child.CAPTION_S_ as CHILD_NAME,
+    r.REL_TYPE,
+    r.SEQ_NUMBER
+FROM DESIGN1.REL_COMMON r
+INNER JOIN DESIGN1.COLLECTION_ c_parent ON r.FORWARD_OBJECT_ID = c_parent.OBJECT_ID
+INNER JOIN DESIGN1.COLLECTION_ c_child ON r.OBJECT_ID = c_child.OBJECT_ID
+WHERE r.FORWARD_OBJECT_ID = 60
+  AND (UPPER(c_child.CAPTION_S_) LIKE '%STUDY%' OR UPPER(c_child.NAME1_S_) LIKE '%STUDY%')
+ORDER BY r.SEQ_NUMBER;
+
+-- Find a specific StudyFolder and its direct children
+SELECT 
+    'Specific StudyFolder Children' as INFO,
+    r.FORWARD_OBJECT_ID as PARENT_ID,
+    c_parent.CAPTION_S_ as PARENT_NAME,
+    r.OBJECT_ID as CHILD_ID,
+    c_child.CAPTION_S_ as CHILD_NAME,
+    c_child.NAME1_S_,
+    r.REL_TYPE,
+    r.SEQ_NUMBER
+FROM DESIGN1.REL_COMMON r
+INNER JOIN DESIGN1.COLLECTION_ c_parent ON r.FORWARD_OBJECT_ID = c_parent.OBJECT_ID
+INNER JOIN DESIGN1.COLLECTION_ c_child ON r.OBJECT_ID = c_child.OBJECT_ID
+WHERE c_parent.CAPTION_S_ = 'StudyFolder'
+ORDER BY r.FORWARD_OBJECT_ID, r.SEQ_NUMBER
+FETCH FIRST 50 ROWS ONLY;
+
+EXIT;

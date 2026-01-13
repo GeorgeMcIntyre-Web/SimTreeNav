@@ -1,0 +1,23 @@
+SET PAGESIZE 10
+SET LINESIZE 500
+SET FEEDBACK OFF
+SET HEADING ON
+
+-- Check if base64 encoding is working and get sample data
+SELECT 
+    cd.TYPE_ID,
+    cd.NAME,
+    cd.NICE_NAME,
+    CASE WHEN di.CLASS_IMAGE IS NULL THEN 'NULL' ELSE 'HAS_DATA' END AS HAS_ICON,
+    LENGTH(di.CLASS_IMAGE) AS ICON_SIZE,
+    SUBSTR(UTL_ENCODE.BASE64_ENCODE(di.CLASS_IMAGE), 1, 50) AS BASE64_PREVIEW
+FROM DESIGN12.CLASS_DEFINITIONS cd
+LEFT JOIN DESIGN12.DF_ICONS_DATA di ON cd.TYPE_ID = di.TYPE_ID
+WHERE cd.NAME IN (
+    'class PmProject',
+    'class PmCollection',
+    'class PmPartLibrary',
+    'class PmMfgLibrary'
+)
+ORDER BY cd.NAME;
+EXIT;

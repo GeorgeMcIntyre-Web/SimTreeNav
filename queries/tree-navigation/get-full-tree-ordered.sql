@@ -1,0 +1,39 @@
+SET PAGESIZE 50000
+SET LINESIZE 500
+SET FEEDBACK OFF
+SET HEADING OFF
+
+-- Get full navigation tree for J7337_Rosslyn with ordering
+-- Output format: LEVEL|PARENT_ID|OBJECT_ID|CAPTION|NAME|EXTERNAL_ID|SEQ_NUMBER
+
+-- Level 0: Root
+SELECT '0|0|60|J7337_Rosslyn|J7337_Rosslyn|PP-DESIGN2-24-3-2016-16-15-7-0-60|0' FROM DUAL;
+
+-- Level 1: Direct children (ordered by SEQ_NUMBER)
+SELECT 
+    '1|60|' || c.OBJECT_ID || '|' || 
+    NVL(c.CAPTION_S_, c.NAME1_S_) || '|' ||
+    NVL(c.NAME1_S_, c.CAPTION_S_) || '|' ||
+    NVL(c.EXTERNALID_S_, '') || '|' ||
+    TO_CHAR(r.SEQ_NUMBER)
+FROM DESIGN1.REL_COMMON r
+INNER JOIN DESIGN1.COLLECTION_ c ON r.OBJECT_ID = c.OBJECT_ID
+WHERE r.FORWARD_OBJECT_ID = 60
+ORDER BY r.SEQ_NUMBER;
+
+-- Level 2+: All descendants using hierarchical query with NOCYCLE
+SELECT 
+    LEVEL || '|' ||
+    PRIOR c.OBJECT_ID || '|' ||
+    c.OBJECT_ID || '|' ||
+    NVL(c.CAPTION_S_, c.NAME1_S_) || '|' ||
+    NVL(c.NAME1_S_, c.CAPTION_S_) || '|' ||
+    NVL(c.EXTERNALID_S_, '') || '|' ||
+    TO_CHAR(r.SEQ_NUMBER)
+FROM DESIGN1.REL_COMMON r
+INNER JOIN DESIGN1.COLLECTION_ c ON r.OBJECT_ID = c.OBJECT_ID
+START WITH r.FORWARD_OBJECT_ID = 60
+CONNECT BY NOCYCLE PRIOR r.OBJECT_ID = r.FORWARD_OBJECT_ID
+ORDER SIBLINGS BY r.SEQ_NUMBER;
+
+EXIT;

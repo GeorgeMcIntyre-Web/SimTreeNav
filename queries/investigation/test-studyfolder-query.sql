@@ -1,0 +1,43 @@
+SET PAGESIZE 50000
+SET LINESIZE 500
+SET FEEDBACK OFF
+SET HEADING ON
+
+-- Test: Does the hierarchical query find StudyFolder children?
+PROMPT ========================================
+PROMPT Test: Find path from 60 to StudyFolder 197647
+PROMPT ========================================
+SELECT 
+    LEVEL,
+    PRIOR c.OBJECT_ID as PARENT_ID,
+    c.OBJECT_ID,
+    c.CAPTION_S_,
+    c.NAME1_S_
+FROM DESIGN1.REL_COMMON r
+INNER JOIN DESIGN1.COLLECTION_ c ON r.OBJECT_ID = c.OBJECT_ID
+START WITH r.FORWARD_OBJECT_ID = 60
+CONNECT BY NOCYCLE PRIOR r.OBJECT_ID = r.FORWARD_OBJECT_ID
+  AND LEVEL <= 10
+HAVING c.OBJECT_ID = 197647
+FETCH FIRST 5 ROWS ONLY;
+
+PROMPT 
+PROMPT ========================================
+PROMPT Test: Find children of StudyFolder 197647 via hierarchical query
+PROMPT ========================================
+SELECT 
+    LEVEL,
+    PRIOR c.OBJECT_ID as PARENT_ID,
+    c.OBJECT_ID,
+    c.CAPTION_S_,
+    c.NAME1_S_,
+    r.SEQ_NUMBER
+FROM DESIGN1.REL_COMMON r
+INNER JOIN DESIGN1.COLLECTION_ c ON r.OBJECT_ID = c.OBJECT_ID
+START WITH r.FORWARD_OBJECT_ID = 60
+CONNECT BY NOCYCLE PRIOR r.OBJECT_ID = r.FORWARD_OBJECT_ID
+  AND LEVEL <= 15
+HAVING PRIOR c.OBJECT_ID = 197647
+FETCH FIRST 20 ROWS ONLY;
+
+EXIT;

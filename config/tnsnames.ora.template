@@ -1,0 +1,31 @@
+# Oracle TNS Names Configuration File
+# Place this file in: %TNS_ADMIN% (typically C:\Oracle\instantclient_12_2\network\admin)
+# Rename to: tnsnames.ora (remove .template extension)
+
+# Siemens Process Simulation Database - Oracle 12c
+# Replace the values below with your actual database connection details
+
+SIEMENS_PS_DB =
+  (DESCRIPTION =
+    (ADDRESS = (PROTOCOL = TCP)(HOST = your_db_hostname_or_ip)(PORT = 1521))
+    (CONNECT_DATA =
+      (SERVER = DEDICATED)
+      (SERVICE_NAME = your_service_name)
+      # Alternative: Use SID instead of SERVICE_NAME for older databases
+      # (SID = your_sid)
+    )
+  )
+
+# Example with SID (if SERVICE_NAME doesn't work):
+# SIEMENS_PS_DB_SID =
+#   (DESCRIPTION =
+#     (ADDRESS = (PROTOCOL = TCP)(HOST = your_db_hostname_or_ip)(PORT = 1521))
+#     (CONNECT_DATA =
+#       (SERVER = DEDICATED)
+#       (SID = your_sid)
+#     )
+#   )
+
+# Connection string format examples:
+# sqlplus username/password@SIEMENS_PS_DB
+# sqlplus username/password@"(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=hostname)(PORT=1521))(CONNECT_DATA=(SERVICE_NAME=servicename)))"

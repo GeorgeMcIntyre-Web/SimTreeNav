@@ -1,0 +1,18 @@
+SET PAGESIZE 20
+SET LINESIZE 500
+SET FEEDBACK OFF
+SET HEADING OFF
+
+-- Get first level children with class names
+SELECT 
+    '1|' ||  || '|' || c.OBJECT_ID || '|' || 
+    NVL(c.CAPTION_S_, 'Unnamed') || '|' ||
+    NVL(c.CAPTION_S_, 'Unnamed') || '|' ||
+    NVL(c.EXTERNALID_S_, '') || '|' ||
+    TO_CHAR(r.SEQ_NUMBER) || '|' || NVL(cd.NAME, 'Unknown')
+FROM DESIGN12.REL_COMMON r
+INNER JOIN DESIGN12.COLLECTION_ c ON r.OBJECT_ID = c.OBJECT_ID
+LEFT JOIN DESIGN12.CLASS_DEFINITIONS cd ON c.CLASS_ID = cd.TYPE_ID
+WHERE r.FORWARD_OBJECT_ID = 18140190
+ORDER BY r.SEQ_NUMBER;
+EXIT;

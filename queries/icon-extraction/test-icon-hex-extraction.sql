@@ -1,0 +1,25 @@
+SET PAGESIZE 0
+SET LINESIZE 32767
+SET LONG 1000000
+SET LONGCHUNKSIZE 32767
+SET FEEDBACK OFF
+SET HEADING OFF
+SET TRIMSPOOL ON
+SET VERIFY OFF
+
+-- Test extracting a single icon as HEX
+-- First, let's check the icon size and verify BMP header
+SELECT
+    'TYPE_ID: ' || di.TYPE_ID || ', SIZE: ' || LENGTH(di.CLASS_IMAGE) || ' bytes, HEADER: ' || RAWTOHEX(DBMS_LOB.SUBSTR(di.CLASS_IMAGE, 2, 1))
+FROM DESIGN12.DF_ICONS_DATA di
+WHERE di.TYPE_ID = 64;
+
+-- Now extract the full icon as hex
+SELECT
+    di.TYPE_ID || '|' ||
+    LENGTH(di.CLASS_IMAGE) || '|' ||
+    RAWTOHEX(di.CLASS_IMAGE)
+FROM DESIGN12.DF_ICONS_DATA di
+WHERE di.TYPE_ID = 64;
+
+EXIT;

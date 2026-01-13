@@ -1,0 +1,23 @@
+SET PAGESIZE 1000
+SET LINESIZE 500
+SET FEEDBACK OFF
+SET HEADING OFF
+
+-- Find root collections (collections that are parents but not children)
+SELECT 
+    c.OBJECT_ID || '|' ||
+    NVL(c.CAPTION_S_, 'Unnamed') || '|' ||
+    NVL(c.CAPTION_S_, 'Unnamed') || '|' ||
+    NVL(c.EXTERNALID_S_, '')
+FROM DESIGN4.COLLECTION_ c
+WHERE c.OBJECT_ID IN (
+    SELECT DISTINCT FORWARD_OBJECT_ID 
+    FROM DESIGN4.REL_COMMON
+    WHERE FORWARD_OBJECT_ID NOT IN (
+        SELECT DISTINCT OBJECT_ID 
+        FROM DESIGN4.REL_COMMON 
+        WHERE OBJECT_ID IS NOT NULL
+    )
+)
+ORDER BY c.CAPTION_S_;
+EXIT;

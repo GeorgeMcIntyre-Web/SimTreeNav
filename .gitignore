@@ -1,0 +1,101 @@
+# Siemens Process Simulation Tree Viewer - Git Ignore
+
+# ===== USER-SPECIFIC FILES =====
+# Oracle connection configuration (contains credentials)
+tnsnames.ora
+config/tnsnames.ora
+
+# User-specific configuration
+config/tree-viewer-config.json
+config/database-servers.json
+
+# ===== GENERATED OUTPUT =====
+# HTML tree outputs (large, regenerated from source)
+data/output/*.html
+!data/output/.gitkeep
+
+# Tree data files (intermediate data)
+data/output/tree-data*.txt
+
+# ===== EXTRACTED ASSETS =====
+# Icons extracted from database (can be regenerated)
+data/icons/*.bmp
+!data/icons/.gitkeep
+
+# Icon metadata (can be regenerated)
+data/extracted-type-ids.json
+data/all-icons.csv
+
+# ===== LOGS & TEMPORARY FILES =====
+# Oracle logs
+*.log
+
+# PowerShell execution artifacts
+*tmpclaude-*
+
+# Query output and test results
+tests/*.txt
+tests/*.html
+
+# Temporary SQL files
+*temp*.sql
+*tmp*.sql
+
+# ===== IDE & EDITOR =====
+# Visual Studio Code
+.vscode/
+*.code-workspace
+
+# Visual Studio
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# JetBrains IDEs
+.idea/
+*.iml
+
+# ===== OPERATING SYSTEM =====
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Linux
+*~
+.directory
+
+# ===== ARCHIVES & BACKUPS =====
+*.zip
+*.tar.gz
+*.rar
+*.7z
+*.bak
+*.old
+*.orig
+
+# ===== DATABASE =====
+# Oracle Instant Client (installed separately)
+instantclient*/
+
+# Database dumps
+*.dmp
+*.dat
+
+# ===== OPTIONAL: KEEP SAMPLE FILES =====
+# Uncomment these if you want to include sample outputs for documentation
+# !data/output/navigation-tree-sample.html
+# !data/icons/icon_18.bmp
+# !data/icons/icon_45.bmp
+
+# ===== KEEP EMPTY DIRECTORIES =====
+!*/.gitkeep

@@ -1,0 +1,45 @@
+SET PAGESIZE 50000
+SET LINESIZE 500
+SET FEEDBACK OFF
+SET HEADING OFF
+
+-- Get StudyFolder children correctly (where StudyFolder is the parent)
+-- Output format: LEVEL|PARENT_ID|OBJECT_ID|CAPTION|NAME|EXTERNAL_ID|SEQ_NUMBER
+
+-- Find all StudyFolder nodes first
+SELECT 
+    '0|0|' || c.OBJECT_ID || '|' || 
+    NVL(c.CAPTION_S_, c.NAME1_S_) || '|' ||
+    NVL(c.NAME1_S_, c.CAPTION_S_) || '|' ||
+    NVL(c.EXTERNALID_S_, '') || '|' ||
+    '0'
+FROM DESIGN1.COLLECTION_ c
+WHERE c.CAPTION_S_ = 'StudyFolder'
+  AND c.OBJECT_ID IN (
+    SELECT DISTINCT r.FORWARD_OBJECT_ID 
+    FROM DESIGN1.REL_COMMON r
+    WHERE r.FORWARD_OBJECT_ID IN (
+        SELECT OBJECT_ID FROM DESIGN1.COLLECTION_ WHERE CAPTION_S_ = 'StudyFolder'
+    )
+    START WITH r.FORWARD_OBJECT_ID = 60
+    CONNECT BY NOCYCLE PRIOR r.OBJECT_ID = r.FORWARD_OBJECT_ID
+  )
+FETCH FIRST 5 ROWS ONLY;
+
+-- Now get children of those StudyFolders (where StudyFolder is FORWARD_OBJECT_ID)
+SELECT 
+    '1|' || r.FORWARD_OBJECT_ID || '|' || 
+    r.OBJECT_ID || '|' ||
+    NVL(c.CAPTION_S_, c.NAME1_S_) || '|' ||
+    NVL(c.NAME1_S_, c.CAPTION_S_) || '|' ||
+    NVL(c.EXTERNALID_S_, '') || '|' ||
+    TO_CHAR(r.SEQ_NUMBER)
+FROM DESIGN1.REL_COMMON r
+INNER JOIN DESIGN1.COLLECTION_ c ON r.OBJECT_ID = c.OBJECT_ID
+WHERE r.FORWARD_OBJECT_ID IN (
+    SELECT OBJECT_ID FROM DESIGN1.COLLECTION_ WHERE CAPTION_S_ = 'StudyFolder'
+)
+ORDER BY r.FORWARD_OBJECT_ID, r.SEQ_NUMBER
+FETCH FIRST 20 ROWS ONLY;
+
+EXIT;

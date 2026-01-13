@@ -1,0 +1,70 @@
+SET PAGESIZE 100
+SET LINESIZE 200
+SET FEEDBACK OFF
+SET HEADING ON
+
+PROMPT ========================================
+PROMPT Process Simulation Projects - DESIGN1
+PROMPT ========================================
+SELECT 
+    p.PROJECTID,
+    c.CAPTION_S_ AS PROJECT_NAME,
+    c.EXTERNALID_S_ AS EXTERNAL_ID,
+    c.STATUS_S_ AS STATUS
+FROM DESIGN1.DFPROJECT p
+LEFT JOIN DESIGN1.COLLECTION_ c ON p.PROJECTID = c.OBJECT_ID
+ORDER BY p.PROJECTID;
+
+PROMPT 
+PROMPT ========================================
+PROMPT Process Simulation Projects - DESIGN2
+PROMPT ========================================
+SELECT 
+    p.PROJECTID,
+    c.CAPTION_S_ AS PROJECT_NAME,
+    c.EXTERNALID_S_ AS EXTERNAL_ID,
+    c.STATUS_S_ AS STATUS
+FROM DESIGN2.DFPROJECT p
+LEFT JOIN DESIGN2.COLLECTION_ c ON p.PROJECTID = c.OBJECT_ID
+ORDER BY p.PROJECTID;
+
+PROMPT 
+PROMPT ========================================
+PROMPT Process Simulation Projects - DESIGN3
+PROMPT ========================================
+SELECT 
+    p.PROJECTID,
+    c.CAPTION_S_ AS PROJECT_NAME,
+    c.EXTERNALID_S_ AS EXTERNAL_ID,
+    c.STATUS_S_ AS STATUS
+FROM DESIGN3.DFPROJECT p
+LEFT JOIN DESIGN3.COLLECTION_ c ON p.PROJECTID = c.OBJECT_ID
+ORDER BY p.PROJECTID;
+
+PROMPT 
+PROMPT ========================================
+PROMPT Process Simulation Projects - DESIGN4
+PROMPT ========================================
+SELECT 
+    p.PROJECTID,
+    c.CAPTION_S_ AS PROJECT_NAME,
+    c.EXTERNALID_S_ AS EXTERNAL_ID,
+    c.STATUS_S_ AS STATUS
+FROM DESIGN4.DFPROJECT p
+LEFT JOIN DESIGN4.COLLECTION_ c ON p.PROJECTID = c.OBJECT_ID
+ORDER BY p.PROJECTID;
+
+PROMPT 
+PROMPT ========================================
+PROMPT Process Simulation Projects - DESIGN5
+PROMPT ========================================
+SELECT 
+    p.PROJECTID,
+    c.CAPTION_S_ AS PROJECT_NAME,
+    c.EXTERNALID_S_ AS EXTERNAL_ID,
+    c.STATUS_S_ AS STATUS
+FROM DESIGN5.DFPROJECT p
+LEFT JOIN DESIGN5.COLLECTION_ c ON p.PROJECTID = c.OBJECT_ID
+ORDER BY p.PROJECTID;
+
+EXIT;
