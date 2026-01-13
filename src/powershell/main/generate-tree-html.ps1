@@ -189,6 +189,7 @@ CONNECT BY NOCYCLE PRIOR r.OBJECT_ID = r.FORWARD_OBJECT_ID
 ORDER SIBLINGS BY NVL(c.MODIFICATIONDATE_DA_, TO_DATE('1900-01-01', 'YYYY-MM-DD')), c.OBJECT_ID;
 
 -- Add StudyFolder children explicitly (these are links/shortcuts to real data)
+-- StudyFolder nodes are identified by their NICE_NAME in CLASS_DEFINITIONS, not CAPTION
 -- Output: LEVEL|PARENT_ID|OBJECT_ID|CAPTION|NAME|EXTERNAL_ID|SEQ_NUMBER|CLASS_NAME|NICE_NAME|TYPE_ID
 SELECT
     '999|' ||  -- Use high level number, JavaScript will handle it
@@ -203,9 +204,10 @@ SELECT
     TO_CHAR(cd.TYPE_ID)
 FROM $Schema.REL_COMMON r
 INNER JOIN $Schema.COLLECTION_ c_parent ON r.FORWARD_OBJECT_ID = c_parent.OBJECT_ID
+LEFT JOIN $Schema.CLASS_DEFINITIONS cd_parent ON c_parent.CLASS_ID = cd_parent.TYPE_ID
 INNER JOIN $Schema.COLLECTION_ c ON r.OBJECT_ID = c.OBJECT_ID
 LEFT JOIN $Schema.CLASS_DEFINITIONS cd ON c.CLASS_ID = cd.TYPE_ID
-WHERE c_parent.CAPTION_S_ = 'StudyFolder'
+WHERE cd_parent.NICE_NAME = 'StudyFolder'
   AND EXISTS (
     SELECT 1 FROM $Schema.REL_COMMON r2
     INNER JOIN $Schema.COLLECTION_ c2 ON r2.OBJECT_ID = c2.OBJECT_ID
