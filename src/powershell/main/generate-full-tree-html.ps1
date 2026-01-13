@@ -5,7 +5,8 @@ param(
     [string]$ProjectId = "",
     [string]$Schema = "",
     [string]$OutputFile = "navigation-tree-full.html",
-    [string]$ExtractedTypeIds = ""  # Comma-separated list of TYPE_IDs that have extracted icons
+    [string]$ExtractedTypeIds = "",  # Comma-separated list of TYPE_IDs that have extracted icons
+    [string]$IconDataJson = "{}"     # JSON object mapping TYPE_ID to Base64 data URI
 )
 
 # Read data file - it should already be UTF-8 with BOM
@@ -248,7 +249,10 @@ $htmlTemplate = @'
     <script>
         // List of TYPE_IDs that have extracted icon files (from icon extraction)
         const extractedTypeIds = new Set([EXTRACTED_TYPE_IDS_PLACEHOLDER]);
-        
+
+        // Icon data map: TYPE_ID -> Base64 data URI (embedded in memory, no file I/O)
+        const iconDataMap = ICON_DATA_JSON_PLACEHOLDER;
+
         // Parse the tree data from the file
         const rawData = `TREE_DATA_PLACEHOLDER`;
         
@@ -678,20 +682,18 @@ $htmlTemplate = @'
             let iconFileName = node.iconFile || 'Device.bmp';
             let iconPath = '';
             let cacheBuster = '';
-            
-            // PREFER icon from database (extracted as icon_TYPEID.bmp) if TYPE_ID is available AND icon was extracted
-            if (node.typeId && node.typeId > 0 && extractedTypeIds.has(node.typeId)) {
-                const dbIconFile = `icon_${node.typeId}.bmp`;
-                cacheBuster = '?v=' + Date.now() + '&r=' + Math.random();
-                iconPath = `icons/${dbIconFile}${cacheBuster}`;
-                icon.src = iconPath;
-                iconFileName = dbIconFile; // Update for tooltip/error handling
+
+            // PREFER icon from database (embedded as Base64 data URI) if TYPE_ID is available
+            if (node.typeId && node.typeId > 0 && iconDataMap[node.typeId]) {
+                // Use Base64 data URI directly (no file I/O, embedded in HTML)
+                icon.src = iconDataMap[node.typeId];
+                iconFileName = `icon_${node.typeId}.bmp`;
                 if (level <= 1) {
-                    console.log(`[ICON RENDER] Node: "${node.name}" | Using DATABASE icon: ${dbIconFile} (TYPE_ID: ${node.typeId})`);
+                    console.log(`[ICON RENDER] Node: "${node.name}" | Using DATABASE icon (Base64): TYPE_ID ${node.typeId}`);
                 }
-                // If database icon fails, fallback to mapped icon
+                // If data URI fails (shouldn't happen), fallback to mapped icon
                 icon.onerror = function() {
-                    console.warn(`[ICON WARN] Database icon failed to load: ${dbIconFile}, falling back to mapped icon for node: ${node.name}`);
+                    console.warn(`[ICON WARN] Database icon data URI failed for TYPE_ID ${node.typeId}, falling back to mapped icon for node: ${node.name}`);
                     const fallbackIcon = getIconForClass(node.className, node.name, node.niceName);
                     cacheBuster = '?v=' + Date.now() + '&r=' + Math.random();
                     iconPath = `icons/${fallbackIcon}${cacheBuster}`;
@@ -699,13 +701,13 @@ $htmlTemplate = @'
                     iconFileName = fallbackIcon;
                 };
             } else {
-                // Use mapped icon (NICE_NAME or className mapping)
-                // Either no TYPE_ID, or TYPE_ID doesn't have an extracted icon file
+                // Use mapped icon (NICE_NAME or className mapping) from icons directory
+                // Either no TYPE_ID, or TYPE_ID doesn't have embedded icon data
                 cacheBuster = '?v=' + Date.now() + '&r=' + Math.random();
                 iconPath = `icons/${iconFileName}${cacheBuster}`;
                 icon.src = iconPath;
                 if (level <= 1) {
-                    const reason = !node.typeId ? "no TYPE_ID" : (node.typeId > 0 && !extractedTypeIds.has(node.typeId) ? "icon not extracted" : "using mapped icon");
+                    const reason = !node.typeId ? "no TYPE_ID" : (!iconDataMap[node.typeId] ? "icon not in data map" : "using mapped icon");
                     console.log(`[ICON RENDER] Node: "${node.name}" | Icon Path: "${iconPath}" | IconFile: "${iconFileName}" | Reason: ${reason}`);
                 }
             }
@@ -867,6 +869,7 @@ $htmlTemplate = @'
 # Replace extracted TYPE_IDs placeholder
 $extractedIdsJs = if ($ExtractedTypeIds) { $ExtractedTypeIds } else { "" }
 $html = $htmlTemplate.Replace('EXTRACTED_TYPE_IDS_PLACEHOLDER', $extractedIdsJs)
+$html = $html.Replace('ICON_DATA_JSON_PLACEHOLDER', $IconDataJson)
 $html = $html.Replace('TREE_DATA_PLACEHOLDER', $escapedData)
 $html = $html.Replace('PROJECT_ID_PLACEHOLDER', $ProjectId)
 $html = $html.Replace('PROJECT_NAME_PLACEHOLDER', $ProjectName)

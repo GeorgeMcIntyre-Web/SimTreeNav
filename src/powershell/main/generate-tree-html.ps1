@@ -65,7 +65,7 @@ Write-Host "  Running SQL query..." -ForegroundColor Gray
 $result = sqlplus -S sys/change_on_install@$TNSName AS SYSDBA "@$extractIconsFile" 2>&1
 $result | Out-File $iconsOutputFile -Encoding UTF8
 
-# Read and parse all icons
+# Read and parse all icons - store in memory as Base64
 $allOutput = Get-Content $iconsOutputFile -Raw -Encoding UTF8
 $allLines = $allOutput -split "`r?`n" | Where-Object { $_ -match '\|' }
 
@@ -73,6 +73,7 @@ Write-Host "  Found $($allLines.Count) icon entries" -ForegroundColor Gray
 
 $iconCount = 0
 $extractedTypeIds = @()
+$iconDataMap = @{}  # Store TYPE_ID -> Base64 data URI mapping
 
 foreach ($line in $allLines) {
     $line = $line.Trim()
@@ -95,8 +96,11 @@ foreach ($line in $allLines) {
                 $header = [System.Text.Encoding]::ASCII.GetString($iconBytes[0..1])
 
                 if ($header -eq 'BM' -and $iconBytes.Length -eq $expectedSize) {
-                    $iconFile = "$iconsDir\icon_${typeId}.bmp"
-                    [System.IO.File]::WriteAllBytes($iconFile, $iconBytes)
+                    # Convert to Base64 data URI instead of saving to file
+                    $base64 = [Convert]::ToBase64String($iconBytes)
+                    $dataUri = "data:image/bmp;base64,$base64"
+                    $iconDataMap[$typeId] = $dataUri
+
                     $iconCount++
                     $extractedTypeIds += $typeId
                     Write-Host "  Extracted TYPE_ID $typeId ($expectedSize bytes)" -ForegroundColor Gray
@@ -111,6 +115,12 @@ foreach ($line in $allLines) {
 }
 
 Write-Host "  Successfully extracted: $iconCount icons" -ForegroundColor Green
+
+# Convert icon data map to JSON for passing to HTML generator
+$iconDataJson = ($iconDataMap.GetEnumerator() | ForEach-Object {
+    "`"$($_.Key)`": `"$($_.Value)`""
+}) -join ","
+$iconDataJson = "{$iconDataJson}"
 
 # Create comma-separated list of extracted TYPE_IDs to pass to JavaScript
 $extractedTypeIdsJson = ($extractedTypeIds | Sort-Object | ForEach-Object { "$_" }) -join ','
@@ -279,10 +289,10 @@ $utf8WithBom = New-Object System.Text.UTF8Encoding $true
 # Cleanup
 if (Test-Path $tempOutputFile) { Remove-Item $tempOutputFile -Force }
 
-# Generate HTML with extracted TYPE_IDs
+# Generate HTML with in-memory icon data
 Write-Host "Generating HTML with database icons..." -ForegroundColor Yellow
 $fullTreeScriptPath = Join-Path $PSScriptRoot "generate-full-tree-html.ps1"
-& $fullTreeScriptPath -DataFile $cleanFile -ProjectName $ProjectName -ProjectId $ProjectId -Schema $Schema -OutputFile $OutputFile -ExtractedTypeIds $extractedTypeIdsJson
+& $fullTreeScriptPath -DataFile $cleanFile -ProjectName $ProjectName -ProjectId $ProjectId -Schema $Schema -OutputFile $OutputFile -ExtractedTypeIds $extractedTypeIdsJson -IconDataJson $iconDataJson
 
 # Cleanup
 Remove-Item $sqlFile -ErrorAction SilentlyContinue
