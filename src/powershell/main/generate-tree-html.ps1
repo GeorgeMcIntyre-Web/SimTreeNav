@@ -118,12 +118,13 @@ Write-Host "  Successfully extracted: $iconCount icons" -ForegroundColor Green
 # Add fallback icons for TYPE_IDs that don't exist in database
 Write-Host "  Adding fallback icons for missing TYPE_IDs..." -ForegroundColor Yellow
 
-# TYPE_ID 72 (PmStudyFolder) -> copy from 73 (StudyFolder)
-if ($iconDataMap['73'] -and -not $iconDataMap['72']) {
-    $iconDataMap['72'] = $iconDataMap['73']
+# TYPE_ID 72 (PmStudyFolder) -> copy from 18 (Collection - parent class)
+# StudyFolder derives from Collection, use parent class icon
+if ($iconDataMap['18'] -and -not $iconDataMap['72']) {
+    $iconDataMap['72'] = $iconDataMap['18']
     $extractedTypeIds += 72
     $iconCount++
-    Write-Host "    Added fallback: TYPE_ID 72 -> 73 (PmStudyFolder -> StudyFolder)" -ForegroundColor Gray
+    Write-Host "    Added fallback: TYPE_ID 72 -> 18 (StudyFolder -> Collection parent)" -ForegroundColor Gray
 }
 
 # TYPE_ID 164 (RobcadResourceLibrary) -> copy from 162 (MaterialLibrary)
@@ -134,21 +135,25 @@ if ($iconDataMap['162'] -and -not $iconDataMap['164']) {
     Write-Host "    Added fallback: TYPE_ID 164 -> 162 (RobcadResourceLibrary -> MaterialLibrary)" -ForegroundColor Gray
 }
 
-# Study type fallbacks - use Study icon (TYPE_ID 70) as fallback for specialized study types
+# Study type fallbacks - use parent class icons based on class hierarchy
+# RobcadStudy (177) -> ShortcutFolder (69) -> Study (70) hierarchy
+# LocationalStudy (108) -> Study (70) -> ShortcutFolder (69)
+# All Study types should use ShortcutFolder icon (TYPE_ID 69)
 $studyFallbacks = @{
     '177' = 'RobcadStudy'
     '178' = 'LineSimulationStudy'
     '183' = 'GanttStudy'
     '181' = 'SimpleDetailedStudy'
     '108' = 'LocationalStudy'
+    '70'  = 'Study'  # Base Study class also needs icon
 }
 
 foreach ($typeId in $studyFallbacks.Keys) {
-    if ($iconDataMap['70'] -and -not $iconDataMap[$typeId]) {
-        $iconDataMap[$typeId] = $iconDataMap['70']
+    if ($iconDataMap['69'] -and -not $iconDataMap[$typeId]) {
+        $iconDataMap[$typeId] = $iconDataMap['69']
         $extractedTypeIds += [int]$typeId
         $iconCount++
-        Write-Host "    Added fallback: TYPE_ID $typeId -> 70 ($($studyFallbacks[$typeId]) -> Study)" -ForegroundColor Gray
+        Write-Host "    Added fallback: TYPE_ID $typeId -> 69 ($($studyFallbacks[$typeId]) -> ShortcutFolder parent)" -ForegroundColor Gray
     }
 }
 
