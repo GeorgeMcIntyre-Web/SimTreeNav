@@ -451,6 +451,38 @@ WHERE EXISTS (
       )
   );
 
+-- Add TxProcessAssembly nodes (from PART_ table, CLASS_ID 133)
+-- TxProcessAssembly nodes are stored in PART_ table, not COLLECTION_
+-- These are assembly/process nodes that appear in the tree structure
+-- Output: LEVEL|PARENT_ID|OBJECT_ID|CAPTION|NAME|EXTERNAL_ID|SEQ_NUMBER|CLASS_NAME|NICE_NAME|TYPE_ID
+SELECT
+    '999|' ||
+    r.FORWARD_OBJECT_ID || '|' ||
+    r.OBJECT_ID || '|' ||
+    NVL(p.NAME_S_, 'Unnamed') || '|' ||
+    NVL(p.NAME_S_, 'Unnamed') || '|' ||
+    NVL(p.EXTERNALID_S_, '') || '|' ||
+    TO_CHAR(r.SEQ_NUMBER) || '|' ||
+    NVL(cd.NAME, 'class PmTxProcessAssembly') || '|' ||
+    NVL(cd.NICE_NAME, 'TxProcessAssembly') || '|' ||
+    TO_CHAR(cd.TYPE_ID)
+FROM $Schema.REL_COMMON r
+INNER JOIN $Schema.PART_ p ON r.OBJECT_ID = p.OBJECT_ID
+LEFT JOIN $Schema.CLASS_DEFINITIONS cd ON p.CLASS_ID = cd.TYPE_ID
+WHERE p.CLASS_ID = 133  -- TxProcessAssembly TYPE_ID
+  AND EXISTS (
+    SELECT 1 FROM $Schema.REL_COMMON r2
+    INNER JOIN $Schema.COLLECTION_ c2 ON r2.OBJECT_ID = c2.OBJECT_ID
+    WHERE c2.OBJECT_ID = r.FORWARD_OBJECT_ID
+      AND c2.OBJECT_ID IN (
+        SELECT c3.OBJECT_ID
+        FROM $Schema.REL_COMMON r3
+        INNER JOIN $Schema.COLLECTION_ c3 ON r3.OBJECT_ID = c3.OBJECT_ID
+        START WITH r3.FORWARD_OBJECT_ID = $ProjectId
+        CONNECT BY NOCYCLE PRIOR r3.OBJECT_ID = r3.FORWARD_OBJECT_ID
+      )
+  );
+
 -- NOTE: RobcadStudyInfo nodes are HIDDEN (internal metadata not shown in Siemens Navigation Tree)
 -- RobcadStudyInfo contains layout configuration (LAYOUT_SR_) and study metadata for loading modes
 -- Each RobcadStudyInfo is paired with a Shortcut but should not appear in the navigation tree
