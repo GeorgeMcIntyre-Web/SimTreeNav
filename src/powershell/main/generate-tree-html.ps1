@@ -115,12 +115,57 @@ foreach ($line in $allLines) {
 }
 
 Write-Host "  Successfully extracted: $iconCount icons" -ForegroundColor Green
+# Add fallback icons for TYPE_IDs that don't exist in database
+Write-Host "  Adding fallback icons for missing TYPE_IDs..." -ForegroundColor Yellow
+
+# TYPE_ID 72 (PmStudyFolder) -> copy from 73 (StudyFolder)
+if ($iconDataMap['73'] -and -not $iconDataMap['72']) {
+    $iconDataMap['72'] = $iconDataMap['73']
+    $extractedTypeIds += 72
+    $iconCount++
+    Write-Host "    Added fallback: TYPE_ID 72 -> 73 (PmStudyFolder -> StudyFolder)" -ForegroundColor Gray
+}
+
+# TYPE_ID 164 (RobcadResourceLibrary) -> copy from 162 (MaterialLibrary)
+if ($iconDataMap['162'] -and -not $iconDataMap['164']) {
+    $iconDataMap['164'] = $iconDataMap['162']
+    $extractedTypeIds += 164
+    $iconCount++
+    Write-Host "    Added fallback: TYPE_ID 164 -> 162 (RobcadResourceLibrary -> MaterialLibrary)" -ForegroundColor Gray
+}
+
+# Study type fallbacks - use Study icon (TYPE_ID 70) as fallback for specialized study types
+$studyFallbacks = @{
+    '177' = 'RobcadStudy'
+    '178' = 'LineSimulationStudy'
+    '183' = 'GanttStudy'
+    '181' = 'SimpleDetailedStudy'
+    '108' = 'LocationalStudy'
+}
+
+foreach ($typeId in $studyFallbacks.Keys) {
+    if ($iconDataMap['70'] -and -not $iconDataMap[$typeId]) {
+        $iconDataMap[$typeId] = $iconDataMap['70']
+        $extractedTypeIds += [int]$typeId
+        $iconCount++
+        Write-Host "    Added fallback: TYPE_ID $typeId -> 70 ($($studyFallbacks[$typeId]) -> Study)" -ForegroundColor Gray
+    }
+}
+
+Write-Host "  Total icons (with fallbacks): $iconCount" -ForegroundColor Green
 
 # Convert icon data map to JSON for passing to HTML generator
 $iconDataJson = ($iconDataMap.GetEnumerator() | ForEach-Object {
     "`"$($_.Key)`": `"$($_.Value)`""
 }) -join ","
 $iconDataJson = "{$iconDataJson}"
+
+# Debug: Check if TYPE_ID 64 is in the map
+if ($iconDataMap['64']) {
+    Write-Host "  DEBUG: TYPE_ID 64 IS in iconDataMap (length: $($iconDataMap['64'].Length) chars)" -ForegroundColor Cyan
+} else {
+    Write-Host "  DEBUG: TYPE_ID 64 NOT in iconDataMap!" -ForegroundColor Red
+}
 
 # Create comma-separated list of extracted TYPE_IDs to pass to JavaScript
 $extractedTypeIdsJson = ($extractedTypeIds | Sort-Object | ForEach-Object { "$_" }) -join ','
@@ -227,6 +272,213 @@ WHERE cd_parent.NICE_NAME = 'StudyFolder'
   )
 ORDER BY r.FORWARD_OBJECT_ID, NVL(c.MODIFICATIONDATE_DA_, TO_DATE('1900-01-01', 'YYYY-MM-DD')), c.OBJECT_ID;
 
+-- Add RobcadStudy nodes (from ROBCADSTUDY_ table)
+-- These nodes are stored in a specialized table, not COLLECTION_
+-- Output: LEVEL|PARENT_ID|OBJECT_ID|CAPTION|NAME|EXTERNAL_ID|SEQ_NUMBER|CLASS_NAME|NICE_NAME|TYPE_ID
+SELECT
+    '999|' ||  -- Use high level number, JavaScript will handle it
+    r.FORWARD_OBJECT_ID || '|' ||
+    r.OBJECT_ID || '|' ||
+    NVL(rs.NAME_S_, 'Unnamed') || '|' ||
+    NVL(rs.NAME_S_, 'Unnamed') || '|' ||
+    NVL(rs.EXTERNALID_S_, '') || '|' ||
+    TO_CHAR(r.SEQ_NUMBER) || '|' ||
+    NVL(cd.NAME, 'class RobcadStudy') || '|' ||
+    NVL(cd.NICE_NAME, 'RobcadStudy') || '|' ||
+    TO_CHAR(cd.TYPE_ID)
+FROM $Schema.REL_COMMON r
+INNER JOIN $Schema.ROBCADSTUDY_ rs ON r.OBJECT_ID = rs.OBJECT_ID
+LEFT JOIN $Schema.CLASS_DEFINITIONS cd ON rs.CLASS_ID = cd.TYPE_ID
+WHERE EXISTS (
+    SELECT 1 FROM $Schema.REL_COMMON r2
+    INNER JOIN $Schema.COLLECTION_ c2 ON r2.OBJECT_ID = c2.OBJECT_ID
+    WHERE c2.OBJECT_ID = r.FORWARD_OBJECT_ID
+      AND c2.OBJECT_ID IN (
+        SELECT c3.OBJECT_ID
+        FROM $Schema.REL_COMMON r3
+        INNER JOIN $Schema.COLLECTION_ c3 ON r3.OBJECT_ID = c3.OBJECT_ID
+        START WITH r3.FORWARD_OBJECT_ID = $ProjectId
+        CONNECT BY NOCYCLE PRIOR r3.OBJECT_ID = r3.FORWARD_OBJECT_ID
+      )
+  );
+
+-- Add LineSimulationStudy nodes (from LINESIMULATIONSTUDY_ table)
+SELECT
+    '999|' ||
+    r.FORWARD_OBJECT_ID || '|' ||
+    r.OBJECT_ID || '|' ||
+    NVL(ls.NAME_S_, 'Unnamed') || '|' ||
+    NVL(ls.NAME_S_, 'Unnamed') || '|' ||
+    NVL(ls.EXTERNALID_S_, '') || '|' ||
+    TO_CHAR(r.SEQ_NUMBER) || '|' ||
+    NVL(cd.NAME, 'class LineSimulationStudy') || '|' ||
+    NVL(cd.NICE_NAME, 'LineSimulationStudy') || '|' ||
+    TO_CHAR(cd.TYPE_ID)
+FROM $Schema.REL_COMMON r
+INNER JOIN $Schema.LINESIMULATIONSTUDY_ ls ON r.OBJECT_ID = ls.OBJECT_ID
+LEFT JOIN $Schema.CLASS_DEFINITIONS cd ON ls.CLASS_ID = cd.TYPE_ID
+WHERE EXISTS (
+    SELECT 1 FROM $Schema.REL_COMMON r2
+    INNER JOIN $Schema.COLLECTION_ c2 ON r2.OBJECT_ID = c2.OBJECT_ID
+    WHERE c2.OBJECT_ID = r.FORWARD_OBJECT_ID
+      AND c2.OBJECT_ID IN (
+        SELECT c3.OBJECT_ID
+        FROM $Schema.REL_COMMON r3
+        INNER JOIN $Schema.COLLECTION_ c3 ON r3.OBJECT_ID = c3.OBJECT_ID
+        START WITH r3.FORWARD_OBJECT_ID = $ProjectId
+        CONNECT BY NOCYCLE PRIOR r3.OBJECT_ID = r3.FORWARD_OBJECT_ID
+      )
+  );
+
+-- Add GanttStudy nodes (from GANTTSTUDY_ table)
+SELECT
+    '999|' ||
+    r.FORWARD_OBJECT_ID || '|' ||
+    r.OBJECT_ID || '|' ||
+    NVL(gs.NAME_S_, 'Unnamed') || '|' ||
+    NVL(gs.NAME_S_, 'Unnamed') || '|' ||
+    NVL(gs.EXTERNALID_S_, '') || '|' ||
+    TO_CHAR(r.SEQ_NUMBER) || '|' ||
+    NVL(cd.NAME, 'class GanttStudy') || '|' ||
+    NVL(cd.NICE_NAME, 'GanttStudy') || '|' ||
+    TO_CHAR(cd.TYPE_ID)
+FROM $Schema.REL_COMMON r
+INNER JOIN $Schema.GANTTSTUDY_ gs ON r.OBJECT_ID = gs.OBJECT_ID
+LEFT JOIN $Schema.CLASS_DEFINITIONS cd ON gs.CLASS_ID = cd.TYPE_ID
+WHERE EXISTS (
+    SELECT 1 FROM $Schema.REL_COMMON r2
+    INNER JOIN $Schema.COLLECTION_ c2 ON r2.OBJECT_ID = c2.OBJECT_ID
+    WHERE c2.OBJECT_ID = r.FORWARD_OBJECT_ID
+      AND c2.OBJECT_ID IN (
+        SELECT c3.OBJECT_ID
+        FROM $Schema.REL_COMMON r3
+        INNER JOIN $Schema.COLLECTION_ c3 ON r3.OBJECT_ID = c3.OBJECT_ID
+        START WITH r3.FORWARD_OBJECT_ID = $ProjectId
+        CONNECT BY NOCYCLE PRIOR r3.OBJECT_ID = r3.FORWARD_OBJECT_ID
+      )
+  );
+
+-- Add SimpleDetailedStudy nodes (from SIMPLEDETAILEDSTUDY_ table)
+SELECT
+    '999|' ||
+    r.FORWARD_OBJECT_ID || '|' ||
+    r.OBJECT_ID || '|' ||
+    NVL(sd.NAME_S_, 'Unnamed') || '|' ||
+    NVL(sd.NAME_S_, 'Unnamed') || '|' ||
+    NVL(sd.EXTERNALID_S_, '') || '|' ||
+    TO_CHAR(r.SEQ_NUMBER) || '|' ||
+    NVL(cd.NAME, 'class SimpleDetailedStudy') || '|' ||
+    NVL(cd.NICE_NAME, 'SimpleDetailedStudy') || '|' ||
+    TO_CHAR(cd.TYPE_ID)
+FROM $Schema.REL_COMMON r
+INNER JOIN $Schema.SIMPLEDETAILEDSTUDY_ sd ON r.OBJECT_ID = sd.OBJECT_ID
+LEFT JOIN $Schema.CLASS_DEFINITIONS cd ON sd.CLASS_ID = cd.TYPE_ID
+WHERE EXISTS (
+    SELECT 1 FROM $Schema.REL_COMMON r2
+    INNER JOIN $Schema.COLLECTION_ c2 ON r2.OBJECT_ID = c2.OBJECT_ID
+    WHERE c2.OBJECT_ID = r.FORWARD_OBJECT_ID
+      AND c2.OBJECT_ID IN (
+        SELECT c3.OBJECT_ID
+        FROM $Schema.REL_COMMON r3
+        INNER JOIN $Schema.COLLECTION_ c3 ON r3.OBJECT_ID = c3.OBJECT_ID
+        START WITH r3.FORWARD_OBJECT_ID = $ProjectId
+        CONNECT BY NOCYCLE PRIOR r3.OBJECT_ID = r3.FORWARD_OBJECT_ID
+      )
+  );
+
+-- Add LocationalStudy nodes (from LOCATIONALSTUDY_ table)
+SELECT
+    '999|' ||
+    r.FORWARD_OBJECT_ID || '|' ||
+    r.OBJECT_ID || '|' ||
+    NVL(lc.NAME_S_, 'Unnamed') || '|' ||
+    NVL(lc.NAME_S_, 'Unnamed') || '|' ||
+    NVL(lc.EXTERNALID_S_, '') || '|' ||
+    TO_CHAR(r.SEQ_NUMBER) || '|' ||
+    NVL(cd.NAME, 'class LocationalStudy') || '|' ||
+    NVL(cd.NICE_NAME, 'LocationalStudy') || '|' ||
+    TO_CHAR(cd.TYPE_ID)
+FROM $Schema.REL_COMMON r
+INNER JOIN $Schema.LOCATIONALSTUDY_ lc ON r.OBJECT_ID = lc.OBJECT_ID
+LEFT JOIN $Schema.CLASS_DEFINITIONS cd ON lc.CLASS_ID = cd.TYPE_ID
+WHERE EXISTS (
+    SELECT 1 FROM $Schema.REL_COMMON r2
+    INNER JOIN $Schema.COLLECTION_ c2 ON r2.OBJECT_ID = c2.OBJECT_ID
+    WHERE c2.OBJECT_ID = r.FORWARD_OBJECT_ID
+      AND c2.OBJECT_ID IN (
+        SELECT c3.OBJECT_ID
+        FROM $Schema.REL_COMMON r3
+        INNER JOIN $Schema.COLLECTION_ c3 ON r3.OBJECT_ID = c3.OBJECT_ID
+        START WITH r3.FORWARD_OBJECT_ID = $ProjectId
+        CONNECT BY NOCYCLE PRIOR r3.OBJECT_ID = r3.FORWARD_OBJECT_ID
+      )
+  );
+
+-- Add children of RobcadStudy nodes from SHORTCUT_ table
+-- Shortcuts are link nodes that reference other objects in the tree
+-- Output: LEVEL|PARENT_ID|OBJECT_ID|CAPTION|NAME|EXTERNAL_ID|SEQ_NUMBER|CLASS_NAME|NICE_NAME|TYPE_ID
+SELECT DISTINCT
+    '999|' ||
+    r.FORWARD_OBJECT_ID || '|' ||
+    r.OBJECT_ID || '|' ||
+    NVL(sc.NAME_S_, 'Unnamed') || '|' ||
+    NVL(sc.NAME_S_, 'Unnamed') || '|' ||
+    NVL(sc.EXTERNALID_S_, '') || '|' ||
+    TO_CHAR(r.SEQ_NUMBER) || '|' ||
+    NVL(cd.NAME, 'class PmShortcut') || '|' ||
+    NVL(cd.NICE_NAME, 'Shortcut') || '|' ||
+    TO_CHAR(cd.TYPE_ID)
+FROM $Schema.REL_COMMON r
+INNER JOIN $Schema.SHORTCUT_ sc ON r.OBJECT_ID = sc.OBJECT_ID
+LEFT JOIN $Schema.CLASS_DEFINITIONS cd ON sc.CLASS_ID = cd.TYPE_ID
+INNER JOIN $Schema.ROBCADSTUDY_ rs_parent ON r.FORWARD_OBJECT_ID = rs_parent.OBJECT_ID
+WHERE EXISTS (
+    SELECT 1
+    FROM $Schema.REL_COMMON r2
+    INNER JOIN $Schema.COLLECTION_ c2 ON r2.FORWARD_OBJECT_ID = c2.OBJECT_ID
+    WHERE r2.OBJECT_ID = rs_parent.OBJECT_ID
+      AND c2.OBJECT_ID IN (
+        SELECT c3.OBJECT_ID
+        FROM $Schema.REL_COMMON r3
+        INNER JOIN $Schema.COLLECTION_ c3 ON r3.OBJECT_ID = c3.OBJECT_ID
+        START WITH r3.FORWARD_OBJECT_ID = $ProjectId
+        CONNECT BY NOCYCLE PRIOR r3.OBJECT_ID = r3.FORWARD_OBJECT_ID
+      )
+  );
+
+-- NOTE: RobcadStudyInfo nodes are HIDDEN (internal metadata not shown in Siemens Navigation Tree)
+-- RobcadStudyInfo contains layout configuration (LAYOUT_SR_) and study metadata for loading modes
+-- Each RobcadStudyInfo is paired with a Shortcut but should not appear in the navigation tree
+-- The query below is commented out to hide these internal metadata nodes
+
+-- SELECT
+--     '999|' ||
+--     r.FORWARD_OBJECT_ID || '|' ||
+--     r.OBJECT_ID || '|' ||
+--     NVL(rsi.NAME_S_, 'Unnamed') || '|' ||
+--     NVL(rsi.NAME_S_, 'Unnamed') || '|' ||
+--     NVL(rsi.EXTERNALID_S_, '') || '|' ||
+--     TO_CHAR(r.SEQ_NUMBER) || '|' ||
+--     NVL(cd.NAME, 'class RobcadStudyInfo') || '|' ||
+--     NVL(cd.NICE_NAME, 'RobcadStudyInfo') || '|' ||
+--     TO_CHAR(cd.TYPE_ID)
+-- FROM $Schema.REL_COMMON r
+-- INNER JOIN $Schema.ROBCADSTUDYINFO_ rsi ON r.OBJECT_ID = rsi.OBJECT_ID
+-- LEFT JOIN $Schema.CLASS_DEFINITIONS cd ON rsi.CLASS_ID = cd.TYPE_ID
+-- WHERE r.FORWARD_OBJECT_ID IN (
+--     SELECT r2.OBJECT_ID
+--     FROM $Schema.REL_COMMON r2
+--     INNER JOIN $Schema.ROBCADSTUDY_ rs ON r2.OBJECT_ID = rs.OBJECT_ID
+--     INNER JOIN $Schema.COLLECTION_ c2 ON r2.FORWARD_OBJECT_ID = c2.OBJECT_ID
+--     WHERE c2.OBJECT_ID IN (
+--         SELECT c3.OBJECT_ID
+--         FROM $Schema.REL_COMMON r3
+--         INNER JOIN $Schema.COLLECTION_ c3 ON r3.OBJECT_ID = c3.OBJECT_ID
+--         START WITH r3.FORWARD_OBJECT_ID = $ProjectId
+--         CONNECT BY NOCYCLE PRIOR r3.OBJECT_ID = r3.FORWARD_OBJECT_ID
+--       )
+--   );
+
 EXIT;
 "@
 
@@ -256,7 +508,7 @@ $cleanFile = "tree-data-${Schema}-${ProjectId}-clean.txt"
 
 # Read the output file as Windows-1252 (the standard Windows code page)
 # SQL*Plus outputs in the console code page, which is typically Windows-1252
-# Windows-1252 properly handles German characters (ö, ä, ü, ß)
+# Windows-1252 properly handles German characters (Ã¶, Ã¤, Ã¼, ÃŸ)
 $windows1252 = [System.Text.Encoding]::GetEncoding(1252)
 $rawContent = [System.IO.File]::ReadAllText("$PWD\$tempOutputFile", $windows1252)
 
@@ -274,10 +526,10 @@ $cleanLines = $lines | Where-Object {
 }
 
 # Convert from Windows-1252 to UTF-8 properly
-Write-Host "  Converting encoding (Windows-1252 → UTF-8)..." -ForegroundColor Gray
+Write-Host "  Converting encoding (Windows-1252 â†’ UTF-8)..." -ForegroundColor Gray
 $allText = $cleanLines -join "`r`n"
 
-# Convert: Windows-1252 bytes → UTF-8 bytes → UTF-8 string
+# Convert: Windows-1252 bytes â†’ UTF-8 bytes â†’ UTF-8 string
 $sourceBytes = $windows1252.GetBytes($allText)
 $utf8Bytes = [System.Text.Encoding]::Convert($windows1252, [System.Text.Encoding]::UTF8, $sourceBytes)
 $utf8Text = [System.Text.Encoding]::UTF8.GetString($utf8Bytes)

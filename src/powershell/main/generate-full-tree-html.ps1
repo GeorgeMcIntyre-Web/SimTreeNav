@@ -253,6 +253,14 @@ $htmlTemplate = @'
         // Icon data map: TYPE_ID -> Base64 data URI (embedded in memory, no file I/O)
         const iconDataMap = ICON_DATA_JSON_PLACEHOLDER;
 
+        // Debug: Check if TYPE_ID 64 is in the map
+        console.log('[ICON MAP DEBUG] iconDataMap keys:', Object.keys(iconDataMap).sort((a, b) => parseInt(a) - parseInt(b)).join(', '));
+        if (iconDataMap['64']) {
+            console.log('[ICON MAP DEBUG] TYPE_ID 64 IS in iconDataMap (length:', iconDataMap['64'].length, 'chars)');
+        } else {
+            console.error('[ICON MAP DEBUG] TYPE_ID 64 NOT in iconDataMap!');
+        }
+
         // Parse the tree data from the file
         const rawData = `TREE_DATA_PLACEHOLDER`;
         
@@ -456,7 +464,8 @@ $htmlTemplate = @'
             const nodes = {};
             const rootId = PROJECT_ID_PLACEHOLDER;
             const rootName = 'PROJECT_NAME_PLACEHOLDER';
-            const root = { id: rootId, name: rootName, level: 0, parent: null, children: [], externalId: '', seqNumber: 0, className: 'class PmProject', iconFile: 'LogProject.bmp' };
+            // Create root node with defaults (will be updated from data if TYPE_ID is available)
+            const root = { id: rootId, name: rootName, level: 0, parent: null, children: [], externalId: '', seqNumber: 0, className: 'class PmProject', niceName: 'Project', typeId: 0, iconFile: 'LogProject.bmp' };
             nodes[rootId] = root;
             
             // First pass: create all nodes
@@ -515,8 +524,19 @@ $htmlTemplate = @'
                         iconFile: iconFile  // Icon filename (from database or fallback)
                     };
                 } else {
-                    // Node already exists - this shouldn't happen for first-level nodes
-                    if (level <= 1) {
+                    // Node already exists (this happens for root node which is pre-created)
+                    // Update root node properties from data if this is level 0
+                    if (level === 0 && objectId === rootId) {
+                        nodes[objectId].typeId = typeId;
+                        nodes[objectId].niceName = niceName;
+                        nodes[objectId].className = className;
+                        nodes[objectId].externalId = externalId;
+                        // Update iconFile if we have a TYPE_ID
+                        if (typeId > 0) {
+                            nodes[objectId].iconFile = `icon_${typeId}.bmp`;
+                            console.log(`[ICON DEBUG] Root node updated: TYPE_ID ${typeId} | Icon: icon_${typeId}.bmp`);
+                        }
+                    } else if (level <= 1) {
                         console.warn(`[ICON WARN] Node "${caption}" (ID: ${objectId}) already exists! Current iconFile: ${nodes[objectId].iconFile}`);
                     }
                 }
@@ -693,10 +713,20 @@ $htmlTemplate = @'
                 }
                 // If data URI fails (shouldn't happen), fallback to mapped icon
                 icon.onerror = function() {
+                    // Prevent infinite loop
+                    if (this.src.startsWith('data:image/svg')) {
+                        return;
+                    }
                     console.warn(`[ICON WARN] Database icon data URI failed for TYPE_ID ${node.typeId}, falling back to mapped icon for node: ${node.name}`);
                     const fallbackIcon = getIconForClass(node.className, node.name, node.niceName);
                     cacheBuster = '?v=' + Date.now() + '&r=' + Math.random();
                     iconPath = `icons/${fallbackIcon}${cacheBuster}`;
+                    // Add nested error handler for when fallback file also fails
+                    this.onerror = function() {
+                        if (this.src.startsWith('data:image/svg')) return;
+                        console.warn(`[ICON WARN] Fallback icon file not found: ${fallbackIcon} - showing missing icon indicator`);
+                        this.src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%23ffcccc'/%3E%3Ctext x='8' y='12' font-size='12' text-anchor='middle' fill='%23cc0000'%3E%3F%3C/text%3E%3C/svg%3E";
+                    };
                     this.src = iconPath;
                     iconFileName = fallbackIcon;
                 };
@@ -722,9 +752,13 @@ $htmlTemplate = @'
             // Only add onerror if not already set (for database icons with fallback)
             if (!icon.onerror || icon.onerror.toString().indexOf('falling back to mapped icon') === -1) {
                 icon.onerror = function() {
-                    // Fallback to default icon if file not found (also with cache-busting)
-                    console.error(`[ICON ERROR] Icon not found: ${iconPath}, falling back to Device.bmp for node: ${node.name} (${node.className})`);
-                    this.src = `icons/Device.bmp${cacheBuster}`;
+                    // Prevent infinite loop - check if already showing missing icon indicator
+                    if (this.src.startsWith('data:image/svg')) {
+                        return;
+                    }
+                    console.warn(`[ICON WARN] Icon not found: ${iconPath} for node: ${node.name} (${node.className}) - showing missing icon indicator`);
+                    // Show a "missing icon" indicator (red question mark in light red box)
+                    this.src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%23ffcccc'/%3E%3Ctext x='8' y='12' font-size='12' text-anchor='middle' fill='%23cc0000'%3E%3F%3C/text%3E%3C/svg%3E";
                 };
             }
             icon.onload = function() {
