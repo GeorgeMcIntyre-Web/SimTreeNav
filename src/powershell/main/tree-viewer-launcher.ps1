@@ -504,10 +504,10 @@ function Show-ConfigurationMenu {
     Write-Host "Options:" -ForegroundColor Yellow
     Write-Host "  1. Select Server" -ForegroundColor White
     Write-Host "  2. Select Schema" -ForegroundColor White
-    Write-Host "  3. Load Tree" -ForegroundColor Green
+    Write-Host "  3. Load Tree (includes checkout status)" -ForegroundColor Green
     Write-Host "  4. Exit" -ForegroundColor Red
     Write-Host ""
-    
+
     $choice = Read-Host "Select option (1-4)"
     return $choice
 }
@@ -904,6 +904,7 @@ if (-not $selectedServer -or -not $selectedSchema) {
                 }
             }
             "3" {
+                # Load Tree (Standard View)
                 if ($selectedServer -and $selectedSchema) {
                     $project = Select-Project -Server $selectedServer -Schema $selectedSchema
                     if ($project) {
@@ -918,28 +919,6 @@ if (-not $selectedServer -or -not $selectedSchema) {
                 }
             }
             "4" {
-                # Load last tree
-                $lastConfig = Load-Configuration
-                if ($lastConfig -and $lastConfig.Server -and $lastConfig.Schema -and $lastConfig.Project) {
-                    Write-Host "`nLoading last tree..." -ForegroundColor Yellow
-                    Write-Host "  Server: $($lastConfig.Server.Name)" -ForegroundColor Cyan
-                    Write-Host "  Instance: $($lastConfig.Server.Instance)" -ForegroundColor Cyan
-                    Write-Host "  Schema: $($lastConfig.Schema)" -ForegroundColor Cyan
-                    Write-Host "  Project: $($lastConfig.Project.Caption) (ID: $($lastConfig.Project.ObjectId))" -ForegroundColor Cyan
-                    
-                    $selectedServer = $lastConfig.Server
-                    $selectedSchema = $lastConfig.Schema
-                    $selectedProject = [PSCustomObject]$lastConfig.Project
-                    
-                    Generate-TreeHTML -Server $selectedServer -Schema $selectedSchema -Project $selectedProject
-                    Read-Host "`nPress Enter to continue"
-                } else {
-                    Write-Host "`nNo previous configuration found!" -ForegroundColor Red
-                    Write-Host "Please select server, schema, and project first." -ForegroundColor Yellow
-                    Read-Host "Press Enter to continue"
-                }
-            }
-            "5" {
                 Write-Host "`nExiting..." -ForegroundColor Yellow
                 exit
             }

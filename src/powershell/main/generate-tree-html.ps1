@@ -578,10 +578,50 @@ $utf8WithBom = New-Object System.Text.UTF8Encoding $true
 # Cleanup
 if (Test-Path $tempOutputFile) { Remove-Item $tempOutputFile -Force }
 
+# Extract user activity for checkout status
+Write-Host "Extracting user activity..." -ForegroundColor Yellow
+$userActivitySql = @"
+SET PAGESIZE 0
+SET LINESIZE 32767
+SET FEEDBACK OFF
+SET HEADING OFF
+
+SELECT
+    p.OBJECT_ID || '|' || NVL(u.CAPTION_S_, '') || '|' || '' || '|CHECKEDOUT' AS USER_DATA
+FROM $Schema.PROXY p
+LEFT JOIN $Schema.USER_ u ON u.OBJECT_ID = p.OWNER_ID
+WHERE p.PROJECT_ID = $ProjectId
+  AND NVL(p.WORKING_VERSION_ID, 0) > 0
+  AND NVL(p.OWNER_ID, 0) > 0
+ORDER BY p.OBJECT_ID;
+
+EXIT;
+"@
+
+$userActivityFile = Join-Path $env:TEMP "get-user-activity-${Schema}-${ProjectId}.sql"
+[System.IO.File]::WriteAllText($userActivityFile, $userActivitySql, $utf8NoBom)
+
+$userActivityResult = & sqlplus -S "sys/change_on_install@$TNSName AS SYSDBA" "@$userActivityFile" 2>&1
+
+# Parse into JavaScript object
+$userActivityJs = "const userActivity = {"
+foreach ($line in $userActivityResult -split "`n") {
+    if ($line -match '^(\d+)\|([^|]*)\|([^|]*)\|(.*)$') {
+        $objId = $matches[1]
+        $usr = $matches[2] -replace "'", "\'"
+        $tim = $matches[3]
+        $onl = $matches[4]
+        $userActivityJs += "`n  ${objId}: {user: '$usr', time: '$tim', online: '$onl'},"
+    }
+}
+$userActivityJs += "`n};"
+
+Remove-Item $userActivityFile -ErrorAction SilentlyContinue
+
 # Generate HTML with in-memory icon data
 Write-Host "Generating HTML with database icons..." -ForegroundColor Yellow
 $fullTreeScriptPath = Join-Path $PSScriptRoot "generate-full-tree-html.ps1"
-& $fullTreeScriptPath -DataFile $cleanFile -ProjectName $ProjectName -ProjectId $ProjectId -Schema $Schema -OutputFile $OutputFile -ExtractedTypeIds $extractedTypeIdsJson -IconDataJson $iconDataJson
+& $fullTreeScriptPath -DataFile $cleanFile -ProjectName $ProjectName -ProjectId $ProjectId -Schema $Schema -OutputFile $OutputFile -ExtractedTypeIds $extractedTypeIdsJson -IconDataJson $iconDataJson -UserActivityJs $userActivityJs
 
 # Cleanup
 Remove-Item $sqlFile -ErrorAction SilentlyContinue

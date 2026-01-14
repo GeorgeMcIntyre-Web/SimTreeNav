@@ -6,7 +6,8 @@ param(
     [string]$Schema = "",
     [string]$OutputFile = "navigation-tree-full.html",
     [string]$ExtractedTypeIds = "",  # Comma-separated list of TYPE_IDs that have extracted icons
-    [string]$IconDataJson = "{}"     # JSON object mapping TYPE_ID to Base64 data URI
+    [string]$IconDataJson = "{}",    # JSON object mapping TYPE_ID to Base64 data URI
+    [string]$UserActivityJs = ""      # JavaScript object with user activity data
 )
 
 # Read data file - it should already be UTF-8 with BOM
@@ -780,7 +781,24 @@ $htmlTemplate = @'
             content.appendChild(icon);
             content.appendChild(label);
             content.appendChild(idSpan);
-            
+
+            // Add checkout status (green tick + username) - only show for CHECKEDOUT nodes
+            if (typeof userActivity !== 'undefined' && userActivity[node.id] && userActivity[node.id].online === 'CHECKEDOUT') {
+                const activity = userActivity[node.id];
+                const checkoutTick = document.createElement('span');
+                checkoutTick.style.cssText = 'color: #28a745; font-size: 14px; font-weight: bold; margin-left: 6px;';
+                checkoutTick.innerHTML = '&#x2713;';  // Unicode checkmark
+                checkoutTick.title = 'Checked out';
+
+                const userInfo = document.createElement('span');
+                userInfo.style.cssText = 'color: #007bff; font-size: 11px; font-weight: 500; margin-left: 4px;';
+                userInfo.textContent = activity.user;
+                userInfo.title = 'Checked out by ' + activity.user + (activity.time ? ' on ' + activity.time : '');
+
+                content.appendChild(checkoutTick);
+                content.appendChild(userInfo);
+            }
+
             // Clicking on label, icon, or ID should toggle expansion if node has children
             if (node.children.length > 0) {
                 const handleClick = (e) => {
@@ -904,6 +922,13 @@ $htmlTemplate = @'
 $extractedIdsJs = if ($ExtractedTypeIds) { $ExtractedTypeIds } else { "" }
 $html = $htmlTemplate.Replace('EXTRACTED_TYPE_IDS_PLACEHOLDER', $extractedIdsJs)
 $html = $html.Replace('ICON_DATA_JSON_PLACEHOLDER', $IconDataJson)
+
+# Inject user activity data before tree data
+if ($UserActivityJs) {
+    $dataWithActivity = "$UserActivityJs`n`nconst rawData = ``TREE_DATA_PLACEHOLDER``;"
+    $html = $html.Replace('const rawData = `TREE_DATA_PLACEHOLDER`;', $dataWithActivity)
+}
+
 $html = $html.Replace('TREE_DATA_PLACEHOLDER', $escapedData)
 $html = $html.Replace('PROJECT_ID_PLACEHOLDER', $ProjectId)
 $html = $html.Replace('PROJECT_NAME_PLACEHOLDER', $ProjectName)
