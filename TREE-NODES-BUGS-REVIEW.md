@@ -8,6 +8,15 @@ This document reviews the comprehensive work done to fix two major categories of
 
 **Impact**: Fixed ~2,400 missing nodes and corrected icons for Study-related node types, increasing tree completeness from ~20,854 to ~23,254 nodes (11% increase).
 
+**Note**: Main branch has since added:
+- ToolPrototype nodes (33)
+- Resource nodes (13,516) 
+- OPERATION_ challenge analysis (OPERATION-NODES-STATUS.md)
+
+Total nodes in main: 27,776 (ahead of this review branch)
+
+The patterns and documentation in this review remain valuable for understanding the systematic approach to finding and fixing missing specialized nodes.
+
 ---
 
 ## Part 1: Icon Fixes
