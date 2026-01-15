@@ -205,16 +205,22 @@ function Find-DriftPairs {
     
     # Index nodes
     foreach ($node in $Nodes) {
+        if (-not $node.nodeId) { continue }
+        
         $nodeById[$node.nodeId] = $node
         
         $type = $node.nodeType
-        if (-not $nodesByType.ContainsKey($type)) {
-            $nodesByType[$type] = @()
+        if ($type) {
+            if (-not $nodesByType.ContainsKey($type)) {
+                $nodesByType[$type] = @()
+            }
+            $nodesByType[$type] += $node
         }
-        $nodesByType[$type] += $node
         
-        # Index by path for matching
-        $nodesByPath[$node.path] = $node
+        # Index by path for matching (only if path exists)
+        if ($node.path) {
+            $nodesByPath[$node.path] = $node
+        }
     }
     
     # Find pairs based on links

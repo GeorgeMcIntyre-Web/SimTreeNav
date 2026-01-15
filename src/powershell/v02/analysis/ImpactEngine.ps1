@@ -64,8 +64,10 @@ function Build-DependencyGraph {
         - Custom link relationships
     #>
     param(
-        [Parameter(Mandatory = $true)]
-        [array]$Nodes
+        [Parameter(Mandatory = $false)]
+        [AllowNull()]
+        [AllowEmptyCollection()]
+        [array]$Nodes = @()
     )
     
     $graph = @{
@@ -93,6 +95,9 @@ function Build-DependencyGraph {
         # Reverse links: nodeId -> [nodesLinkingToMe]
         reverseLinks = @{}
     }
+    
+    # Handle empty input
+    if (-not $Nodes -or $Nodes.Count -eq 0) { return $graph }
     
     # Build node lookup and relationships
     foreach ($node in $Nodes) {
