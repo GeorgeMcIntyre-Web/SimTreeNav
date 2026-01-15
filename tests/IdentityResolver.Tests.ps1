@@ -469,4 +469,257 @@ Describe 'Configuration' {
             Set-IdentityResolverConfig -Weights @{ NameOnly = $originalWeight }
         }
     }
+    
+    Context 'Validate-IdentityConfig' {
+        It 'Accepts valid threshold (0..1)' {
+            $result = Validate-IdentityConfig -Threshold 0.85
+            $result.normalizedThreshold | Should -Be 0.85
+        }
+        
+        It 'Clamps threshold below 0' {
+            $result = Validate-IdentityConfig -Threshold -0.5
+            $result.normalizedThreshold | Should -Be 0
+            $result.warnings.Count | Should -BeGreaterThan 0
+        }
+        
+        It 'Clamps threshold above 1' {
+            $result = Validate-IdentityConfig -Threshold 1.5
+            $result.normalizedThreshold | Should -Be 1
+            $result.warnings.Count | Should -BeGreaterThan 0
+        }
+        
+        It 'Normalizes weights that sum above 1.0' {
+            $heavyWeights = @{
+                ExternalId      = 1.0
+                NameAndPath     = 1.0
+                ContentHash     = 1.0
+                NameOnly        = 0.5
+                PrototypeLink   = 0.5
+                TransformHash   = 0.5
+                NodeTypeMatch   = 0.5
+            }
+            
+            $result = Validate-IdentityConfig -Weights $heavyWeights
+            $result.weightSum | Should -BeLessOrEqual 1.0
+            $result.warnings.Count | Should -BeGreaterThan 0
+        }
+        
+        It 'Clamps negative weights to 0' {
+            $negativeWeights = @{
+                ExternalId      = -0.5
+                NameAndPath     = 0.5
+                ContentHash     = 0.3
+                NameOnly        = 0.2
+                PrototypeLink   = 0.0
+                TransformHash   = 0.0
+                NodeTypeMatch   = 0.0
+            }
+            
+            $result = Validate-IdentityConfig -Weights $negativeWeights
+            $result.normalizedWeights.ExternalId | Should -BeGreaterOrEqual 0
+        }
+    }
+}
+
+Describe 'Identity Correctness' {
+    
+    Context 'True Positive Rekey Detection' {
+        It 'Matches rekeyed node with high confidence when externalId matches' {
+            $baseline = @(
+                New-TestNodeFull -NodeId '100' -Name 'Robot1' -NodeType 'Resource' `
+                    -ExternalId 'PP-12345678-abcd-1234-5678-abcdef123456' `
+                    -Path '/Station_A/Robot1'
+            )
+            $current = @(
+                New-TestNodeFull -NodeId '999' -Name 'Robot1' -NodeType 'Resource' `
+                    -ExternalId 'PP-12345678-abcd-1234-5678-abcdef123456' `
+                    -Path '/Station_A/Robot1'
+            )
+            
+            $baselineSig = Get-IdentitySignature -Node $baseline[0]
+            $currentSig = Get-IdentitySignature -Node $current[0]
+            
+            $result = Compare-IdentitySignatures -Signature1 $baselineSig -Signature2 $currentSig
+            
+            $result.confidence | Should -BeGreaterThan 0.85
+            $result.reason | Should -Match 'externalId'
+        }
+        
+        It 'Returns signal score breakdown in result' {
+            $baseline = @(
+                New-TestNodeFull -NodeId '100' -Name 'TestNode' -NodeType 'Resource' `
+                    -ExternalId 'PP-test-1234-5678-abcdef123456789' `
+                    -Path '/Root/TestNode'
+            )
+            $current = @(
+                New-TestNodeFull -NodeId '200' -Name 'TestNode' -NodeType 'Resource' `
+                    -ExternalId 'PP-test-1234-5678-abcdef123456789' `
+                    -Path '/Root/TestNode'
+            )
+            
+            $baselineSig = Get-IdentitySignature -Node $baseline[0]
+            $currentSig = Get-IdentitySignature -Node $current[0]
+            
+            $result = Compare-IdentitySignatures -Signature1 $baselineSig -Signature2 $currentSig
+            
+            $result.signalScores | Should -Not -BeNullOrEmpty
+            $result.signalScores.ExternalId.matched | Should -BeTrue
+            $result.signalScores.NodeTypeMatch.matched | Should -BeTrue
+            $result.rawScore | Should -Not -BeNullOrEmpty
+        }
+    }
+    
+    Context 'Ambiguous Case Prevention' {
+        It 'Does NOT match ambiguous nodes below threshold' {
+            # Two nodes with same name but different parents and no externalId
+            $baseline = @(
+                New-TestNodeFull -NodeId '100' -Name 'Robot' -NodeType 'Resource' `
+                    -Path '/Station_A/Robot' -ExternalId ''
+            )
+            $current = @(
+                New-TestNodeFull -NodeId '200' -Name 'Robot' -NodeType 'Resource' `
+                    -Path '/Station_B/Robot' -ExternalId ''  # Different subtree!
+            )
+            
+            $baselineSig = Get-IdentitySignature -Node $baseline[0]
+            $currentSig = Get-IdentitySignature -Node $current[0]
+            
+            $result = Compare-IdentitySignatures -Signature1 $baselineSig -Signature2 $currentSig
+            
+            # Should NOT match with high confidence - different subtrees
+            $result.confidence | Should -BeLessThan 0.85
+        }
+        
+        It 'Does NOT match when only name matches but subtree differs' {
+            $baseline = @(
+                New-TestNodeFull -NodeId '100' -Name 'WeldGun_001' -NodeType 'ToolInstance' `
+                    -Path '/Station_A/Robot1/WeldGun_001' -ExternalId ''
+            )
+            $current = @(
+                New-TestNodeFull -NodeId '200' -Name 'WeldGun_001' -NodeType 'ToolInstance' `
+                    -Path '/Station_Z/Robot99/WeldGun_001' -ExternalId ''  # Completely different subtree
+            )
+            
+            $baselineSig = Get-IdentitySignature -Node $baseline[0]
+            $currentSig = Get-IdentitySignature -Node $current[0]
+            
+            $result = Compare-IdentitySignatures -Signature1 $baselineSig -Signature2 $currentSig
+            
+            # Same name is not enough - should be below threshold
+            $result.confidence | Should -BeLessThan 0.85
+            $result.signalScores.NameAndPath.matched | Should -BeFalse
+        }
+    }
+    
+    Context 'False Positive Prevention' {
+        It 'Prevents false positive: same name, different node types' {
+            $baseline = @(
+                New-TestNodeFull -NodeId '100' -Name 'Station_A' -NodeType 'Station' -Path '/Station_A'
+            )
+            $current = @(
+                New-TestNodeFull -NodeId '200' -Name 'Station_A' -NodeType 'Operation' -Path '/Ops/Station_A'  # Wrong type!
+            )
+            
+            $baselineSig = Get-IdentitySignature -Node $baseline[0]
+            $currentSig = Get-IdentitySignature -Node $current[0]
+            
+            $result = Compare-IdentitySignatures -Signature1 $baselineSig -Signature2 $currentSig
+            
+            # Different node types - should penalize
+            $result.signalScores.NodeTypeMatch.matched | Should -BeFalse
+        }
+        
+        It 'Prevents false positive: generic names across unrelated subtrees' {
+            # "Part_001" is a common name - should not match across different stations
+            $baseline = @(
+                New-TestNodeFull -NodeId '100' -Name 'Part_001' -NodeType 'PanelEntity' `
+                    -Path '/Station_A/Parts/Part_001' -ExternalId ''
+            )
+            $current = @(
+                New-TestNodeFull -NodeId '200' -Name 'Part_001' -NodeType 'PanelEntity' `
+                    -Path '/Station_B/Parts/Part_001' -ExternalId ''
+            )
+            
+            $result = Find-MatchingNode -SourceNode $baseline[0] -TargetNodes $current -ConfidenceThreshold 0.85
+            
+            # Should NOT find a match above threshold
+            if ($result.matchConfidence) {
+                $result.matchConfidence | Should -BeLessThan 0.85
+            }
+        }
+    }
+}
+
+Describe 'Debug Output' {
+    
+    BeforeEach {
+        Clear-IdentityDebugLog
+    }
+    
+    AfterEach {
+        Disable-IdentityDebug
+        Clear-IdentityDebugLog
+    }
+    
+    Context 'Debug Logging' {
+        It 'Does not log when debug is disabled' {
+            Disable-IdentityDebug
+            
+            $sig1 = [PSCustomObject]@{
+                nodeId = '100'; name = 'Test'; nodeType = 'Resource'
+                parentPath = '/Root'; externalId = $null
+                contentHash = 'abc123'; transformHash = $null; prototypeId = $null
+            }
+            $sig2 = [PSCustomObject]@{
+                nodeId = '200'; name = 'Test'; nodeType = 'Resource'
+                parentPath = '/Root'; externalId = $null
+                contentHash = 'abc123'; transformHash = $null; prototypeId = $null
+            }
+            
+            Compare-IdentitySignatures -Signature1 $sig1 -Signature2 $sig2
+            
+            $log = Get-IdentityDebugLog
+            $log.Count | Should -Be 0
+        }
+        
+        It 'Logs comparisons when debug is enabled' {
+            Enable-IdentityDebug
+            
+            $sig1 = [PSCustomObject]@{
+                nodeId = '100'; name = 'Test'; nodeType = 'Resource'
+                parentPath = '/Root'; externalId = $null
+                contentHash = 'abc123'; transformHash = $null; prototypeId = $null
+            }
+            $sig2 = [PSCustomObject]@{
+                nodeId = '200'; name = 'Test'; nodeType = 'Resource'
+                parentPath = '/Root'; externalId = $null
+                contentHash = 'abc123'; transformHash = $null; prototypeId = $null
+            }
+            
+            Compare-IdentitySignatures -Signature1 $sig1 -Signature2 $sig2
+            
+            $log = Get-IdentityDebugLog
+            $log.Count | Should -Be 1
+            $log[0].signalScores | Should -Not -BeNullOrEmpty
+        }
+        
+        It 'Debug log includes signal score details' {
+            Enable-IdentityDebug
+            
+            $baseline = New-TestNodeFull -NodeId '100' -Name 'Robot1' -NodeType 'Resource' `
+                -ExternalId 'PP-debug-test-1234-5678-abcdef123456' -Path '/Root/Robot1'
+            $current = New-TestNodeFull -NodeId '200' -Name 'Robot1' -NodeType 'Resource' `
+                -ExternalId 'PP-debug-test-1234-5678-abcdef123456' -Path '/Root/Robot1'
+            
+            $sig1 = Get-IdentitySignature -Node $baseline
+            $sig2 = Get-IdentitySignature -Node $current
+            
+            Compare-IdentitySignatures -Signature1 $sig1 -Signature2 $sig2
+            
+            $log = Get-IdentityDebugLog
+            $log[0].signalScores.ExternalId | Should -Not -BeNullOrEmpty
+            $log[0].signalScores.ExternalId.matched | Should -BeTrue
+            $log[0].signalScores.ExternalId.weight | Should -BeGreaterThan 0
+        }
+    }
 }

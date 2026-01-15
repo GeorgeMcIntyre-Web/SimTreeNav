@@ -40,6 +40,149 @@ $Script:IdentityConfig = @{
         TransformHash   = 0.3    # Transform similarity (for operations)
         NodeTypeMatch   = 0.1    # Same node type (bonus)
     }
+    DebugEnabled = $false
+}
+
+# Identity debug log for explainability
+$Script:IdentityDebugLog = @()
+
+function Validate-IdentityConfig {
+    <#
+    .SYNOPSIS
+        Validates and normalizes identity resolver configuration.
+    
+    .DESCRIPTION
+        - Ensures threshold is in valid range (0..1)
+        - Warns and normalizes if weights sum > 1.0
+        - Returns validation result
+    #>
+    param(
+        [double]$Threshold = $Script:IdentityConfig.ConfidenceThreshold,
+        [hashtable]$Weights = $null
+    )
+    
+    # Clone weights to avoid modifying during enumeration
+    if (-not $Weights) {
+        $Weights = @{}
+        foreach ($key in $Script:IdentityConfig.Weights.Keys) {
+            $Weights[$key] = $Script:IdentityConfig.Weights[$key]
+        }
+    }
+    else {
+        $clonedWeights = @{}
+        foreach ($key in $Weights.Keys) {
+            $clonedWeights[$key] = $Weights[$key]
+        }
+        $Weights = $clonedWeights
+    }
+    
+    $warnings = @()
+    
+    # Validate threshold
+    if ($Threshold -lt 0 -or $Threshold -gt 1) {
+        $warnings += "ConfidenceThreshold ($Threshold) must be between 0 and 1. Clamping to valid range."
+        $Threshold = [Math]::Max(0, [Math]::Min(1, $Threshold))
+    }
+    
+    # Validate individual weights
+    $keysToFix = @()
+    foreach ($key in $Weights.Keys) {
+        if ($Weights[$key] -lt 0) {
+            $warnings += "Weight '$key' ($($Weights[$key])) is negative. Setting to 0."
+            $keysToFix += @{ key = $key; value = 0 }
+        }
+        elseif ($Weights[$key] -gt 1) {
+            $warnings += "Weight '$key' ($($Weights[$key])) exceeds 1.0. Clamping to 1.0."
+            $keysToFix += @{ key = $key; value = 1.0 }
+        }
+    }
+    
+    # Apply fixes
+    foreach ($fix in $keysToFix) {
+        $Weights[$fix.key] = $fix.value
+    }
+    
+    # Check sum of weights
+    $weightSum = ($Weights.Values | Measure-Object -Sum).Sum
+    if ($weightSum -gt 1.0) {
+        $warnings += "Sum of weights ($([Math]::Round($weightSum, 3))) exceeds 1.0. Normalizing weights."
+        $normalizeFactor = 1.0 / $weightSum
+        $normalizedWeights = @{}
+        foreach ($key in $Weights.Keys) {
+            $normalizedWeights[$key] = [Math]::Round($Weights[$key] * $normalizeFactor, 4)
+        }
+        $Weights = $normalizedWeights
+    }
+    
+    return [PSCustomObject]@{
+        isValid              = $warnings.Count -eq 0
+        warnings             = $warnings
+        normalizedThreshold  = $Threshold
+        normalizedWeights    = $Weights
+        weightSum            = [Math]::Round(($Weights.Values | Measure-Object -Sum).Sum, 4)
+    }
+}
+
+function Enable-IdentityDebug {
+    <#
+    .SYNOPSIS
+        Enables identity debug logging.
+    #>
+    $Script:IdentityConfig.DebugEnabled = $true
+    $Script:IdentityDebugLog = @()
+}
+
+function Disable-IdentityDebug {
+    <#
+    .SYNOPSIS
+        Disables identity debug logging.
+    #>
+    $Script:IdentityConfig.DebugEnabled = $false
+}
+
+function Get-IdentityDebugLog {
+    <#
+    .SYNOPSIS
+        Gets the accumulated identity debug log.
+    #>
+    return $Script:IdentityDebugLog
+}
+
+function Clear-IdentityDebugLog {
+    <#
+    .SYNOPSIS
+        Clears the identity debug log.
+    #>
+    $Script:IdentityDebugLog = @()
+}
+
+function Export-IdentityDebug {
+    <#
+    .SYNOPSIS
+        Exports identity debug log to JSON file.
+    #>
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$OutputPath
+    )
+    
+    $parentDir = Split-Path $OutputPath -Parent
+    if ($parentDir -and -not (Test-Path $parentDir)) {
+        New-Item -ItemType Directory -Path $parentDir -Force | Out-Null
+    }
+    
+    $debugData = [PSCustomObject]@{
+        timestamp    = (Get-Date).ToUniversalTime().ToString('o')
+        config       = $Script:IdentityConfig
+        matchCount   = $Script:IdentityDebugLog.Count
+        matches      = $Script:IdentityDebugLog
+    }
+    
+    $json = $debugData | ConvertTo-Json -Depth 10
+    $utf8NoBom = New-Object System.Text.UTF8Encoding $false
+    [System.IO.File]::WriteAllText($OutputPath, $json, $utf8NoBom)
+    
+    return $OutputPath
 }
 
 function Get-LogicalId {
@@ -126,7 +269,8 @@ function Compare-IdentitySignatures {
         Compares two identity signatures and returns match confidence.
     
     .DESCRIPTION
-        Returns confidence (0..1) and reason for the match assessment.
+        Returns confidence (0..1), reason for the match, and detailed
+        signal scores for each identity component.
     #>
     param(
         [Parameter(Mandatory = $true)]
@@ -140,73 +284,155 @@ function Compare-IdentitySignatures {
     
     $confidence = 0.0
     $reasons = @()
+    $signalScores = @{}  # Detailed breakdown
     
-    # Exact nodeId match (same node, not rekeyed)
-    if ($Signature1.nodeId -eq $Signature2.nodeId) {
-        return [PSCustomObject]@{
-            confidence = 1.0
-            reason     = 'exact_nodeId'
-            details    = @('nodeId match')
+    # Initialize all signal scores to 0
+    foreach ($key in $Weights.Keys) {
+        $signalScores[$key] = [PSCustomObject]@{
+            weight    = $Weights[$key]
+            matched   = $false
+            score     = 0.0
+            value1    = $null
+            value2    = $null
         }
     }
     
+    # Exact nodeId match (same node, not rekeyed)
+    if ($Signature1.nodeId -eq $Signature2.nodeId) {
+        $result = [PSCustomObject]@{
+            confidence    = 1.0
+            reason        = 'exact_nodeId'
+            details       = @('nodeId match')
+            signalScores  = @{
+                ExactNodeId = [PSCustomObject]@{
+                    weight = 1.0; matched = $true; score = 1.0
+                    value1 = $Signature1.nodeId; value2 = $Signature2.nodeId
+                }
+            }
+        }
+        
+        # Log if debug enabled
+        if ($Script:IdentityConfig.DebugEnabled) {
+            $Script:IdentityDebugLog += [PSCustomObject]@{
+                type          = 'exact_match'
+                nodeId1       = $Signature1.nodeId
+                nodeId2       = $Signature2.nodeId
+                confidence    = 1.0
+                reason        = 'exact_nodeId'
+                signalScores  = $result.signalScores
+            }
+        }
+        
+        return $result
+    }
+    
     # ExternalId match (strongest signal)
+    $signalScores.ExternalId.value1 = $Signature1.externalId
+    $signalScores.ExternalId.value2 = $Signature2.externalId
     if ($Signature1.externalId -and $Signature2.externalId) {
         if ($Signature1.externalId -eq $Signature2.externalId) {
             $confidence += $Weights.ExternalId
             $reasons += 'externalId'
+            $signalScores.ExternalId.matched = $true
+            $signalScores.ExternalId.score = $Weights.ExternalId
         }
     }
     
     # Name + parent path match
+    $signalScores.NameAndPath.value1 = "$($Signature1.name)@$($Signature1.parentPath)"
+    $signalScores.NameAndPath.value2 = "$($Signature2.name)@$($Signature2.parentPath)"
+    $signalScores.NameOnly.value1 = $Signature1.name
+    $signalScores.NameOnly.value2 = $Signature2.name
+    
     if ($Signature1.name -eq $Signature2.name) {
         if ($Signature1.parentPath -and $Signature2.parentPath -and 
             $Signature1.parentPath -eq $Signature2.parentPath) {
             $confidence += $Weights.NameAndPath
             $reasons += 'name+parentPath'
+            $signalScores.NameAndPath.matched = $true
+            $signalScores.NameAndPath.score = $Weights.NameAndPath
         }
         else {
             $confidence += $Weights.NameOnly
             $reasons += 'nameOnly'
+            $signalScores.NameOnly.matched = $true
+            $signalScores.NameOnly.score = $Weights.NameOnly
         }
     }
     
     # Content hash match
+    $signalScores.ContentHash.value1 = $Signature1.contentHash
+    $signalScores.ContentHash.value2 = $Signature2.contentHash
     if ($Signature1.contentHash -and $Signature2.contentHash -and
         $Signature1.contentHash -eq $Signature2.contentHash) {
         $confidence += $Weights.ContentHash
         $reasons += 'contentHash'
+        $signalScores.ContentHash.matched = $true
+        $signalScores.ContentHash.score = $Weights.ContentHash
     }
     
     # Node type match (bonus)
+    $signalScores.NodeTypeMatch.value1 = $Signature1.nodeType
+    $signalScores.NodeTypeMatch.value2 = $Signature2.nodeType
     if ($Signature1.nodeType -eq $Signature2.nodeType) {
         $confidence += $Weights.NodeTypeMatch
         $reasons += 'nodeType'
+        $signalScores.NodeTypeMatch.matched = $true
+        $signalScores.NodeTypeMatch.score = $Weights.NodeTypeMatch
     }
     
     # Prototype link match
+    $signalScores.PrototypeLink.value1 = $Signature1.prototypeId
+    $signalScores.PrototypeLink.value2 = $Signature2.prototypeId
     if ($Signature1.prototypeId -and $Signature2.prototypeId -and
         $Signature1.prototypeId -eq $Signature2.prototypeId) {
         $confidence += $Weights.PrototypeLink
         $reasons += 'prototypeLink'
+        $signalScores.PrototypeLink.matched = $true
+        $signalScores.PrototypeLink.score = $Weights.PrototypeLink
     }
     
     # Transform hash match (for operations/locations)
+    $signalScores.TransformHash.value1 = $Signature1.transformHash
+    $signalScores.TransformHash.value2 = $Signature2.transformHash
     if ($Signature1.transformHash -and $Signature2.transformHash -and
         $Signature1.transformHash -eq $Signature2.transformHash) {
         $confidence += $Weights.TransformHash
         $reasons += 'transformHash'
+        $signalScores.TransformHash.matched = $true
+        $signalScores.TransformHash.score = $Weights.TransformHash
     }
     
     # Normalize confidence to 0..1 range
     $maxPossible = ($Weights.Values | Measure-Object -Sum).Sum
     $normalizedConfidence = [Math]::Min(1.0, $confidence / $maxPossible * 2)
     
-    return [PSCustomObject]@{
-        confidence = [Math]::Round($normalizedConfidence, 3)
-        reason     = ($reasons -join '+')
-        details    = $reasons
+    $result = [PSCustomObject]@{
+        confidence    = [Math]::Round($normalizedConfidence, 3)
+        reason        = ($reasons -join '+')
+        details       = $reasons
+        signalScores  = $signalScores
+        rawScore      = [Math]::Round($confidence, 4)
+        maxPossible   = [Math]::Round($maxPossible, 4)
     }
+    
+    # Log if debug enabled
+    if ($Script:IdentityConfig.DebugEnabled) {
+        $Script:IdentityDebugLog += [PSCustomObject]@{
+            type          = 'fuzzy_comparison'
+            nodeId1       = $Signature1.nodeId
+            nodeId2       = $Signature2.nodeId
+            name1         = $Signature1.name
+            name2         = $Signature2.name
+            confidence    = $result.confidence
+            reason        = $result.reason
+            rawScore      = $result.rawScore
+            maxPossible   = $result.maxPossible
+            signalScores  = $signalScores
+        }
+    }
+    
+    return $result
 }
 
 function Resolve-NodeIdentities {
@@ -255,13 +481,25 @@ function Find-MatchingNode {
         [Parameter(Mandatory = $true)]
         [PSCustomObject]$SourceNode,
         
-        [Parameter(Mandatory = $true)]
-        [array]$TargetNodes,
+        [Parameter(Mandatory = $false)]
+        [array]$TargetNodes = @(),
         
         [double]$ConfidenceThreshold = $Script:IdentityConfig.ConfidenceThreshold,
         
         [switch]$IncludeCandidates
     )
+    
+    # Handle empty target nodes
+    if (-not $TargetNodes -or $TargetNodes.Count -eq 0) {
+        return [PSCustomObject]@{
+            matched         = $false
+            matchedNode     = $null
+            matchConfidence = 0.0
+            matchReason     = 'no_targets'
+            isRekeyed       = $false
+            candidates      = @()
+        }
+    }
     
     $sourceSignature = if ($SourceNode.identity -and $SourceNode.identity.signature) {
         $SourceNode.identity.signature
@@ -504,6 +742,12 @@ if ($MyInvocation.MyCommand.ScriptBlock.Module) {
         'Find-MatchingNode',
         'Build-IdentityMap',
         'Get-IdentityResolverConfig',
-        'Set-IdentityResolverConfig'
+        'Set-IdentityResolverConfig',
+        'Validate-IdentityConfig',
+        'Enable-IdentityDebug',
+        'Disable-IdentityDebug',
+        'Get-IdentityDebugLog',
+        'Clear-IdentityDebugLog',
+        'Export-IdentityDebug'
     )
 }
