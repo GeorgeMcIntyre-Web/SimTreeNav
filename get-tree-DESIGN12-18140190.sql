@@ -28,15 +28,15 @@ SELECT
     NVL(c.EXTERNALID_S_, '') || '|' ||
     TO_CHAR(r.SEQ_NUMBER) || '|' ||
     CASE
-        WHEN r.OBJECT_ID = 18143953 THEN 'class PmPartLibrary'  -- Ghost node override
+        WHEN r.OBJECT_ID = 18143953 THEN 'class PmCompoundPart'  -- Ghost node override (from PART_ table)
         ELSE NVL(cd.NAME, 'class PmNode')
     END || '|' ||
     CASE
-        WHEN r.OBJECT_ID = 18143953 THEN 'PartLibrary'  -- Ghost node override
+        WHEN r.OBJECT_ID = 18143953 THEN 'CompoundPart'  -- Ghost node override (from PART_ table)
         ELSE NVL(cd.NICE_NAME, 'Unknown')
     END || '|' ||
     CASE
-        WHEN r.OBJECT_ID = 18143953 THEN '46'  -- Ghost node TYPE_ID override (PartLibrary icon)
+        WHEN r.OBJECT_ID = 18143953 THEN '21'  -- Ghost node TYPE_ID override (CompoundPart icon from PART_ table)
         ELSE TO_CHAR(cd.TYPE_ID)
     END
 FROM DESIGN12.REL_COMMON r
