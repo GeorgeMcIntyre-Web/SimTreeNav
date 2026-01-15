@@ -326,42 +326,71 @@ WHERE EXISTS (
       )
   );
 
--- TODO: Add Operation nodes (manufacturing operations like MOV_HOME, COMM_PICK01, etc.)
--- ISSUE: Operations nest up to 28+ levels deep before reaching COLLECTION_ nodes
--- Current hierarchical queries timeout or take 5+ minutes to execute
--- 743,107 total operations in database, 99.7% have OPERATION_ parents (not COLLECTION_)
--- Needs optimization: temp tables, materialized views, or iterative PowerShell approach
---
--- COMMENTED OUT TEMPORARILY - Tree viewer works without operations
---
--- WITH project_collections AS (
---     SELECT c.OBJECT_ID
---     FROM DESIGN12.REL_COMMON r
---     INNER JOIN DESIGN12.COLLECTION_ c ON r.OBJECT_ID = c.OBJECT_ID
---     START WITH r.FORWARD_OBJECT_ID = 18140190
---     CONNECT BY NOCYCLE PRIOR r.OBJECT_ID = r.FORWARD_OBJECT_ID
--- ),
--- project_operations AS (
---     SELECT DISTINCT rc.OBJECT_ID
---     FROM DESIGN12.REL_COMMON rc
---     START WITH rc.FORWARD_OBJECT_ID IN (SELECT OBJECT_ID FROM project_collections)
---     CONNECT BY NOCYCLE PRIOR rc.OBJECT_ID = rc.FORWARD_OBJECT_ID
--- )
--- SELECT
---     '999|' ||
---     r.FORWARD_OBJECT_ID || '|' ||
---     op.OBJECT_ID || '|' ||
---     NVL(op.CAPTION_S_, NVL(op.NAME_S_, 'Unnamed Operation')) || '|' ||
---     NVL(op.NAME_S_, 'Unnamed') || '|' ||
---     NVL(op.EXTERNALID_S_, '') || '|' ||
---     TO_CHAR(r.SEQ_NUMBER) || '|' ||
---     NVL(cd.NAME, 'class Operation') || '|' ||
---     NVL(cd.NICE_NAME, 'Operation') || '|' ||
---     TO_CHAR(cd.TYPE_ID)
--- FROM DESIGN12.OPERATION_ op
--- INNER JOIN DESIGN12.REL_COMMON r ON op.OBJECT_ID = r.OBJECT_ID
--- LEFT JOIN DESIGN12.CLASS_DEFINITIONS cd ON op.CLASS_ID = cd.TYPE_ID
--- WHERE op.OBJECT_ID IN (SELECT OBJECT_ID FROM project_operations);
+-- Add Operation nodes (manufacturing operations like MOV_HOME, COMM_PICK01, etc.)
+-- Operations nest up to 28+ levels deep with complex parent relationships
+-- Solution: Use temp table with iterative population (avoids hierarchical query timeout)
+-- Output: LEVEL|PARENT_ID|OBJECT_ID|CAPTION|NAME|EXTERNAL_ID|SEQ_NUMBER|CLASS_NAME|NICE_NAME|TYPE_ID
+
+-- Create temp table for iterative object discovery
+CREATE GLOBAL TEMPORARY TABLE temp_project_objects (
+    OBJECT_ID NUMBER PRIMARY KEY,
+    PASS_NUMBER NUMBER
+) ON COMMIT PRESERVE ROWS;
+
+-- Pass 0: Insert project root
+INSERT INTO temp_project_objects (OBJECT_ID, PASS_NUMBER)
+VALUES (18140190, 0);
+
+-- Pass 1: Get all COLLECTION_ nodes under project
+INSERT INTO temp_project_objects (OBJECT_ID, PASS_NUMBER)
+SELECT DISTINCT c.OBJECT_ID, 1
+FROM DESIGN12.COLLECTION_ c
+INNER JOIN DESIGN12.REL_COMMON rc ON c.OBJECT_ID = rc.OBJECT_ID
+WHERE rc.FORWARD_OBJECT_ID IN (SELECT OBJECT_ID FROM temp_project_objects)
+  AND NOT EXISTS (SELECT 1 FROM temp_project_objects WHERE OBJECT_ID = c.OBJECT_ID);
+
+COMMIT;
+
+-- Passes 2-30: Iteratively add child objects via REL_COMMON
+DECLARE
+    v_pass NUMBER := 2;
+    v_rows_added NUMBER := 1;
+BEGIN
+    WHILE v_pass <= 30 AND v_rows_added > 0 LOOP
+        INSERT INTO temp_project_objects (OBJECT_ID, PASS_NUMBER)
+        SELECT DISTINCT rc.OBJECT_ID, v_pass
+        FROM DESIGN12.REL_COMMON rc
+        WHERE rc.FORWARD_OBJECT_ID IN (SELECT OBJECT_ID FROM temp_project_objects WHERE PASS_NUMBER = v_pass - 1)
+          AND NOT EXISTS (SELECT 1 FROM temp_project_objects WHERE OBJECT_ID = rc.OBJECT_ID);
+
+        v_rows_added := SQL%ROWCOUNT;
+        COMMIT;
+
+        EXIT WHEN v_rows_added = 0;
+        v_pass := v_pass + 1;
+    END LOOP;
+END;
+/
+
+-- Extract operations that are in project tree
+SELECT
+    '999|' ||
+    r.FORWARD_OBJECT_ID || '|' ||
+    op.OBJECT_ID || '|' ||
+    NVL(op.CAPTION_S_, NVL(op.NAME_S_, 'Unnamed Operation')) || '|' ||
+    NVL(op.NAME_S_, 'Unnamed') || '|' ||
+    NVL(op.EXTERNALID_S_, '') || '|' ||
+    TO_CHAR(r.SEQ_NUMBER) || '|' ||
+    NVL(cd.NAME, 'class Operation') || '|' ||
+    NVL(cd.NICE_NAME, 'Operation') || '|' ||
+    TO_CHAR(cd.TYPE_ID)
+FROM DESIGN12.OPERATION_ op
+INNER JOIN DESIGN12.REL_COMMON r ON op.OBJECT_ID = r.OBJECT_ID
+LEFT JOIN DESIGN12.CLASS_DEFINITIONS cd ON op.CLASS_ID = cd.TYPE_ID
+WHERE op.OBJECT_ID IN (SELECT OBJECT_ID FROM temp_project_objects);
+
+-- Clean up temp table
+DROP TABLE temp_project_objects;
 
 -- Add children of RobcadStudy nodes from SHORTCUT_ table
 -- Shortcuts are link nodes that reference other objects in the tree

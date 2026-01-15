@@ -1,0 +1,257 @@
+========================================
+Analyzing All OPERATION-Related Tables
+========================================
+
+Record counts for all OPERATION tables:
+
+FROM DESIGN12.OPERATION_EX_
+              *
+ERROR at line 5:
+ORA-00942: table or view does not exist
+
+
+
+========================================
+Sample from OPERATION_ table
+========================================
+
+ OBJECT_ID
+----------
+NAME_S_
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+CAPTION_S_
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+  CLASS_ID CLASS_NAME												NICE_NAME												TYPE_ID
+---------- ---------------------------------------------------------------------------------------------------- ---------------------------------------------------------------------------------------------------- ----------
+   9336758
+PG21
+PG21
+       141 class PmWeldOperation										WeldOperation												    141
+
+  10099869
+PG10
+PG10
+       141 class PmWeldOperation										WeldOperation												    141
+
+  10099878
+PG10
+PG10
+       141 class PmWeldOperation										WeldOperation												    141
+
+  10127620
+zone checks
+zone checks
+	19 class PmCompoundOperation										CompoundOperation											     19
+
+  12301293
+Zone_Checking
+Zone_Checking
+	19 class PmCompoundOperation										CompoundOperation											     19
+
+  12302621
+MRS
+MRS
+	19 class PmCompoundOperation										CompoundOperation											     19
+
+  12303318
+misc_do_not_delete
+misc_do_not_delete
+	19 class PmCompoundOperation										CompoundOperation											     19
+
+  13480682
+MOV_PNCE
+MOV_PNCE
+       141 class PmWeldOperation										WeldOperation												    141
+
+  13480732
+MOV_HOME
+MOV_HOME
+       141 class PmWeldOperation										WeldOperation												    141
+
+  13481505
+PG05_Not_Used
+PG05_Not_Used
+       141 class PmWeldOperation										WeldOperation												    141
+
+
+10 rows selected.
+
+
+========================================
+Check parent relationships for OPERATION_
+========================================
+
+TOTAL_OPERATIONS WITH_REL_COMMON WITH_PARENT PARENT_IS_COLLECTION PARENT_IS_OPERATION
+---------------- --------------- ----------- -------------------- -------------------
+	  743462	  743462      743462		     2254	       109656
+
+1 row selected.
+
+
+========================================
+Check CLASS_DEFINITIONS for operation types
+========================================
+
+   TYPE_ID NAME 												NICE_NAME											     HARD_TABLE_NAME
+---------- ---------------------------------------------------------------------------------------------------- ---------------------------------------------------------------------------------------------------- ------------------------------
+DERIVED_FROM
+------------
+	16 class PmOperation											Operation											     OPERATION_
+	  14
+
+	17 class PmBuffer											Buffer												     OPERATION_
+	  16
+
+	19 class PmCompoundOperation										CompoundOperation										     OPERATION_
+	  16
+
+	49 class PmOperationInstance										OperationInstance										     OPERATIONINSTANCE_
+	  19
+
+	50 class PmLinkedSupplyChain										LinkedSupplyChain										     OPERATIONINSTANCE_
+	  49
+
+	51 class PmLogProcess											LogProcess											     OPERATION_
+	  19
+
+	54 class PmOperationPlaceholder 									OperationPlaceholder										     OPERATION_
+	  16
+
+	62 class PmProcess											Process 											     OPERATION_
+	  19
+
+	73 class PmSupplyChain											SupplyChain											     OPERATION_
+	  19
+
+	93 class PmContinuousFeatureOperation									ContinuousFeatureOperation									     OPERATION_
+	  19
+
+       101 class PmGenericRoboticOperation									GenericRoboticOperation 									     OPERATION_
+	  19
+
+       103 class PmHumanOperation										HumanOperation											     OPERATION_
+	  19
+
+       107 class PmLocateOperation										LocateOperation 										     OPERATION_
+	  19
+
+       113 class PmObjectFlowOperation										ObjectFlowOperation										     OPERATION_
+	  19
+
+       114 class PmOperationRoute										OperationRoute											     OPERATIONROUTE_
+	  66
+
+       115 class PmOperationWIAspect										OperationWIAspect										     OPERATIONWIASPECT_
+	  34
+
+       121 class PmProcessElement										ProcessElement											     OPERATION_
+	  19
+
+       126 class PmSink 											Sink												     OPERATION_
+	  17
+
+       131 class PmSource											Source												     OPERATION_
+	  17
+
+       141 class PmWeldOperation										WeldOperation											     OPERATION_
+	  19
+
+       159 class PrPlantProcess 										PrPlantProcess											     OPERATION_
+	  62
+
+       160 class PrZoneProcess											PrZoneProcess											     OPERATION_
+	  62
+
+       161 class PrLineProcess											PrLineProcess											     OPERATION_
+	  62
+
+       162 class PrStationProcess										PrStationProcess										     OPERATION_
+	  62
+
+       199 class Task												Task												     OPERATION_
+	  16
+
+       361 class ConcurrentRoboticOperation									ConcurrentRoboticOperation									     OPERATION_
+	 101
+
+       362 class AsynchronousRoboticOperation									AsynchronousRoboticOperation									     OPERATION_
+	 361
+
+       363 class CooperativeLoadSharingRoboticOperation 							CooperativeLoadSharingRoboticOperation								     OPERATION_
+	 361
+
+       364 class CooperativeRoboticOperation									CooperativeRoboticOperation									     OPERATION_
+	 361
+
+       365 class SynchronizedRoboticOperation									SynchronizedRoboticOperation									     OPERATION_
+	 361
+
+
+30 rows selected.
+
+
+========================================
+Sample operations under FORD_DEARBORN project
+========================================
+
+ OBJECT_ID
+----------
+NAME_S_
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+CAPTION_S_
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+CLASS_NAME												TYPE_ID  PARENT_ID
+---------------------------------------------------------------------------------------------------- ---------- ----------
+  10131359
+MOV_HOME
+MOV_HOME
+class PmWeldOperation											    141    8844164
+
+  10537165
+MOV_HOME
+MOV_HOME
+class PmWeldOperation											    141    8849047
+
+  10143472
+MOV_HOME
+MOV_HOME
+class PmWeldOperation											    141    8850106
+
+  10131924
+MOV_HOME
+MOV_HOME
+class PmWeldOperation											    141    8851039
+
+  10129605
+MOV_HOME
+MOV_HOME
+class PmWeldOperation											    141    8866176
+
+  11984944
+MOV_HOME
+MOV_HOME
+class PmWeldOperation											    141    8864003
+
+  10129613
+MOV_HOME
+MOV_HOME
+class PmWeldOperation											    141    8866167
+
+  10129632
+MOV_HOME
+MOV_HOME
+class PmWeldOperation											    141    8866170
+
+  10129610
+MOV_HOME
+MOV_HOME
+class PmWeldOperation											    141    8866173
+
+  11986925
+MOV_HOME
+MOV_HOME
+class PmWeldOperation											    141    8863951
+
+
+10 rows selected.
+
