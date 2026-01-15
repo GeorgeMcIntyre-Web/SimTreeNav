@@ -12,13 +12,17 @@ param(
     [Parameter(Mandatory=$true)]
     [string]$ProjectName,
     
-    [string]$OutputFile = "navigation-tree.html"
+    [string]$OutputFile = "navigation-tree.html",
+    [string]$CustomIconDir = ""
 )
 
 Write-Host "Generating tree for:" -ForegroundColor Yellow
 Write-Host "  TNS Name: $TNSName" -ForegroundColor Cyan
 Write-Host "  Schema: $Schema" -ForegroundColor Cyan
 Write-Host "  Project: $ProjectName (ID: $ProjectId)" -ForegroundColor Cyan
+if ($CustomIconDir) {
+    Write-Host "  Custom Icons: $CustomIconDir" -ForegroundColor Cyan
+}
 
 # Extract icons from database using RAWTOHEX (works better than base64)
 Write-Host "`nExtracting icons from database using RAWTOHEX..." -ForegroundColor Yellow
@@ -74,6 +78,7 @@ Write-Host "  Found $($allLines.Count) icon entries" -ForegroundColor Gray
 $iconCount = 0
 $extractedTypeIds = @()
 $iconDataMap = @{}  # Store TYPE_ID -> Base64 data URI mapping
+$invalidIconEntries = @()
 
 foreach ($line in $allLines) {
     $line = $line.Trim()
@@ -91,30 +96,51 @@ foreach ($line in $allLines) {
                 $iconBytes[$i / 2] = [Convert]::ToByte($hexData.Substring($i, 2), 16)
             }
 
-            # Verify BMP header
-            if ($iconBytes.Length -ge 2) {
-                $header = [System.Text.Encoding]::ASCII.GetString($iconBytes[0..1])
+            # Verify header and size; support BMP/PNG/ICO
+            if ($iconBytes.Length -ge 4) {
+                $headerLabel = [System.Text.Encoding]::ASCII.GetString($iconBytes[0..1])
+                $headerHex = ($iconBytes[0..3] | ForEach-Object { $_.ToString("X2") }) -join ''
+                $mimeType = $null
+                if ($headerHex.StartsWith('424D')) {
+                    $mimeType = 'image/bmp'
+                } elseif ($headerHex -eq '89504E47') {
+                    $mimeType = 'image/png'
+                } elseif ($headerHex -eq '00000100' -or $headerHex -eq '00000200') {
+                    $mimeType = 'image/x-icon'
+                }
 
-                if ($header -eq 'BM' -and $iconBytes.Length -eq $expectedSize) {
+                if ($mimeType -and $iconBytes.Length -eq $expectedSize) {
                     # Convert to Base64 data URI instead of saving to file
                     $base64 = [Convert]::ToBase64String($iconBytes)
-                    $dataUri = "data:image/bmp;base64,$base64"
+                    $dataUri = "data:$mimeType;base64,$base64"
                     $iconDataMap[$typeId] = $dataUri
 
                     $iconCount++
                     $extractedTypeIds += $typeId
-                    Write-Host "  Extracted TYPE_ID $typeId ($expectedSize bytes)" -ForegroundColor Gray
+                    Write-Host "  Extracted TYPE_ID $typeId ($expectedSize bytes, $mimeType)" -ForegroundColor Gray
                 } else {
-                    Write-Warning "Invalid icon for TYPE_ID $typeId (header: '$header', size: $($iconBytes.Length) vs $expectedSize)"
+                    $detail = "TYPE_ID $typeId (header: '$headerLabel' $headerHex, size: $($iconBytes.Length) vs $expectedSize)"
+                    $invalidIconEntries += $detail
+                    Write-Warning "Invalid icon for $detail"
                 }
+            } else {
+                $detail = "TYPE_ID $typeId (header: '??', size: $($iconBytes.Length) vs $expectedSize)"
+                $invalidIconEntries += $detail
+                Write-Warning "Invalid icon for $detail"
             }
         } catch {
+            $invalidIconEntries += "TYPE_ID $typeId (exception: $_)"
             Write-Warning "Failed to extract TYPE_ID $typeId : $_"
         }
     }
 }
 
 Write-Host "  Successfully extracted: $iconCount icons" -ForegroundColor Green
+$dbIconTypeIds = @{}
+foreach ($key in $iconDataMap.Keys) {
+    $dbIconTypeIds[$key] = $true
+}
+$fallbackAddedTypeIds = @()
 # Add fallback icons for TYPE_IDs that don't exist in database
 Write-Host "  Adding fallback icons for missing TYPE_IDs..." -ForegroundColor Yellow
 
@@ -123,6 +149,7 @@ Write-Host "  Adding fallback icons for missing TYPE_IDs..." -ForegroundColor Ye
 if ($iconDataMap['18'] -and -not $iconDataMap['72']) {
     $iconDataMap['72'] = $iconDataMap['18']
     $extractedTypeIds += 72
+    $fallbackAddedTypeIds += '72'
     $iconCount++
     Write-Host "    Added fallback: TYPE_ID 72 -> 18 (StudyFolder -> Collection parent)" -ForegroundColor Gray
 }
@@ -131,6 +158,7 @@ if ($iconDataMap['18'] -and -not $iconDataMap['72']) {
 if ($iconDataMap['162'] -and -not $iconDataMap['164']) {
     $iconDataMap['164'] = $iconDataMap['162']
     $extractedTypeIds += 164
+    $fallbackAddedTypeIds += '164'
     $iconCount++
     Write-Host "    Added fallback: TYPE_ID 164 -> 162 (RobcadResourceLibrary -> MaterialLibrary)" -ForegroundColor Gray
 }
@@ -152,12 +180,16 @@ foreach ($typeId in $studyFallbacks.Keys) {
     if ($iconDataMap['69'] -and -not $iconDataMap[$typeId]) {
         $iconDataMap[$typeId] = $iconDataMap['69']
         $extractedTypeIds += [int]$typeId
+        $fallbackAddedTypeIds += $typeId
         $iconCount++
         Write-Host "    Added fallback: TYPE_ID $typeId -> 69 ($($studyFallbacks[$typeId]) -> ShortcutFolder parent)" -ForegroundColor Gray
     }
 }
 
 Write-Host "  Total icons (with fallbacks): $iconCount" -ForegroundColor Green
+if ($invalidIconEntries.Count -gt 0) {
+    Write-Host "  Skipped $($invalidIconEntries.Count) icons due to invalid header or size mismatch" -ForegroundColor Yellow
+}
 
 # Convert icon data map to JSON for passing to HTML generator
 $iconDataJson = ($iconDataMap.GetEnumerator() | ForEach-Object {
@@ -202,16 +234,43 @@ WHERE c.OBJECT_ID = $ProjectId;
 -- Output: LEVEL|PARENT_ID|OBJECT_ID|CAPTION|NAME|EXTERNAL_ID|SEQ_NUMBER|CLASS_NAME|NICE_NAME|TYPE_ID
 SELECT
     '1|$ProjectId|' || r.OBJECT_ID || '|' ||
-    NVL(c.CAPTION_S_, 'Unnamed') || '|' ||
-    NVL(c.CAPTION_S_, 'Unnamed') || '|' ||
-    NVL(c.EXTERNALID_S_, '') || '|' ||
+    COALESCE(
+        c.CAPTION_S_,
+        p.NAME_S_,
+        CASE WHEN r.OBJECT_ID = 18143953 THEN 'PartInstanceLibrary' END,
+        'Unnamed'
+    ) || '|' ||
+    COALESCE(
+        c.CAPTION_S_,
+        p.NAME_S_,
+        CASE WHEN r.OBJECT_ID = 18143953 THEN 'PartInstanceLibrary' END,
+        'Unnamed'
+    ) || '|' ||
+    COALESCE(c.EXTERNALID_S_, p.EXTERNALID_S_, '') || '|' ||
     TO_CHAR(r.SEQ_NUMBER) || '|' ||
-    NVL(cd.NAME, 'class PmNode') || '|' ||
-    NVL(cd.NICE_NAME, 'Unknown') || '|' ||
-    TO_CHAR(cd.TYPE_ID)
+    COALESCE(
+        cd.NAME,
+        cd_part.NAME,
+        CASE WHEN r.OBJECT_ID = 18143953 THEN 'class PmPartLibrary' END,
+        'class PmNode'
+    ) || '|' ||
+    COALESCE(
+        cd.NICE_NAME,
+        cd_part.NICE_NAME,
+        CASE WHEN r.OBJECT_ID = 18143953 THEN 'PartLibrary' END,
+        'Unknown'
+    ) || '|' ||
+    COALESCE(
+        TO_CHAR(cd.TYPE_ID),
+        TO_CHAR(cd_part.TYPE_ID),
+        CASE WHEN r.OBJECT_ID = 18143953 THEN '46' END,
+        ''
+    )
 FROM $Schema.REL_COMMON r
 LEFT JOIN $Schema.COLLECTION_ c ON r.OBJECT_ID = c.OBJECT_ID
 LEFT JOIN $Schema.CLASS_DEFINITIONS cd ON c.CLASS_ID = cd.TYPE_ID
+LEFT JOIN $Schema.PART_ p ON r.OBJECT_ID = p.OBJECT_ID
+LEFT JOIN $Schema.CLASS_DEFINITIONS cd_part ON p.CLASS_ID = cd_part.TYPE_ID
 WHERE r.FORWARD_OBJECT_ID = $ProjectId
 ORDER BY
     -- Custom ordering to match Siemens Navigation Tree
@@ -578,6 +637,120 @@ $utf8WithBom = New-Object System.Text.UTF8Encoding $true
 # Cleanup
 if (Test-Path $tempOutputFile) { Remove-Item $tempOutputFile -Force }
 
+# Report missing icons for TYPE_IDs used in the tree
+Write-Host "Checking for missing icons in tree data..." -ForegroundColor Yellow
+$treeTypeInfo = @{}
+$missingTypeIdCount = 0
+
+Get-Content $cleanFile | ForEach-Object {
+    if ($_ -match '^\d+\|') {
+        $parts = $_ -split '\|'
+        if ($parts.Length -ge 10) {
+            $typeId = $parts[9]
+            $className = $parts[7]
+            $niceName = $parts[8]
+            if ($typeId -and $typeId -match '^\d+$') {
+                if (-not $treeTypeInfo.ContainsKey($typeId)) {
+                    $treeTypeInfo[$typeId] = [PSCustomObject]@{
+                        TypeId = $typeId
+                        ClassName = $className
+                        NiceName = $niceName
+                        Count = 0
+                    }
+                }
+                $treeTypeInfo[$typeId].Count++
+            } else {
+                $missingTypeIdCount++
+            }
+        }
+    }
+}
+
+$missingDbTypeIds = $treeTypeInfo.Keys | Where-Object { -not $dbIconTypeIds.ContainsKey($_) }
+$missingTypeIds = $treeTypeInfo.Keys | Where-Object { -not $iconDataMap.ContainsKey($_) }
+$missingIconReport = "missing-icons-${Schema}-${ProjectId}.txt"
+$reportLines = @()
+$missingDbTypeIdsJson = "[]"
+if ($missingDbTypeIds.Count -gt 0) {
+    $missingDbTypeIdsJson = "[" + (($missingDbTypeIds | Sort-Object | ForEach-Object { $_ }) -join ',') + "]"
+}
+
+if ($missingDbTypeIds.Count -gt 0) {
+    $missingTypeSummary = ($missingDbTypeIds | Sort-Object) -join ', '
+    Write-Warning "Missing DB icon data for TYPE_IDs: $missingTypeSummary (fallback will be used where possible)"
+    $reportLines += "Missing TYPE_ID icons in DB extraction (fallback will be used where possible):"
+    foreach ($typeId in ($missingDbTypeIds | Sort-Object)) {
+        $info = $treeTypeInfo[$typeId]
+        $reportLines += "$typeId|$($info.NiceName)|$($info.ClassName)|$($info.Count)"
+    }
+} else {
+    Write-Host "  All TYPE_IDs in tree have DB icon data." -ForegroundColor Green
+}
+
+if ($missingTypeIds.Count -gt 0) {
+    $missingFallbackSummary = ($missingTypeIds | Sort-Object) -join ', '
+    Write-Warning "Missing icon data after fallbacks for TYPE_IDs: $missingFallbackSummary"
+    $reportLines += ""
+    $reportLines += "Missing TYPE_ID icons after fallback:"
+    foreach ($typeId in ($missingTypeIds | Sort-Object)) {
+        $info = $treeTypeInfo[$typeId]
+        $reportLines += "$typeId|$($info.NiceName)|$($info.ClassName)|$($info.Count)"
+    }
+}
+
+if ($fallbackAddedTypeIds.Count -gt 0) {
+    $fallbackSummary = ($fallbackAddedTypeIds | Sort-Object -Unique) -join ', '
+    $reportLines += ""
+    $reportLines += "Fallback icons added for TYPE_IDs: $fallbackSummary"
+}
+
+if ($missingTypeIdCount -gt 0) {
+    $reportLines += ""
+    $reportLines += "Nodes with missing TYPE_ID field: $missingTypeIdCount"
+}
+
+if ($invalidIconEntries.Count -gt 0) {
+    $reportLines += ""
+    $reportLines += "Invalid icon entries (header/size mismatch or extraction error):"
+    $reportLines += $invalidIconEntries
+}
+
+if ($reportLines.Count -gt 0) {
+    $reportLines | Out-File $missingIconReport -Encoding UTF8
+    Write-Host "  Wrote icon report to $missingIconReport" -ForegroundColor Gray
+}
+
+# Optional DB check for missing TYPE_ID icons
+if ($missingDbTypeIds.Count -gt 0) {
+    $missingTypeList = ($missingDbTypeIds | Sort-Object | ForEach-Object { $_ }) -join ','
+    $checkMissingIconsSql = @"
+SET PAGESIZE 0
+SET LINESIZE 500
+SET FEEDBACK OFF
+SET HEADING OFF
+
+SELECT
+    cd.TYPE_ID || '|' ||
+    NVL(DBMS_LOB.GETLENGTH(di.CLASS_IMAGE), 0) || '|' ||
+    NVL(cd.NICE_NAME, '') || '|' ||
+    NVL(cd.NAME, '')
+FROM $Schema.CLASS_DEFINITIONS cd
+LEFT JOIN $Schema.DF_ICONS_DATA di ON di.TYPE_ID = cd.TYPE_ID
+WHERE cd.TYPE_ID IN ($missingTypeList)
+ORDER BY cd.TYPE_ID;
+
+EXIT;
+"@
+
+    $checkMissingIconsFile = "check-missing-icons-${Schema}-${ProjectId}.sql"
+    [System.IO.File]::WriteAllText("$PWD\$checkMissingIconsFile", $checkMissingIconsSql, $utf8NoBom)
+    $missingIconsDbFile = "missing-icons-${Schema}-${ProjectId}-db.txt"
+    $dbCheckResult = sqlplus -S sys/change_on_install@$TNSName AS SYSDBA "@$checkMissingIconsFile" 2>&1
+    $dbCheckResult | Out-File $missingIconsDbFile -Encoding UTF8
+    Remove-Item $checkMissingIconsFile -ErrorAction SilentlyContinue
+    Write-Host "  Wrote DB icon check to $missingIconsDbFile" -ForegroundColor Gray
+}
+
 # Extract user activity for checkout status
 Write-Host "Extracting user activity..." -ForegroundColor Yellow
 $userActivitySql = @"
@@ -621,7 +794,7 @@ Remove-Item $userActivityFile -ErrorAction SilentlyContinue
 # Generate HTML with in-memory icon data
 Write-Host "Generating HTML with database icons..." -ForegroundColor Yellow
 $fullTreeScriptPath = Join-Path $PSScriptRoot "generate-full-tree-html.ps1"
-& $fullTreeScriptPath -DataFile $cleanFile -ProjectName $ProjectName -ProjectId $ProjectId -Schema $Schema -OutputFile $OutputFile -ExtractedTypeIds $extractedTypeIdsJson -IconDataJson $iconDataJson -UserActivityJs $userActivityJs
+& $fullTreeScriptPath -DataFile $cleanFile -ProjectName $ProjectName -ProjectId $ProjectId -Schema $Schema -OutputFile $OutputFile -ExtractedTypeIds $extractedTypeIdsJson -IconDataJson $iconDataJson -MissingDbTypeIds $missingDbTypeIdsJson -UserActivityJs $userActivityJs -CustomIconDir $CustomIconDir
 
 # Cleanup
 Remove-Item $sqlFile -ErrorAction SilentlyContinue

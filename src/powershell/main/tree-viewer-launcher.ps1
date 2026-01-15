@@ -6,7 +6,8 @@ param(
     [string]$Server = "",
     [string]$Instance = "",
     [string]$Schema = "",
-    [switch]$LoadLast = $false
+    [switch]$LoadLast = $false,
+    [string]$CustomIconDir = ""
 )
 
 $configFile = "tree-viewer-config.json"
@@ -478,7 +479,7 @@ EXIT;
 }
 
 function Show-ConfigurationMenu {
-    param([object]$CurrentServer, [string]$CurrentSchema)
+    param([object]$CurrentServer, [string]$CurrentSchema, [string]$CurrentCustomIconDir)
     
     try {
         Clear-Host
@@ -500,15 +501,21 @@ function Show-ConfigurationMenu {
     } else {
         Write-Host "  Schema:   " -NoNewline; Write-Host "Not selected" -ForegroundColor Gray
     }
+    if ($CurrentCustomIconDir) {
+        Write-Host "  Custom Icons: " -NoNewline; Write-Host $CurrentCustomIconDir -ForegroundColor Cyan
+    } else {
+        Write-Host "  Custom Icons: " -NoNewline; Write-Host "Not selected" -ForegroundColor Gray
+    }
     Write-Host ""
     Write-Host "Options:" -ForegroundColor Yellow
     Write-Host "  1. Select Server" -ForegroundColor White
     Write-Host "  2. Select Schema" -ForegroundColor White
-    Write-Host "  3. Load Tree (includes checkout status)" -ForegroundColor Green
-    Write-Host "  4. Exit" -ForegroundColor Red
+    Write-Host "  3. Set Custom Icon Directory" -ForegroundColor White
+    Write-Host "  4. Load Tree (includes checkout status)" -ForegroundColor Green
+    Write-Host "  5. Exit" -ForegroundColor Red
     Write-Host ""
 
-    $choice = Read-Host "Select option (1-4)"
+    $choice = Read-Host "Select option (1-5)"
     return $choice
 }
 
@@ -727,7 +734,8 @@ function Save-Configuration {
     param(
         [object]$Server,
         [string]$Schema,
-        [object]$Project
+        [object]$Project,
+        [string]$CustomIconDir
     )
     
     if (-not $Server -or -not $Schema) { return }
@@ -736,6 +744,7 @@ function Save-Configuration {
         Server = if ($Server) { @{ Name = $Server.Name; Instance = $Server.Instance; TNSName = $Server.TNSName } } else { $null }
         Schema = $Schema
         Project = if ($Project) { @{ ObjectId = $Project.ObjectId; Caption = $Project.Caption; Name = $Project.Name } } else { $null }
+        CustomIconDir = if ($CustomIconDir) { $CustomIconDir } else { $null }
         LastUpdated = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     }
     
@@ -762,6 +771,7 @@ function Load-Configuration {
                 Server = $server
                 Schema = $config.Schema
                 Project = if ($config.Project) { [PSCustomObject]$config.Project } else { $null }
+                CustomIconDir = $config.CustomIconDir
             }
         } catch {
             Write-Warning "Could not load configuration: $_"
@@ -775,7 +785,8 @@ function Generate-TreeHTML {
     param(
         [object]$Server,
         [string]$Schema,
-        [object]$Project
+        [object]$Project,
+        [string]$CustomIconDir
     )
     
     Write-Host "`nGenerating navigation tree..." -ForegroundColor Yellow
@@ -783,6 +794,10 @@ function Generate-TreeHTML {
     Write-Host "  Instance: $($Server.Instance)" -ForegroundColor Cyan
     Write-Host "  Schema: $Schema" -ForegroundColor Cyan
     Write-Host "  Project: $($Project.Caption) (ID: $($Project.ObjectId))" -ForegroundColor Cyan
+    Write-Host "  Note: Ghost nodes (e.g., PartInstanceLibrary) use fallback names/icons." -ForegroundColor Gray
+    if ($CustomIconDir) {
+        Write-Host "  Custom Icons: $CustomIconDir" -ForegroundColor Gray
+    }
     
     # Generate the tree data
     $outputFile = "navigation-tree-${Schema}-$($Project.ObjectId).html"
@@ -833,7 +848,7 @@ function Generate-TreeHTML {
 
     # Call the tree generation script (use full path from script's directory)
     $scriptPath = Join-Path $PSScriptRoot "generate-tree-html.ps1"
-    & $scriptPath -TNSName $tnsToUse -Schema $Schema -ProjectId $Project.ObjectId -ProjectName $Project.Caption -OutputFile $outputFile
+    & $scriptPath -TNSName $tnsToUse -Schema $Schema -ProjectId $Project.ObjectId -ProjectName $Project.Caption -OutputFile $outputFile -CustomIconDir $CustomIconDir
     
     if (Test-Path $outputFile) {
         Write-Host "`nTree generated successfully!" -ForegroundColor Green
@@ -849,11 +864,15 @@ function Generate-TreeHTML {
 $selectedServer = $null
 $selectedSchema = if ($Schema -and $Schema -ne "True" -and $Schema -ne $true) { $Schema } else { $null }
 $selectedProject = $null
+$selectedCustomIconDir = if ($CustomIconDir) { $CustomIconDir } else { $null }
 
 # Try to load last configuration if requested or if no parameters provided
 if ($LoadLast -or (-not $Server -and -not $Instance -and -not $Schema)) {
     $lastConfig = Load-Configuration
     if ($lastConfig -and $lastConfig.Server -and $lastConfig.Schema) {
+        if (-not $selectedCustomIconDir -and $lastConfig.CustomIconDir) {
+            $selectedCustomIconDir = $lastConfig.CustomIconDir
+        }
         Write-Host "`n=== Found Previous Configuration ===" -ForegroundColor Green
         Write-Host "  Server: $($lastConfig.Server.Name)" -ForegroundColor Cyan
         Write-Host "  Instance: $($lastConfig.Server.Instance)" -ForegroundColor Cyan
@@ -871,8 +890,8 @@ if ($LoadLast -or (-not $Server -and -not $Instance -and -not $Schema)) {
             
             if ($selectedProject) {
                 Write-Host "`nLoading tree with saved configuration..." -ForegroundColor Yellow
-                Generate-TreeHTML -Server $selectedServer -Schema $selectedSchema -Project $selectedProject
-                Save-Configuration -Server $selectedServer -Schema $selectedSchema -Project $selectedProject
+                Generate-TreeHTML -Server $selectedServer -Schema $selectedSchema -Project $selectedProject -CustomIconDir $selectedCustomIconDir
+                Save-Configuration -Server $selectedServer -Schema $selectedSchema -Project $selectedProject -CustomIconDir $selectedCustomIconDir
                 exit
             }
         }
@@ -888,29 +907,38 @@ if ($Server -and $Instance) {
 if (-not $selectedServer -or -not $selectedSchema) {
     # Interactive mode
     do {
-        $choice = Show-ConfigurationMenu -CurrentServer $selectedServer -CurrentSchema $selectedSchema
+        $choice = Show-ConfigurationMenu -CurrentServer $selectedServer -CurrentSchema $selectedSchema -CurrentCustomIconDir $selectedCustomIconDir
         
         switch ($choice) {
             "1" {
                 $selectedServer = Select-Server
                 if ($selectedServer) {
-                    Save-Configuration -Server $selectedServer -Schema $selectedSchema -Project $selectedProject
+                    Save-Configuration -Server $selectedServer -Schema $selectedSchema -Project $selectedProject -CustomIconDir $selectedCustomIconDir
                 }
             }
             "2" {
                 $selectedSchema = Select-Schema -Server $selectedServer
                 if ($selectedSchema) {
-                    Save-Configuration -Server $selectedServer -Schema $selectedSchema -Project $selectedProject
+                    Save-Configuration -Server $selectedServer -Schema $selectedSchema -Project $selectedProject -CustomIconDir $selectedCustomIconDir
                 }
             }
             "3" {
+                $newDir = Read-Host "Enter custom icon directory (blank to clear, separate multiple with ';')"
+                if ([string]::IsNullOrWhiteSpace($newDir)) {
+                    $selectedCustomIconDir = $null
+                } else {
+                    $selectedCustomIconDir = $newDir.Trim()
+                }
+                Save-Configuration -Server $selectedServer -Schema $selectedSchema -Project $selectedProject -CustomIconDir $selectedCustomIconDir
+            }
+            "4" {
                 # Load Tree (Standard View)
                 if ($selectedServer -and $selectedSchema) {
                     $project = Select-Project -Server $selectedServer -Schema $selectedSchema
                     if ($project) {
                         $selectedProject = $project
-                        Save-Configuration -Server $selectedServer -Schema $selectedSchema -Project $project
-                        Generate-TreeHTML -Server $selectedServer -Schema $selectedSchema -Project $project
+                        Save-Configuration -Server $selectedServer -Schema $selectedSchema -Project $project -CustomIconDir $selectedCustomIconDir
+                        Generate-TreeHTML -Server $selectedServer -Schema $selectedSchema -Project $project -CustomIconDir $selectedCustomIconDir
                         Read-Host "`nPress Enter to continue"
                     }
                 } else {
@@ -918,7 +946,7 @@ if (-not $selectedServer -or -not $selectedSchema) {
                     Read-Host "Press Enter to continue"
                 }
             }
-            "4" {
+            "5" {
                 Write-Host "`nExiting..." -ForegroundColor Yellow
                 exit
             }
@@ -932,7 +960,7 @@ if (-not $selectedServer -or -not $selectedSchema) {
     # Non-interactive mode - use provided parameters
     $project = Select-Project -Server $selectedServer -Schema $selectedSchema
     if ($project) {
-        Save-Configuration -Server $selectedServer -Schema $selectedSchema -Project $project
-        Generate-TreeHTML -Server $selectedServer -Schema $selectedSchema -Project $project
+        Save-Configuration -Server $selectedServer -Schema $selectedSchema -Project $project -CustomIconDir $selectedCustomIconDir
+        Generate-TreeHTML -Server $selectedServer -Schema $selectedSchema -Project $project -CustomIconDir $selectedCustomIconDir
     }
 }
