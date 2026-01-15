@@ -17,13 +17,28 @@ WHERE c.OBJECT_ID = 18140190;
 -- Output: LEVEL|PARENT_ID|OBJECT_ID|CAPTION|NAME|EXTERNAL_ID|SEQ_NUMBER|CLASS_NAME|NICE_NAME|TYPE_ID
 SELECT
     '1|18140190|' || r.OBJECT_ID || '|' ||
-    NVL(c.CAPTION_S_, 'Unnamed') || '|' ||
-    NVL(c.CAPTION_S_, 'Unnamed') || '|' ||
+    CASE
+        WHEN r.OBJECT_ID = 18143953 THEN 'PartInstanceLibrary'  -- Ghost node override
+        ELSE NVL(c.CAPTION_S_, 'Unnamed')
+    END || '|' ||
+    CASE
+        WHEN r.OBJECT_ID = 18143953 THEN 'PartInstanceLibrary'  -- Ghost node override
+        ELSE NVL(c.CAPTION_S_, 'Unnamed')
+    END || '|' ||
     NVL(c.EXTERNALID_S_, '') || '|' ||
     TO_CHAR(r.SEQ_NUMBER) || '|' ||
-    NVL(cd.NAME, 'class PmNode') || '|' ||
-    NVL(cd.NICE_NAME, 'Unknown') || '|' ||
-    TO_CHAR(cd.TYPE_ID)
+    CASE
+        WHEN r.OBJECT_ID = 18143953 THEN 'class PmPartLibrary'  -- Ghost node override
+        ELSE NVL(cd.NAME, 'class PmNode')
+    END || '|' ||
+    CASE
+        WHEN r.OBJECT_ID = 18143953 THEN 'PartLibrary'  -- Ghost node override
+        ELSE NVL(cd.NICE_NAME, 'Unknown')
+    END || '|' ||
+    CASE
+        WHEN r.OBJECT_ID = 18143953 THEN '46'  -- Ghost node TYPE_ID override (PartLibrary icon)
+        ELSE TO_CHAR(cd.TYPE_ID)
+    END
 FROM DESIGN12.REL_COMMON r
 LEFT JOIN DESIGN12.COLLECTION_ c ON r.OBJECT_ID = c.OBJECT_ID
 LEFT JOIN DESIGN12.CLASS_DEFINITIONS cd ON c.CLASS_ID = cd.TYPE_ID
