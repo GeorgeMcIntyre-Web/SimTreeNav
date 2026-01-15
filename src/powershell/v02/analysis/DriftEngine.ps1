@@ -435,7 +435,7 @@ function Compare-DriftTrend {
 function Export-DriftJson {
     <#
     .SYNOPSIS
-        Exports drift report to JSON.
+        Exports drift report to JSON with deterministic ordering.
     #>
     param(
         [PSCustomObject]$DriftReport,
@@ -447,14 +447,161 @@ function Export-DriftJson {
         New-Item -ItemType Directory -Path $OutputPath -Force | Out-Null
     }
     
+    # Create deterministic output (no timestamp inside, sorted lists)
+    $deterministicReport = [PSCustomObject]@{
+        totalPairs        = $DriftReport.totalPairs
+        driftedPairs      = $DriftReport.driftedPairs
+        positionDrifted   = $DriftReport.positionDrifted
+        rotationDrifted   = $DriftReport.rotationDrifted
+        attributeDrifted  = $DriftReport.attributeDrifted
+        driftRate         = $DriftReport.driftRate
+        avgPositionDelta  = $DriftReport.avgPositionDelta
+        maxPositionDelta  = $DriftReport.maxPositionDelta
+        avgRotationDelta  = $DriftReport.avgRotationDelta
+        maxRotationDelta  = $DriftReport.maxRotationDelta
+        tolerances        = $DriftReport.tolerances
+        topDrifted        = $DriftReport.topDrifted | Sort-Object -Property severity -Descending | 
+            ForEach-Object { 
+                [PSCustomObject]@{
+                    sourceNodeId      = $_.sourceNodeId
+                    sourceName        = $_.sourceName
+                    targetNodeId      = $_.targetNodeId
+                    targetName        = $_.targetName
+                    relation          = $_.relation
+                    positionDelta_mm  = $_.positionDelta_mm
+                    rotationDelta_deg = $_.rotationDelta_deg
+                    severity          = $_.severity
+                    isOutOfTolerance  = $_.hasDrift
+                }
+            }
+        measurements      = $DriftReport.measurements | 
+            Sort-Object -Property severity -Descending |
+            Select-Object sourceNodeId, sourceName, targetNodeId, targetName, relation, `
+                positionDelta_mm, rotationDelta_deg, hasDrift, severity
+    }
+    
     $json = if ($Pretty) {
-        $DriftReport | ConvertTo-Json -Depth 10
+        $deterministicReport | ConvertTo-Json -Depth 10
     } else {
-        $DriftReport | ConvertTo-Json -Depth 10 -Compress
+        $deterministicReport | ConvertTo-Json -Depth 10 -Compress
     }
     
     $utf8NoBom = New-Object System.Text.UTF8Encoding $false
     [System.IO.File]::WriteAllText((Join-Path $OutputPath 'drift.json'), $json, $utf8NoBom)
+    
+    return (Join-Path $OutputPath 'drift.json')
+}
+
+function Build-DriftTrend {
+    <#
+    .SYNOPSIS
+        Builds drift trend data from a timeline of snapshots.
+    .DESCRIPTION
+        For each snapshot step in a timeline, computes:
+        - outOfTolCount
+        - maxDeltaMm
+        - maxDeltaDeg
+        - topStationPaths
+    #>
+    param(
+        [Parameter(Mandatory = $true)]
+        [array]$DriftReports,
+        
+        [Parameter(Mandatory = $true)]
+        [array]$Labels
+    )
+    
+    $trendEntries = @()
+    
+    for ($i = 0; $i -lt $DriftReports.Count; $i++) {
+        $report = $DriftReports[$i]
+        $label = if ($i -lt $Labels.Count) { $Labels[$i] } else { "Step_$i" }
+        
+        # Find top station paths from drifted items
+        $topStations = @()
+        if ($report.topDrifted) {
+            $topStations = $report.topDrifted | 
+                ForEach-Object { 
+                    if ($_.sourceName) { $_.sourceName } 
+                } | 
+                Select-Object -Unique -First 5
+        }
+        
+        $trendEntries += [PSCustomObject]@{
+            step              = $i
+            label             = $label
+            outOfTolCount     = $report.driftedPairs
+            totalPairs        = $report.totalPairs
+            driftRate         = $report.driftRate
+            maxDeltaMm        = $report.maxPositionDelta
+            maxDeltaDeg       = $report.maxRotationDelta
+            avgDeltaMm        = $report.avgPositionDelta
+            avgDeltaDeg       = $report.avgRotationDelta
+            topStationPaths   = $topStations
+        }
+    }
+    
+    return [PSCustomObject]@{
+        stepCount = $trendEntries.Count
+        entries   = $trendEntries
+        summary   = [PSCustomObject]@{
+            maxOutOfTol   = ($trendEntries | Measure-Object -Property outOfTolCount -Maximum).Maximum
+            minOutOfTol   = ($trendEntries | Measure-Object -Property outOfTolCount -Minimum).Minimum
+            avgOutOfTol   = [Math]::Round(($trendEntries | Measure-Object -Property outOfTolCount -Average).Average, 1)
+            maxDeltaMm    = ($trendEntries | Measure-Object -Property maxDeltaMm -Maximum).Maximum
+            maxDeltaDeg   = ($trendEntries | Measure-Object -Property maxDeltaDeg -Maximum).Maximum
+        }
+    }
+}
+
+function Export-DriftTrendJson {
+    <#
+    .SYNOPSIS
+        Exports drift trend to JSON.
+    #>
+    param(
+        [PSCustomObject]$DriftTrend,
+        [string]$OutputPath,
+        [switch]$Pretty
+    )
+    
+    if (-not (Test-Path $OutputPath)) {
+        New-Item -ItemType Directory -Path $OutputPath -Force | Out-Null
+    }
+    
+    $json = if ($Pretty) {
+        $DriftTrend | ConvertTo-Json -Depth 10
+    } else {
+        $DriftTrend | ConvertTo-Json -Depth 10 -Compress
+    }
+    
+    $utf8NoBom = New-Object System.Text.UTF8Encoding $false
+    [System.IO.File]::WriteAllText((Join-Path $OutputPath 'drift_trend.json'), $json, $utf8NoBom)
+    
+    return (Join-Path $OutputPath 'drift_trend.json')
+}
+
+function Get-DriftSeverity {
+    <#
+    .SYNOPSIS
+        Classifies drift severity based on tolerance multiples.
+    #>
+    param(
+        [double]$PositionDelta,
+        [double]$RotationDelta,
+        [hashtable]$Tolerances
+    )
+    
+    $posTol = if ($Tolerances.position_mm -gt 0) { $Tolerances.position_mm } else { 2.0 }
+    $rotTol = if ($Tolerances.rotation_deg -gt 0) { $Tolerances.rotation_deg } else { 0.5 }
+    
+    $posMultiple = $PositionDelta / $posTol
+    $rotMultiple = $RotationDelta / $rotTol
+    $maxMultiple = [Math]::Max($posMultiple, $rotMultiple)
+    
+    if ($maxMultiple -ge 10) { return 'Critical' }
+    if ($maxMultiple -ge 5) { return 'Warn' }
+    return 'Info'
 }
 
 # Export functions (when loaded as module)
@@ -468,6 +615,9 @@ if ($MyInvocation.MyCommand.ScriptBlock.Module) {
         'Measure-RotationDelta',
         'Measure-AttributeDelta',
         'Compare-DriftTrend',
-        'Export-DriftJson'
+        'Build-DriftTrend',
+        'Export-DriftJson',
+        'Export-DriftTrendJson',
+        'Get-DriftSeverity'
     )
 }

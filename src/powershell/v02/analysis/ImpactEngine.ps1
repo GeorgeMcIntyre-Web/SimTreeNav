@@ -527,7 +527,7 @@ function Get-ImpactForChanges {
 function Export-ImpactJson {
     <#
     .SYNOPSIS
-        Exports impact analysis to JSON.
+        Exports impact analysis to JSON with deterministic ordering.
     #>
     param(
         [PSCustomObject]$ImpactReport,
@@ -539,14 +539,119 @@ function Export-ImpactJson {
         New-Item -ItemType Directory -Path $OutputPath -Force | Out-Null
     }
     
+    # Ensure deterministic ordering - sort dependents by depth, nodeType, path, name, nodeId
+    $sortedReport = [PSCustomObject]@{
+        nodeId              = $ImpactReport.nodeId
+        nodeName            = $ImpactReport.nodeName
+        nodeType            = $ImpactReport.nodeType
+        path                = $ImpactReport.path
+        upstreamCount       = $ImpactReport.upstreamCount
+        downstreamCount     = $ImpactReport.downstreamCount
+        directDependents    = $ImpactReport.directDependents
+        transitiveDependents = $ImpactReport.transitiveDependents
+        maxDepth            = $ImpactReport.maxDepth
+        riskScore           = $ImpactReport.riskScore
+        riskLevel           = $ImpactReport.riskLevel
+        upstream            = $ImpactReport.upstream | Sort-Object depth, @{E={$_.nodeId}}
+        downstream          = $ImpactReport.downstream | Sort-Object depth, @{E={$_.nodeId}}
+        relatedTypes        = $ImpactReport.relatedTypes | Sort-Object nodeType
+    }
+    
     $json = if ($Pretty) {
-        $ImpactReport | ConvertTo-Json -Depth 10
+        $sortedReport | ConvertTo-Json -Depth 10
     } else {
-        $ImpactReport | ConvertTo-Json -Depth 10 -Compress
+        $sortedReport | ConvertTo-Json -Depth 10 -Compress
     }
     
     $utf8NoBom = New-Object System.Text.UTF8Encoding $false
     [System.IO.File]::WriteAllText((Join-Path $OutputPath 'impact.json'), $json, $utf8NoBom)
+    
+    return (Join-Path $OutputPath 'impact.json')
+}
+
+function Get-ImpactForNode {
+    <#
+    .SYNOPSIS
+        Gets impact analysis for a single node with deterministic output.
+    .DESCRIPTION
+        v0.5 API: Returns impact object with:
+        - rootNodeId, depth
+        - directDependents[] (depth 1)
+        - transitiveDependents[] (depth 2..N) with path
+        - upstreamReferences[]
+        - riskScore 0..100 and breakdown
+        - why[] strings listing top contributors
+    #>
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$NodeId,
+        
+        [Parameter(Mandatory = $true)]
+        [array]$Nodes,
+        
+        [int]$MaxDepth = 5,
+        
+        [int]$MaxNodes = 100
+    )
+    
+    $impact = Get-NodeImpact -NodeId $NodeId -Nodes $Nodes -MaxDepth $MaxDepth
+    if (-not $impact) { return $null }
+    
+    # Build v0.5 format with deterministic ordering
+    $directDeps = $impact.downstream | Where-Object { $_.depth -eq 1 } | 
+        Sort-Object @{E={$_.nodeId}} |
+        Select-Object -First $MaxNodes
+    
+    $transitiveDeps = $impact.downstream | Where-Object { $_.depth -gt 1 } | 
+        Sort-Object depth, @{E={$_.nodeId}} |
+        Select-Object -First $MaxNodes
+    
+    $upstreamRefs = $impact.upstream | 
+        Sort-Object depth, @{E={$_.nodeId}} |
+        Select-Object -First $MaxNodes
+    
+    # Build "why" breakdown
+    $why = @()
+    if ($impact.directDependents -gt 0) {
+        $why += "$($impact.directDependents) direct dependents"
+    }
+    if ($impact.transitiveDependents -gt 0) {
+        $why += "$($impact.transitiveDependents) transitive dependents (depth 2+)"
+    }
+    if ($impact.nodeType -in @('Station', 'ToolPrototype', 'Root')) {
+        $why += "High-criticality node type: $($impact.nodeType)"
+    }
+    if ($impact.riskLevel -in @('Critical', 'High')) {
+        $why += "Risk level: $($impact.riskLevel)"
+    }
+    
+    # Convert riskScore to 0..100
+    $riskScore100 = [int]($impact.riskScore * 100)
+    
+    return [PSCustomObject]@{
+        rootNodeId          = $impact.nodeId
+        nodeName            = $impact.nodeName
+        nodeType            = $impact.nodeType
+        path                = $impact.path
+        depth               = $impact.maxDepth
+        directDependents    = @($directDeps)
+        transitiveDependents = @($transitiveDeps)
+        upstreamReferences  = @($upstreamRefs)
+        riskScore           = $riskScore100
+        riskLevel           = $impact.riskLevel
+        breakdown           = [PSCustomObject]@{
+            dependentCountWeight = [Math]::Round($impact.downstreamCount / 100, 2)
+            nodeTypeWeight       = (Get-NodeCriticality -Node ([PSCustomObject]@{ nodeType = $impact.nodeType }))
+            criticalLinkWeight   = if ($impact.nodeType -eq 'ToolPrototype') { 0.9 } else { 0.5 }
+        }
+        why                 = $why
+        stats               = [PSCustomObject]@{
+            upstreamCount       = $impact.upstreamCount
+            downstreamCount     = $impact.downstreamCount
+            directCount         = $impact.directDependents
+            transitiveCount     = $impact.transitiveDependents
+        }
+    }
 }
 
 # Export functions (when loaded as module)
@@ -556,6 +661,7 @@ if ($MyInvocation.MyCommand.ScriptBlock.Module) {
         'Get-UpstreamDependencies',
         'Get-DownstreamDependents',
         'Get-NodeImpact',
+        'Get-ImpactForNode',
         'Get-ImpactForChanges',
         'Compute-RiskScore',
         'Get-NodeCriticality',
