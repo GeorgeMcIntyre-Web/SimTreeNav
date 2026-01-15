@@ -24,9 +24,12 @@ icons/
 
 # Temp files
 tmpclaude-*
+tmp-*.sql
+tmp-*.txt
 all-icons-hex-output.txt
 test-icon-hex-output.txt
 add-fallback-icons.ps1
+missing-icons-*.txt
 
 # Data directories
 data/
