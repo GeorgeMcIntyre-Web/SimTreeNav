@@ -45,3 +45,4 @@ snapshots/*
 !snapshots/.gitkeep
 !snapshots/_example/
 !snapshots/_example_diff/
+output/
