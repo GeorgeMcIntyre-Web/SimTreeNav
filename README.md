@@ -3,7 +3,7 @@
 [![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-blue)](https://github.com/PowerShell/PowerShell)
 [![Oracle](https://img.shields.io/badge/Oracle-12c-red)](https://www.oracle.com/database/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.3.5-brightgreen)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.5.0-brightgreen)](CHANGELOG.md)
 
 A PowerShell-based tree navigation and **intelligent change analysis** system for Siemens Process Simulation databases. Extracts, visualizes, snapshots, and tracks changes in hierarchical project structures with **identity-aware matching**, **intent detection**, **impact analysis**, and **offline viewer bundles**.
 
@@ -27,7 +27,7 @@ A PowerShell-based tree navigation and **intelligent change analysis** system fo
 - 📈 **Timeline** - Track changes over time with hot subtree analysis
 - 🎯 **Canonical Node Contract** - Consistent JSON schema across all node types
 
-### v0.3+ Features (NEW)
+### v0.3+ Features
 - 🔑 **Identity Resolution** - Stable node identity across DB rekeys with confidence scoring
 - 🔄 **Rekeyed Detection** - Detects when same logical node gets a new database ID
 - 📖 **Narrative Engine** - Groups raw changes into meaningful actions
@@ -42,6 +42,18 @@ A PowerShell-based tree navigation and **intelligent change analysis** system fo
 - 📚 **Explain Engine** - Generate documentation explaining node sources and relationships
 - 🎭 **Demo Mode** - Full demonstration without database (anonymized data generation)
 - 🗜️ **Compression** - Optional gzip compression for large snapshots
+
+### v0.4 Features (Commercial-grade packaging)
+- 📦 **ExportBundle++** - Enhanced offline bundles with BundleName, Range, Timeline support
+- 🎭 **Anonymization** - Stable deterministic pseudonyms (TP-####, TI-####, ST-####, etc.)
+- 📖 **DemoStory Mode** - 8-step narrative timeline with DEMO-TALK-TRACK.md generation
+- 📋 **manifest.json** - Bundle metadata and file listing
+
+### v0.5 Features (Intelligence Layer) - NEW
+- 💥 **ImpactMap v1** - Enhanced blast radius with riskScore 0..100 and breakdown
+- 📏 **DriftEngine v1** - Quality/divergence with tolerance classification (Info/Warn/Critical)
+- 📈 **Drift Trend** - drift_trend.json tracking across timeline steps
+- 🎯 **Deterministic Outputs** - Stable JSON ordering for impact.json and drift.json
 
 ## Quick Start
 
@@ -225,6 +237,85 @@ output/demo/
 
 # Bundle can be shared and opened offline in any browser
 ```
+
+### v0.4+ Commands (DemoStory & Anonymization)
+
+#### Generate Demo Story (Presentation-Ready)
+```powershell
+# Full demo with 8-step narrative timeline
+.\DemoStory.ps1 -NodeCount 500 -OutDir ./bundles/demo_v04
+
+# With anonymization for safe external sharing
+.\DemoStory.ps1 -NodeCount 500 -OutDir ./bundles/demo_anon -Anonymize -CreateZip
+
+# Custom story name
+.\DemoStory.ps1 -StoryName "Q4 Production Review" -NodeCount 300 -OutDir ./bundles/q4_review
+```
+
+Output:
+```
+bundles/demo_v04/
+├── index.html         # Self-contained offline viewer
+├── manifest.json      # Bundle metadata
+├── TALK-TRACK.md      # Speaker notes for presentation
+└── data/
+    ├── diff.json
+    ├── sessions.json
+    ├── intents.json
+    ├── impact.json
+    ├── drift.json
+    ├── compliance.json
+    ├── anomalies.json
+    └── timeline.json
+```
+
+Also generates `docs/DEMO-TALK-TRACK.md` with scene-by-scene presentation notes.
+
+#### Anonymization Pseudonyms
+| Node Type | Prefix | Example |
+|-----------|--------|---------|
+| ToolPrototype | TP- | TP-4821 |
+| ToolInstance | TI- | TI-3927 |
+| Station | ST- | ST-7184 |
+| Operation | OP- | OP-2956 |
+| Location | LOC- | LOC-8412 |
+| Resource | RSC- | RSC-1573 |
+
+### v0.5 Commands (ImpactMap & Drift)
+
+#### ImpactMap v1 (Blast Radius)
+```powershell
+# Get impact for a specific node
+$nodes = Get-Content ./snapshots/current/nodes.json | ConvertFrom-Json
+$impact = Get-ImpactForNode -NodeId 'N000002' -Nodes $nodes -MaxDepth 5
+
+# Returns:
+# - riskScore (0..100)
+# - directDependents[] (depth 1)
+# - transitiveDependents[] (depth 2..N)
+# - upstreamReferences[]
+# - breakdown: dependentCountWeight, nodeTypeWeight, criticalLinkWeight
+# - why[] (explanatory strings)
+```
+
+#### DriftEngine v1 (Quality/Divergence)
+```powershell
+# Measure drift between prototypes and instances
+$nodes = Get-Content ./snapshots/current/nodes.json | ConvertFrom-Json
+$drift = Measure-Drift -Nodes $nodes
+
+# Returns:
+# - totalPairs, driftedPairs, driftRate
+# - avgPositionDelta, maxPositionDelta (mm)
+# - avgRotationDelta, maxRotationDelta (deg)
+# - topDrifted[] with severity classification
+```
+
+#### Drift Tolerances
+| Metric | Default Tolerance | Severity Classification |
+|--------|-------------------|------------------------|
+| Position | 2.0 mm | Info (1-5x), Warn (5-10x), Critical (>10x) |
+| Rotation | 0.5 deg | Info (1-5x), Warn (5-10x), Critical (>10x) |
 
 #### Diff Change Types (v0.3)
 | Type | Description |
@@ -416,8 +507,12 @@ SimTreeNav/
 │   ├── IdentityResolver.Tests.ps1
 │   ├── WorkSession.Tests.ps1
 │   ├── ImpactEngine.Tests.ps1
+│   ├── ImpactGraph.Tests.ps1      # v0.5 blast radius tests
 │   ├── DriftEngine.Tests.ps1
-│   └── ComplianceEngine.Tests.ps1
+│   ├── DriftEngineV2.Tests.ps1    # v0.5 quality/divergence tests
+│   ├── ComplianceEngine.Tests.ps1
+│   ├── Anonymizer.Tests.ps1       # v0.4 anonymization tests
+│   └── ExportBundle.Tests.ps1     # v0.4 bundle tests
 ├── Demo.ps1                   # Full demo without database
 └── output/                    # Generated HTML trees & bundles
 ```
