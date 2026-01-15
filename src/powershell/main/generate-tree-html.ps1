@@ -525,6 +525,43 @@ WHERE EXISTS (
       )
   );
 
+-- TODO: Add Operation nodes (manufacturing operations like MOV_HOME, COMM_PICK01, etc.)
+-- ISSUE: Operations nest up to 28+ levels deep before reaching COLLECTION_ nodes
+-- Current hierarchical queries timeout or take 5+ minutes to execute
+-- 743,107 total operations in database, 99.7% have OPERATION_ parents (not COLLECTION_)
+-- Needs optimization: temp tables, materialized views, or iterative PowerShell approach
+--
+-- COMMENTED OUT TEMPORARILY - Tree viewer works without operations
+--
+-- WITH project_collections AS (
+--     SELECT c.OBJECT_ID
+--     FROM $Schema.REL_COMMON r
+--     INNER JOIN $Schema.COLLECTION_ c ON r.OBJECT_ID = c.OBJECT_ID
+--     START WITH r.FORWARD_OBJECT_ID = $ProjectId
+--     CONNECT BY NOCYCLE PRIOR r.OBJECT_ID = r.FORWARD_OBJECT_ID
+-- ),
+-- project_operations AS (
+--     SELECT DISTINCT rc.OBJECT_ID
+--     FROM $Schema.REL_COMMON rc
+--     START WITH rc.FORWARD_OBJECT_ID IN (SELECT OBJECT_ID FROM project_collections)
+--     CONNECT BY NOCYCLE PRIOR rc.OBJECT_ID = rc.FORWARD_OBJECT_ID
+-- )
+-- SELECT
+--     '999|' ||
+--     r.FORWARD_OBJECT_ID || '|' ||
+--     op.OBJECT_ID || '|' ||
+--     NVL(op.CAPTION_S_, NVL(op.NAME_S_, 'Unnamed Operation')) || '|' ||
+--     NVL(op.NAME_S_, 'Unnamed') || '|' ||
+--     NVL(op.EXTERNALID_S_, '') || '|' ||
+--     TO_CHAR(r.SEQ_NUMBER) || '|' ||
+--     NVL(cd.NAME, 'class Operation') || '|' ||
+--     NVL(cd.NICE_NAME, 'Operation') || '|' ||
+--     TO_CHAR(cd.TYPE_ID)
+-- FROM $Schema.OPERATION_ op
+-- INNER JOIN $Schema.REL_COMMON r ON op.OBJECT_ID = r.OBJECT_ID
+-- LEFT JOIN $Schema.CLASS_DEFINITIONS cd ON op.CLASS_ID = cd.TYPE_ID
+-- WHERE op.OBJECT_ID IN (SELECT OBJECT_ID FROM project_operations);
+
 -- Add children of RobcadStudy nodes from SHORTCUT_ table
 -- Shortcuts are link nodes that reference other objects in the tree
 -- Output: LEVEL|PARENT_ID|OBJECT_ID|CAPTION|NAME|EXTERNAL_ID|SEQ_NUMBER|CLASS_NAME|NICE_NAME|TYPE_ID

@@ -16,6 +16,11 @@ navigation-tree-*.html
 tree-viewer-config.json
 extracted-type-ids.json
 
+# Credentials (NEVER commit these!)
+config/.credentials/
+*.credentials.xml
+config/credential-config.json
+
 # Icons directory (generated)
 icons/
 

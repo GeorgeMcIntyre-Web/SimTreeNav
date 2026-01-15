@@ -1,0 +1,19 @@
+========================================
+Check if any ToolPrototypes are in FORD_DEARBORN project
+========================================
+	SELECT rc.FORWARD_OBJECT_ID
+        *
+ERROR at line 6:
+ORA-01788: CONNECT BY clause required in this query block
+
+
+
+========================================
+Sample ToolPrototypes in FORD_DEARBORN (if any)
+========================================
+	SELECT rc2.FORWARD_OBJECT_ID
+        *
+ERROR at line 6:
+ORA-01788: CONNECT BY clause required in this query block
+
+

@@ -7,7 +7,16 @@
       "Bash(powershell.exe:*)",
       "Bash(git add:*)",
       "Bash(FILTER_BRANCH_SQUELCH_WARNING=1 git filter-branch:*)",
-      "Bash(git commit -m \"$\\(cat <<''EOF''\nInitial commit: Siemens Process Simulation Tree Viewer\n\nComplete PowerShell-based tree navigation viewer for Siemens Process Simulation Oracle databases.\n\nFeatures:\n- Full hierarchical tree visualization with expand/collapse\n- Automatic icon extraction from database BLOBs \\(95+ icons\\)\n- Real-time search functionality\n- Multi-project support \\(DESIGN1-5 schemas\\)\n- Custom node ordering matching Siemens application\n- Interactive HTML output with embedded icons\n- Secure password prompting \\(no hardcoded credentials\\)\n\nProject structure:\n- Organized PowerShell scripts \\(main/utilities/database\\)\n- Categorized SQL queries \\(icon-extraction/tree-navigation/analysis\\)\n- Comprehensive documentation\n- Configuration templates\n- Automated Oracle client setup\n\nDocumentation includes:\n- Quick start guide\n- Oracle setup instructions\n- Database structure reference\n- Investigation notes and technical discoveries\n\nSecurity:\n- All passwords must be provided at runtime\n- No credentials stored in code or configuration files\n- Database connection details templated\n\nReady for immediate use with proper Oracle database access.\n\nCo-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>\nEOF\n\\)\")"
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nInitial commit: Siemens Process Simulation Tree Viewer\n\nComplete PowerShell-based tree navigation viewer for Siemens Process Simulation Oracle databases.\n\nFeatures:\n- Full hierarchical tree visualization with expand/collapse\n- Automatic icon extraction from database BLOBs \\(95+ icons\\)\n- Real-time search functionality\n- Multi-project support \\(DESIGN1-5 schemas\\)\n- Custom node ordering matching Siemens application\n- Interactive HTML output with embedded icons\n- Secure password prompting \\(no hardcoded credentials\\)\n\nProject structure:\n- Organized PowerShell scripts \\(main/utilities/database\\)\n- Categorized SQL queries \\(icon-extraction/tree-navigation/analysis\\)\n- Comprehensive documentation\n- Configuration templates\n- Automated Oracle client setup\n\nDocumentation includes:\n- Quick start guide\n- Oracle setup instructions\n- Database structure reference\n- Investigation notes and technical discoveries\n\nSecurity:\n- All passwords must be provided at runtime\n- No credentials stored in code or configuration files\n- Database connection details templated\n\nReady for immediate use with proper Oracle database access.\n\nCo-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(powershell -Command:*)",
+      "Bash(powershell -File:*)",
+      "Bash(git check-ignore:*)",
+      "Bash(powershell -ExecutionPolicy Bypass -Command \"Import-Module .\\\\src\\\\powershell\\\\utilities\\\\CredentialManager.ps1 -Force; $connStr = Get-DbConnectionString -TNSName ''DB01'' -AsSysDBA; $env:NLS_LANG = ''AMERICAN_AMERICA.UTF8''; sqlplus -S $connStr ''@verify-parent-relationship-fixed.sql'' | Out-File ''parent-verification-final.txt'' -Encoding UTF8; Get-Content ''parent-verification-final.txt''\")",
+      "Bash(if [ -f tree-data-test.txt ])",
+      "Bash(then echo \"=== File exists ===\")",
+      "Bash(else echo \"File not created yet\")",
+      "Bash(fi)",
+      "Bash(git commit:*)"
     ]
   }
 }
