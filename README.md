@@ -1,15 +1,17 @@
-# Siemens Process Simulation - Tree Viewer
+# SimTreeNav - Process Simulation Tree Viewer
 
 [![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-blue)](https://github.com/PowerShell/PowerShell)
 [![Oracle](https://img.shields.io/badge/Oracle-12c-red)](https://www.oracle.com/database/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![Version](https://img.shields.io/badge/version-0.2.0-brightgreen)](CHANGELOG.md)
 
-A PowerShell-based tree navigation viewer for Siemens Process Simulation databases. Extracts, visualizes, and navigates hierarchical project structures with full icon support.
+A PowerShell-based tree navigation and **change tracking** system for Siemens Process Simulation databases. Extracts, visualizes, snapshots, and tracks changes in hierarchical project structures.
 
 ![Tree Viewer Preview](docs/assets/tree-viewer-screenshot.png)
 
 ## Features
 
+### Core Features
 - 🌳 **Full Tree Navigation** - Complete hierarchical visualization of Process Simulation projects
 - 🎨 **Icon Extraction** - Automatic extraction and display of 95+ custom icons from database BLOB fields
 - 🔍 **Search Functionality** - Real-time search across all nodes
@@ -17,6 +19,13 @@ A PowerShell-based tree navigation viewer for Siemens Process Simulation databas
 - ⚡ **Interactive HTML** - Expand/collapse nodes, search, and navigate efficiently
 - 🔧 **Custom Ordering** - Matches Siemens application node ordering
 - 🚀 **Easy Setup** - Automated Oracle client installation and configuration
+
+### v0.2 Features (NEW)
+- 📸 **Snapshots** - Point-in-time captures of tree state in canonical JSON format
+- 🔄 **Diff Engine** - Compare snapshots to detect adds, removes, renames, moves, and attribute changes
+- 👁️ **Watch Mode** - Continuous monitoring with automatic change detection
+- 📈 **Timeline** - Track changes over time with hot subtree analysis
+- 🎯 **Canonical Node Contract** - Consistent JSON schema across all node types
 
 ## Quick Start
 
@@ -89,44 +98,178 @@ This will:
     -Schema "DESIGN12"
 ```
 
+### v0.2 Commands (Snapshots & Diffs)
+
+#### Create a Snapshot
+```powershell
+.\src\powershell\v02\SimTreeNav.ps1 `
+    -Mode Snapshot `
+    -TNSName "DB01" `
+    -Schema "DESIGN12" `
+    -ProjectId "18140190" `
+    -Label "baseline" `
+    -OutDir "./snapshots" `
+    -Pretty
+```
+
+Output:
+```
+snapshots/20260115_100000_baseline/
+├── nodes.json     # All nodes in canonical format
+└── meta.json      # Snapshot metadata
+```
+
+#### Compare Two Snapshots
+```powershell
+.\src\powershell\v02\SimTreeNav.ps1 `
+    -Mode Diff `
+    -BaselinePath "./snapshots/20260115_100000_baseline" `
+    -CurrentPath "./snapshots/20260115_110000_current" `
+    -DiffOutputPath "./diffs/diff_001" `
+    -GenerateHtml `
+    -Pretty
+```
+
+Output:
+```
+diffs/diff_001/
+├── diff.json      # Structured diff with all changes
+└── diff.html      # Human-readable diff report
+```
+
+#### Watch Mode (Continuous Monitoring)
+```powershell
+.\src\powershell\v02\SimTreeNav.ps1 `
+    -Mode Watch `
+    -TNSName "DB01" `
+    -Schema "DESIGN12" `
+    -ProjectId "18140190" `
+    -IntervalSeconds 300 `
+    -MaxSnapshots 100
+```
+
+This will:
+- Take a snapshot every 5 minutes
+- Compare each snapshot to the previous
+- Generate timeline.json with change history
+- Auto-cleanup old snapshots (keep last 100)
+
+### Canonical Node Contract
+
+All nodes follow a consistent JSON schema:
+
+```json
+{
+  "nodeId": "18140190",
+  "nodeType": "ResourceGroup",
+  "name": "FORD_DEARBORN",
+  "parentId": null,
+  "path": "/FORD_DEARBORN",
+  "attributes": {
+    "externalId": "PP-...",
+    "className": "class PmProject",
+    "niceName": "Project",
+    "typeId": 1
+  },
+  "fingerprints": {
+    "contentHash": "a1b2c3d4e5f67890",
+    "attributeHash": "...",
+    "transformHash": null
+  },
+  "source": {
+    "table": "COLLECTION_",
+    "schema": "DESIGN12"
+  }
+}
+```
+
+**Node Types:**
+- `ResourceGroup` - Stations, lines, cells, compound resources
+- `ToolPrototype` - Tool definitions
+- `ToolInstance` - Robots, equipment, devices
+- `OperationGroup` - Studies, compound operations
+- `Operation` - Weld, move, pick operations
+- `Location` - Locations, shortcuts
+- `MfgEntity` - Manufacturing definitions
+- `PanelEntity` - Parts, assemblies
+
+**Diff Change Types:**
+- `added` - New nodes
+- `removed` - Deleted nodes
+- `renamed` - Name changed (same nodeId)
+- `moved` - Parent changed (same nodeId)
+- `attribute_changed` - Metadata changed
+- `transform_changed` - Location/pose changed
+
 ## Project Structure
 
 ```
-PsSchemaBug/
-├── src/
-│   └── powershell/
-│       ├── main/              # Core application scripts
-│       ├── utilities/         # Helper utilities
-│       └── database/          # Database connection & setup
+SimTreeNav/
+├── src/powershell/
+│   ├── main/                  # Core application scripts
+│   │   ├── generate-tree-html.ps1
+│   │   ├── tree-viewer-launcher.ps1
+│   │   └── extract-icons-hex.ps1
+│   ├── utilities/             # Helper modules
+│   │   ├── CredentialManager.ps1
+│   │   └── PCProfileManager.ps1
+│   ├── database/              # Database connection & setup
+│   └── v02/                   # v0.2 Snapshot & Diff (NEW)
+│       ├── SimTreeNav.ps1     # Main entry point
+│       ├── core/
+│       │   └── NodeContract.ps1
+│       ├── snapshot/
+│       │   └── New-Snapshot.ps1
+│       └── diff/
+│           └── Compare-Snapshots.ps1
 ├── docs/
-│   ├── QUICK-START-GUIDE.md   # Detailed getting started guide
-│   ├── README-ORACLE-SETUP.md # Oracle setup instructions
+│   ├── PRODUCT-VISION.md      # Full product vision & roadmap
+│   ├── QUICK-START-GUIDE.md
 │   ├── DATABASE-STRUCTURE-SUMMARY.md
-│   ├── investigation/         # Technical discoveries
-│   └── api/                   # Query examples & API docs
+│   └── investigation/
 ├── config/
-│   ├── database-servers.json  # Database server configuration
-│   ├── tree-viewer-config.json # Application settings
-│   └── tnsnames.ora.template  # Oracle TNS template
-├── data/
-│   ├── icons/                 # Extracted BMP icons (generated)
-│   └── output/                # Generated HTML trees (generated)
-├── queries/
-│   ├── icon-extraction/       # Icon-related queries
-│   ├── tree-navigation/       # Tree traversal queries
-│   ├── analysis/              # Database analysis queries
-│   └── investigation/         # Research queries
-└── tests/                     # Test files and outputs
+│   ├── simtreenav.config.json # v0.2 configuration
+│   └── tnsnames.ora.template
+├── snapshots/                 # Snapshot output (generated)
+│   └── _example/              # Example snapshot format
+├── queries/                   # SQL scripts by function
+├── tests/                     # Pester tests
+│   └── DiffEngine.Tests.ps1
+└── output/                    # Generated HTML trees
 ```
 
 ## Documentation
 
 - **[Quick Start Guide](docs/QUICK-START-GUIDE.md)** - Comprehensive getting started guide
+- **[Product Vision](docs/PRODUCT-VISION.md)** - Full product vision and roadmap
 - **[Oracle Setup](docs/README-ORACLE-SETUP.md)** - Oracle Instant Client installation and configuration
 - **[Database Structure](docs/DATABASE-STRUCTURE-SUMMARY.md)** - Schema and table reference
 - **[Icon Extraction](docs/investigation/ICON-EXTRACTION-SUCCESS.md)** - How icon extraction works
 - **[Custom Ordering](docs/investigation/CUSTOM-ORDERING-SOLUTION.md)** - Node ordering implementation
 - **[Query Examples](docs/api/QUERY-EXAMPLES.md)** - SQL query reference
+
+## Testing
+
+Run the Pester tests for the diff engine:
+
+```powershell
+# Install Pester if not available
+Install-Module -Name Pester -Force -SkipPublisherCheck
+
+# Run all tests
+Invoke-Pester -Path .\tests\
+
+# Run specific test file with verbose output
+Invoke-Pester -Path .\tests\DiffEngine.Tests.ps1 -Output Detailed
+```
+
+**Test Coverage:**
+- Node contract creation and validation
+- Content/attribute/transform hash stability
+- Pipe-delimited parsing
+- Node type classification
+- Path computation
+- Diff detection (add, remove, rename, move)
 
 ## Key Features Explained
 

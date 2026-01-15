@@ -20,6 +20,7 @@ extracted-type-ids.json
 config/.credentials/
 *.credentials.xml
 config/credential-config.json
+config/pc-profiles.json
 
 # Icons directory (generated)
 icons/
@@ -35,6 +36,12 @@ add-fallback-icons.ps1
 
 # Data directories
 data/
-config/
-tests/
+
+# TNS configuration (site-specific)
 tnsnames.ora
+
+# Snapshot output (keep examples, ignore generated)
+snapshots/*
+!snapshots/.gitkeep
+!snapshots/_example/
+!snapshots/_example_diff/

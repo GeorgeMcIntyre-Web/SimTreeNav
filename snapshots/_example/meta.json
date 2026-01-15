@@ -1,0 +1,19 @@
+{
+  "version": "0.2.0",
+  "timestamp": "2026-01-15T10:00:00.000Z",
+  "label": "example",
+  "source": {
+    "tnsName": "DB01",
+    "schema": "DESIGN12",
+    "projectId": "18140190",
+    "projectName": "FORD_DEARBORN"
+  },
+  "stats": {
+    "totalNodes": 3,
+    "nodeTypes": [
+      { "type": "ResourceGroup", "count": 3 }
+    ]
+  },
+  "queryVersion": "1.0",
+  "deterministic": true
+}
