@@ -2,18 +2,26 @@
 param(
     [Parameter(Mandatory=$true)]
     [string]$TNSName,
-    
+
     [Parameter(Mandatory=$true)]
     [string]$Schema,
-    
+
     [Parameter(Mandatory=$true)]
     [string]$ProjectId,
-    
+
     [Parameter(Mandatory=$true)]
     [string]$ProjectName,
-    
+
     [string]$OutputFile = "navigation-tree.html"
 )
+
+# Import credential manager
+$credManagerPath = Join-Path $PSScriptRoot "..\utilities\CredentialManager.ps1"
+if (Test-Path $credManagerPath) {
+    Import-Module $credManagerPath -Force
+} else {
+    Write-Warning "Credential manager not found. Falling back to default password."
+}
 
 Write-Host "Generating tree for:" -ForegroundColor Yellow
 Write-Host "  TNS Name: $TNSName" -ForegroundColor Cyan
@@ -62,7 +70,13 @@ $env:NLS_LANG = "AMERICAN_AMERICA.UTF8"
 
 # Run the query
 Write-Host "  Running SQL query..." -ForegroundColor Gray
-$result = sqlplus -S sys/change_on_install@$TNSName AS SYSDBA "@$extractIconsFile" 2>&1
+try {
+    $connectionString = Get-DbConnectionString -TNSName $TNSName -AsSysDBA -ErrorAction Stop
+} catch {
+    Write-Warning "Failed to get credentials, using default"
+    $connectionString = "sys/change_on_install@$TNSName AS SYSDBA"
+}
+$result = sqlplus -S $connectionString "@$extractIconsFile" 2>&1
 $result | Out-File $iconsOutputFile -Encoding UTF8
 
 # Read and parse all icons - store in memory as Base64
@@ -419,6 +433,98 @@ WHERE EXISTS (
       )
   );
 
+-- Add ToolPrototype nodes (equipment, layouts, units, etc.)
+-- ToolPrototypes use REL_COMMON for parent relationships (not COLLECTIONS_VR_)
+-- Output: LEVEL|PARENT_ID|OBJECT_ID|CAPTION|NAME|EXTERNAL_ID|SEQ_NUMBER|CLASS_NAME|NICE_NAME|TYPE_ID
+SELECT
+    '999|' ||
+    r.FORWARD_OBJECT_ID || '|' ||
+    tp.OBJECT_ID || '|' ||
+    NVL(tp.CAPTION_S_, NVL(tp.NAME_S_, 'Unnamed Tool')) || '|' ||
+    NVL(tp.NAME_S_, 'Unnamed') || '|' ||
+    NVL(tp.EXTERNALID_S_, '') || '|' ||
+    TO_CHAR(r.SEQ_NUMBER) || '|' ||
+    NVL(cd.NAME, 'class ToolPrototype') || '|' ||
+    NVL(cd.NICE_NAME, 'ToolPrototype') || '|' ||
+    TO_CHAR(cd.TYPE_ID)
+FROM $Schema.TOOLPROTOTYPE_ tp
+INNER JOIN $Schema.REL_COMMON r ON tp.OBJECT_ID = r.OBJECT_ID
+LEFT JOIN $Schema.CLASS_DEFINITIONS cd ON tp.CLASS_ID = cd.TYPE_ID
+WHERE EXISTS (
+    SELECT 1 FROM $Schema.REL_COMMON r2
+    INNER JOIN $Schema.COLLECTION_ c2 ON r2.OBJECT_ID = c2.OBJECT_ID
+    WHERE c2.OBJECT_ID = r.FORWARD_OBJECT_ID
+      AND c2.OBJECT_ID IN (
+        SELECT c3.OBJECT_ID
+        FROM $Schema.REL_COMMON r3
+        INNER JOIN $Schema.COLLECTION_ c3 ON r3.OBJECT_ID = c3.OBJECT_ID
+        START WITH r3.FORWARD_OBJECT_ID = $ProjectId
+        CONNECT BY NOCYCLE PRIOR r3.OBJECT_ID = r3.FORWARD_OBJECT_ID
+      )
+  );
+
+-- Add ToolInstanceAspect nodes (instances attached to other objects)
+-- Tool instances use ATTACHEDTO_SR_ for parent relationships
+-- Output: LEVEL|PARENT_ID|OBJECT_ID|CAPTION|NAME|EXTERNAL_ID|SEQ_NUMBER|CLASS_NAME|NICE_NAME|TYPE_ID
+SELECT
+    '999|' ||
+    ti.ATTACHEDTO_SR_ || '|' ||
+    ti.OBJECT_ID || '|' ||
+    'Tool Instance' || '|' ||
+    'Tool Instance' || '|' ||
+    '' || '|' ||
+    '0|' ||
+    NVL(cd.NAME, 'class ToolInstanceAspect') || '|' ||
+    NVL(cd.NICE_NAME, 'ToolInstanceAspect') || '|' ||
+    TO_CHAR(cd.TYPE_ID)
+FROM $Schema.TOOLINSTANCEASPECT_ ti
+LEFT JOIN $Schema.CLASS_DEFINITIONS cd ON ti.CLASS_ID = cd.TYPE_ID
+WHERE ti.OBJECT_ID IS NOT NULL
+  AND ti.ATTACHEDTO_SR_ IS NOT NULL
+  AND EXISTS (
+    SELECT 1 FROM $Schema.REL_COMMON r
+    INNER JOIN $Schema.COLLECTION_ c ON r.OBJECT_ID = c.OBJECT_ID
+    WHERE c.OBJECT_ID = ti.ATTACHEDTO_SR_
+      AND c.OBJECT_ID IN (
+        SELECT c2.OBJECT_ID
+        FROM $Schema.REL_COMMON r2
+        INNER JOIN $Schema.COLLECTION_ c2 ON r2.OBJECT_ID = c2.OBJECT_ID
+        START WITH r2.FORWARD_OBJECT_ID = $ProjectId
+        CONNECT BY NOCYCLE PRIOR r2.OBJECT_ID = r2.FORWARD_OBJECT_ID
+      )
+  );
+
+-- Add Resource nodes (robots, equipment, cables, etc. - instances under CompoundResource)
+-- Resources use REL_COMMON for parent relationships, same as other nodes
+-- These are the actual robot/equipment instances visible in the Siemens UI
+-- Output: LEVEL|PARENT_ID|OBJECT_ID|CAPTION|NAME|EXTERNAL_ID|SEQ_NUMBER|CLASS_NAME|NICE_NAME|TYPE_ID
+SELECT
+    '999|' ||
+    r.FORWARD_OBJECT_ID || '|' ||
+    res.OBJECT_ID || '|' ||
+    NVL(res.CAPTION_S_, NVL(res.NAME_S_, 'Unnamed Resource')) || '|' ||
+    NVL(res.NAME_S_, 'Unnamed') || '|' ||
+    NVL(res.EXTERNALID_S_, '') || '|' ||
+    TO_CHAR(r.SEQ_NUMBER) || '|' ||
+    NVL(cd.NAME, 'class Resource') || '|' ||
+    NVL(cd.NICE_NAME, 'Resource') || '|' ||
+    TO_CHAR(cd.TYPE_ID)
+FROM $Schema.RESOURCE_ res
+INNER JOIN $Schema.REL_COMMON r ON res.OBJECT_ID = r.OBJECT_ID
+LEFT JOIN $Schema.CLASS_DEFINITIONS cd ON res.CLASS_ID = cd.TYPE_ID
+WHERE EXISTS (
+    SELECT 1 FROM $Schema.REL_COMMON r2
+    INNER JOIN $Schema.COLLECTION_ c2 ON r2.OBJECT_ID = c2.OBJECT_ID
+    WHERE c2.OBJECT_ID = r.FORWARD_OBJECT_ID
+      AND c2.OBJECT_ID IN (
+        SELECT c3.OBJECT_ID
+        FROM $Schema.REL_COMMON r3
+        INNER JOIN $Schema.COLLECTION_ c3 ON r3.OBJECT_ID = c3.OBJECT_ID
+        START WITH r3.FORWARD_OBJECT_ID = $ProjectId
+        CONNECT BY NOCYCLE PRIOR r3.OBJECT_ID = r3.FORWARD_OBJECT_ID
+      )
+  );
+
 -- Add children of RobcadStudy nodes from SHORTCUT_ table
 -- Shortcuts are link nodes that reference other objects in the tree
 -- Output: LEVEL|PARENT_ID|OBJECT_ID|CAPTION|NAME|EXTERNAL_ID|SEQ_NUMBER|CLASS_NAME|NICE_NAME|TYPE_ID
@@ -536,7 +642,13 @@ $env:NLS_LANG = "AMERICAN_AMERICA.UTF8"
 $tempOutputFile = "tree-data-${Schema}-${ProjectId}-raw.txt"
 
 # Run SQL*Plus directly (simpler, more reliable)
-$result = sqlplus -S sys/change_on_install@$TNSName AS SYSDBA "@$sqlFile" 2>&1
+try {
+    $connectionString = Get-DbConnectionString -TNSName $TNSName -AsSysDBA -ErrorAction Stop
+} catch {
+    Write-Warning "Failed to get credentials, using default"
+    $connectionString = "sys/change_on_install@$TNSName AS SYSDBA"
+}
+$result = sqlplus -S $connectionString "@$sqlFile" 2>&1
 $result | Out-File $tempOutputFile -Encoding UTF8
 
 # Clean the data and convert to UTF-8
@@ -601,7 +713,13 @@ EXIT;
 $userActivityFile = Join-Path $env:TEMP "get-user-activity-${Schema}-${ProjectId}.sql"
 [System.IO.File]::WriteAllText($userActivityFile, $userActivitySql, $utf8NoBom)
 
-$userActivityResult = & sqlplus -S "sys/change_on_install@$TNSName AS SYSDBA" "@$userActivityFile" 2>&1
+try {
+    $connectionString = Get-DbConnectionString -TNSName $TNSName -AsSysDBA -ErrorAction Stop
+} catch {
+    Write-Warning "Failed to get credentials, using default"
+    $connectionString = "sys/change_on_install@$TNSName AS SYSDBA"
+}
+$userActivityResult = & sqlplus -S $connectionString "@$userActivityFile" 2>&1
 
 # Parse into JavaScript object
 $userActivityJs = "const userActivity = {"

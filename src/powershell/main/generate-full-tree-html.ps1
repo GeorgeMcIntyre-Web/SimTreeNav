@@ -491,8 +491,16 @@ $htmlTemplate = @'
                 if (!nodes[objectId]) {
                     // PREFER icon from database (extracted as icon_TYPEID.bmp) if available, otherwise use NICE_NAME mapping
                     let iconFile = '';
-                    // Check if we have an extracted icon file for this TYPE_ID
-                    if (typeId > 0) {
+                    // Special handling for nodes with poor/missing DB icons
+                    if (typeId === 164 || typeId === 72 || typeId === 177) {
+                        // These TYPE_IDs have length 0 in DF_ICONS_DATA (missing or generic icons)
+                        // Prefer class-specific icon instead of generic DB icon
+                        iconFile = getIconForClass(className, caption, niceName);
+                        if (level <= 1) {
+                            console.log(`[ICON DEBUG] Node: "${caption}" | TYPE_ID: ${typeId} | Using class icon (DB missing): ${iconFile}`);
+                        }
+                    } else if (typeId > 0) {
+                        // Normal case - use database icon
                         const dbIconFile = `icon_${typeId}.bmp`;
                         // Note: We can't check file existence in JavaScript, so we'll try it and fallback on error
                         iconFile = dbIconFile;
