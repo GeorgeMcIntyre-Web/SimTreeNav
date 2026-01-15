@@ -635,14 +635,16 @@ function Export-NarrativeReport {
     }
 }
 
-# Export functions
-Export-ModuleMember -Function @(
-    'Invoke-NarrativeAnalysis',
-    'Get-NarrativeSummary',
-    'Export-NarrativeReport',
-    'New-NarrativeAction',
-    'Detect-BulkPasteCluster',
-    'Detect-StationReorganization',
-    'Detect-RetaughtLocations',
-    'Detect-ToolingChanges'
-)
+# Export functions (when loaded as module)
+if ($MyInvocation.MyCommand.ScriptBlock.Module) {
+    Export-ModuleMember -Function @(
+        'Invoke-NarrativeAnalysis',
+        'Get-NarrativeSummary',
+        'Export-NarrativeReport',
+        'New-NarrativeAction',
+        'Detect-BulkPasteCluster',
+        'Detect-StationReorganization',
+        'Detect-RetaughtLocations',
+        'Detect-ToolingChanges'
+    )
+}

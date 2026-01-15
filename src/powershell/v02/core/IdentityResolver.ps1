@@ -494,14 +494,16 @@ function Set-IdentityResolverConfig {
     }
 }
 
-# Export functions
-Export-ModuleMember -Function @(
-    'Get-LogicalId',
-    'Get-IdentitySignature',
-    'Compare-IdentitySignatures',
-    'Resolve-NodeIdentities',
-    'Find-MatchingNode',
-    'Build-IdentityMap',
-    'Get-IdentityResolverConfig',
-    'Set-IdentityResolverConfig'
-)
+# Export functions (when loaded as module)
+if ($MyInvocation.MyCommand.ScriptBlock.Module) {
+    Export-ModuleMember -Function @(
+        'Get-LogicalId',
+        'Get-IdentitySignature',
+        'Compare-IdentitySignatures',
+        'Resolve-NodeIdentities',
+        'Find-MatchingNode',
+        'Build-IdentityMap',
+        'Get-IdentityResolverConfig',
+        'Set-IdentityResolverConfig'
+    )
+}

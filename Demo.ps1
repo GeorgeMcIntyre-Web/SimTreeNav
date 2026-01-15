@@ -1,57 +1,74 @@
 # Demo.ps1
-# SimTreeNav v0.3 Demo - Runs without database using generated anonymized data
-# Demonstrates: Snapshots, Identity Resolution, Diff, Narrative Analysis
+# SimTreeNav v0.3+ Demo - Full feature demonstration without database
+# Demonstrates: All analysis engines, identity resolution, offline bundle
 
 <#
 .SYNOPSIS
-    Demonstrates SimTreeNav v0.3 features without requiring a database.
+    Demonstrates all SimTreeNav v0.3+ features without requiring a database.
 
 .DESCRIPTION
     This script:
-    1. Generates an anonymized baseline snapshot
-    2. Applies realistic mutations (renames, moves, adds, deletes, rekeys)
-    3. Runs the diff engine with identity resolution
-    4. Produces narrative analysis
-    5. Opens the HTML reports in browser
+    1. Generates an anonymized baseline snapshot with realistic structure
+    2. Applies mutations (renames, moves, adds, deletes, rekeys, transforms)
+    3. Runs identity-aware diff engine
+    4. Groups changes into work sessions
+    5. Detects intents (retouching, restructure, bulk paste, etc.)
+    6. Computes impact/blast radius
+    7. Measures drift between pairs
+    8. Checks compliance against golden template
+    9. Detects anomalies
+    10. Creates offline viewer bundle
+    11. Opens HTML reports in browser
 
 .EXAMPLE
     .\Demo.ps1
 
 .EXAMPLE
-    .\Demo.ps1 -NodeCount 500 -MutationRate 0.1
+    .\Demo.ps1 -NodeCount 500 -MutationRate 0.2 -CreateBundle
 #>
 
 [CmdletBinding()]
 param(
-    [int]$NodeCount = 150,
+    [int]$NodeCount = 200,
     [double]$MutationRate = 0.15,
     [switch]$NoOpen,
-    [switch]$Verbose
+    [switch]$CreateBundle,
+    [switch]$VerboseOutput
 )
 
 $ErrorActionPreference = 'Stop'
 $scriptRoot = $PSScriptRoot
 
-# Import modules
+# Import all modules
+Write-Host "Loading modules..." -ForegroundColor Cyan
 . "$scriptRoot\src\powershell\v02\core\NodeContract.ps1"
 . "$scriptRoot\src\powershell\v02\core\IdentityResolver.ps1"
 . "$scriptRoot\src\powershell\v02\diff\Compare-Snapshots.ps1"
 . "$scriptRoot\src\powershell\v02\narrative\NarrativeEngine.ps1"
+. "$scriptRoot\src\powershell\v02\analysis\WorkSessionEngine.ps1"
+. "$scriptRoot\src\powershell\v02\analysis\IntentEngine.ps1"
+. "$scriptRoot\src\powershell\v02\analysis\ImpactEngine.ps1"
+. "$scriptRoot\src\powershell\v02\analysis\DriftEngine.ps1"
+. "$scriptRoot\src\powershell\v02\analysis\ComplianceEngine.ps1"
+. "$scriptRoot\src\powershell\v02\analysis\SimilarityEngine.ps1"
+. "$scriptRoot\src\powershell\v02\analysis\AnomalyEngine.ps1"
+. "$scriptRoot\src\powershell\v02\analysis\ExplainEngine.ps1"
+. "$scriptRoot\src\powershell\v02\export\ExportBundle.ps1"
 
 # Demo configuration
 $demoConfig = @{
-    ProjectName = 'DEMO_PROJECT'
-    Stations = @('Station_A', 'Station_B', 'Station_C', 'Station_D')
-    ToolTypes = @('WeldGun', 'Gripper', 'Fixture', 'Clamp', 'Sensor')
-    OperationTypes = @('Pick', 'Place', 'Weld', 'Move', 'Wait', 'Signal')
+    ProjectName    = 'DEMO_PROJECT'
+    Stations       = @('Station_Alpha', 'Station_Beta', 'Station_Gamma', 'Station_Delta')
+    ToolTypes      = @('WeldGun', 'Gripper', 'Fixture', 'Clamp', 'Sensor', 'Camera')
+    OperationTypes = @('Pick', 'Place', 'Weld', 'Move', 'Wait', 'Signal', 'Inspect')
 }
 
 function Show-DemoBanner {
     Write-Host ""
     Write-Host "  ╔═══════════════════════════════════════════════════════════════╗" -ForegroundColor Magenta
     Write-Host "  ║                                                               ║" -ForegroundColor Magenta
-    Write-Host "  ║   SimTreeNav v0.3 Demo                                        ║" -ForegroundColor Magenta
-    Write-Host "  ║   Identity Resolution + Narrative Analysis                    ║" -ForegroundColor Magenta
+    Write-Host "  ║   SimTreeNav v0.3+ Full Demo                                  ║" -ForegroundColor Magenta
+    Write-Host "  ║   All Analysis Engines + Offline Bundle                       ║" -ForegroundColor Magenta
     Write-Host "  ║                                                               ║" -ForegroundColor Magenta
     Write-Host "  ╚═══════════════════════════════════════════════════════════════╝" -ForegroundColor Magenta
     Write-Host ""
@@ -61,402 +78,399 @@ function New-DemoNode {
     param(
         [string]$NodeId,
         [string]$Name,
-        [string]$ParentId,
-        [string]$Path,
         [string]$NodeType,
-        [string]$ClassName,
-        [string]$ExternalId = ''
+        [string]$ParentId = $null,
+        [string]$Path = '/',
+        [hashtable]$Attributes = @{},
+        [hashtable]$Links = $null,
+        [string]$Transform = $null
     )
     
-    $contentHash = Get-ContentHash -Name $Name -ExternalId $ExternalId -ClassName $ClassName
+    $externalId = "PP-$(([guid]::NewGuid()).ToString())"
     
     [PSCustomObject]@{
         nodeId      = $NodeId
-        nodeType    = $NodeType
         name        = $Name
+        nodeType    = $NodeType
         parentId    = $ParentId
         path        = $Path
         attributes  = [PSCustomObject]@{
-            externalId  = $ExternalId
-            className   = $ClassName
-            niceName    = $NodeType
-            typeId      = [int]($NodeId.Substring($NodeId.Length - 2))
-            seqNumber   = 0
-            level       = ($Path -split '/').Count - 1
+            externalId = $externalId
+            className  = "$NodeType`Class"
+            niceName   = $Name
+            typeId     = Get-Random -Minimum 1 -Maximum 200
         }
-        links       = [PSCustomObject]@{}
+        links       = if ($Links) { [PSCustomObject]$Links } else { $null }
+        transform   = if ($Transform) { $Transform } else { "$(Get-Random -Minimum -1000 -Maximum 1000),$(Get-Random -Minimum -1000 -Maximum 1000),$(Get-Random -Minimum 0 -Maximum 500),$(Get-Random -Minimum 0 -Maximum 360),$(Get-Random -Minimum 0 -Maximum 360),$(Get-Random -Minimum 0 -Maximum 360)" }
         fingerprints = [PSCustomObject]@{
-            contentHash   = $contentHash
-            attributeHash = $null
-            transformHash = $null
+            contentHash   = ([guid]::NewGuid()).ToString().Substring(0, 16)
+            attributeHash = ([guid]::NewGuid()).ToString().Substring(0, 16)
+            transformHash = ([guid]::NewGuid()).ToString().Substring(0, 16)
         }
-        timestamps  = [PSCustomObject]@{
-            createdAt     = $null
-            updatedAt     = $null
-            lastTouchedAt = $null
-        }
+        identity    = $null
         source      = [PSCustomObject]@{
-            table     = 'DEMO'
-            query     = 'generated'
-            schema    = 'DEMO'
+            table = "DF_DEMO_$NodeType`_DATA"
+            extractedAt = (Get-Date).ToUniversalTime().ToString('o')
         }
     }
 }
 
-function New-RandomUuid {
-    $guid = [guid]::NewGuid().ToString()
-    "PP-$guid"
-}
-
-function Generate-BaselineSnapshot {
-    param([int]$TargetCount)
-    
-    Write-Host "  Generating baseline snapshot with ~$TargetCount nodes..." -ForegroundColor Cyan
+function New-DemoDataset {
+    param(
+        [int]$NodeCount,
+        [hashtable]$Config
+    )
     
     $nodes = @()
-    $nodeIdCounter = 1000000
+    $nodeIndex = 1
     
-    # Root project
-    $projectId = "$nodeIdCounter"
-    $nodes += New-DemoNode `
-        -NodeId $projectId `
-        -Name $demoConfig.ProjectName `
-        -ParentId $null `
-        -Path "/$($demoConfig.ProjectName)" `
-        -NodeType 'ResourceGroup' `
-        -ClassName 'class PmProject' `
-        -ExternalId (New-RandomUuid)
-    $nodeIdCounter++
+    # Create root
+    $root = New-DemoNode -NodeId "N$($nodeIndex.ToString('D6'))" -Name $Config.ProjectName -NodeType 'Root' -Path "/$($Config.ProjectName)"
+    $nodes += $root
+    $nodeIndex++
     
-    # Calculate nodes per station
-    $nodesPerStation = [Math]::Floor(($TargetCount - 1) / $demoConfig.Stations.Count)
-    
-    foreach ($stationName in $demoConfig.Stations) {
-        # Station node
-        $stationId = "$nodeIdCounter"
-        $stationPath = "/$($demoConfig.ProjectName)/$stationName"
-        $nodes += New-DemoNode `
-            -NodeId $stationId `
-            -Name $stationName `
-            -ParentId $projectId `
-            -Path $stationPath `
-            -NodeType 'ResourceGroup' `
-            -ClassName 'class PmStation' `
-            -ExternalId (New-RandomUuid)
-        $nodeIdCounter++
-        
-        # Resources under station
-        $resourcesPerStation = [Math]::Floor($nodesPerStation * 0.3)
-        for ($r = 1; $r -le $resourcesPerStation; $r++) {
-            $toolType = $demoConfig.ToolTypes[$r % $demoConfig.ToolTypes.Count]
-            $resourceName = "${toolType}_${stationName}_$($r.ToString('D2'))"
-            $resourceId = "$nodeIdCounter"
-            
-            $nodes += New-DemoNode `
-                -NodeId $resourceId `
-                -Name $resourceName `
-                -ParentId $stationId `
-                -Path "$stationPath/$resourceName" `
-                -NodeType 'ToolInstance' `
-                -ClassName 'class Robot' `
-                -ExternalId (New-RandomUuid)
-            $nodeIdCounter++
-        }
-        
-        # Operations under station
-        $opsPerStation = [Math]::Floor($nodesPerStation * 0.6)
-        for ($o = 1; $o -le $opsPerStation; $o++) {
-            $opType = $demoConfig.OperationTypes[$o % $demoConfig.OperationTypes.Count]
-            $opName = "${opType}_$($o.ToString('D3'))"
-            $opId = "$nodeIdCounter"
-            
-            $nodes += New-DemoNode `
-                -NodeId $opId `
-                -Name $opName `
-                -ParentId $stationId `
-                -Path "$stationPath/$opName" `
-                -NodeType 'Operation' `
-                -ClassName "class ${opType}Operation" `
-                -ExternalId (New-RandomUuid)
-            $nodeIdCounter++
-        }
+    # Create tool prototypes
+    $protoIds = @{}
+    foreach ($toolType in $Config.ToolTypes) {
+        $protoId = "N$($nodeIndex.ToString('D6'))"
+        $proto = New-DemoNode `
+            -NodeId $protoId `
+            -Name "$($toolType)_Prototype" `
+            -NodeType 'ToolPrototype' `
+            -ParentId $root.nodeId `
+            -Path "/$($Config.ProjectName)/Prototypes/$($toolType)_Prototype"
+        $nodes += $proto
+        $protoIds[$toolType] = $protoId
+        $nodeIndex++
     }
     
-    Write-Host "    Generated $($nodes.Count) nodes" -ForegroundColor Gray
+    # Create stations with resources and operations
+    foreach ($stationName in $Config.Stations) {
+        # Station node
+        $stationId = "N$($nodeIndex.ToString('D6'))"
+        $station = New-DemoNode `
+            -NodeId $stationId `
+            -Name $stationName `
+            -NodeType 'Station' `
+            -ParentId $root.nodeId `
+            -Path "/$($Config.ProjectName)/$stationName"
+        $nodes += $station
+        $nodeIndex++
+        
+        # Resource groups
+        $rgCount = Get-Random -Minimum 2 -Maximum 5
+        for ($rg = 1; $rg -le $rgCount; $rg++) {
+            $rgId = "N$($nodeIndex.ToString('D6'))"
+            $rgName = "RG_$($stationName)_$rg"
+            $resourceGroup = New-DemoNode `
+                -NodeId $rgId `
+                -Name $rgName `
+                -NodeType 'ResourceGroup' `
+                -ParentId $stationId `
+                -Path "/$($Config.ProjectName)/$stationName/$rgName"
+            $nodes += $resourceGroup
+            $nodeIndex++
+            
+            # Resources (robots)
+            $robotCount = Get-Random -Minimum 1 -Maximum 3
+            for ($r = 1; $r -le $robotCount; $r++) {
+                $robotId = "N$($nodeIndex.ToString('D6'))"
+                $robotName = "Robot_$($stationName)_$rg`_$r"
+                $robot = New-DemoNode `
+                    -NodeId $robotId `
+                    -Name $robotName `
+                    -NodeType 'Resource' `
+                    -ParentId $rgId `
+                    -Path "/$($Config.ProjectName)/$stationName/$rgName/$robotName"
+                $nodes += $robot
+                $nodeIndex++
+                
+                # Tool instances on robot
+                $toolCount = Get-Random -Minimum 1 -Maximum 3
+                for ($t = 1; $t -le $toolCount; $t++) {
+                    $toolType = $Config.ToolTypes | Get-Random
+                    $toolId = "N$($nodeIndex.ToString('D6'))"
+                    $toolName = "$($toolType)_$($nodeIndex.ToString('D3'))"
+                    $tool = New-DemoNode `
+                        -NodeId $toolId `
+                        -Name $toolName `
+                        -NodeType 'ToolInstance' `
+                        -ParentId $robotId `
+                        -Path "/$($Config.ProjectName)/$stationName/$rgName/$robotName/$toolName" `
+                        -Links @{ prototypeId = $protoIds[$toolType] }
+                    $nodes += $tool
+                    $nodeIndex++
+                }
+            }
+        }
+        
+        # Operations
+        $opCount = Get-Random -Minimum 5 -Maximum 15
+        for ($op = 1; $op -le $opCount; $op++) {
+            $opType = $Config.OperationTypes | Get-Random
+            $opId = "N$($nodeIndex.ToString('D6'))"
+            $opName = "Op_$($stationName)_$($opType)_$op"
+            $operation = New-DemoNode `
+                -NodeId $opId `
+                -Name $opName `
+                -NodeType 'Operation' `
+                -ParentId $stationId `
+                -Path "/$($Config.ProjectName)/$stationName/Operations/$opName"
+            $nodes += $operation
+            $nodeIndex++
+            
+            # Locations for operation
+            $locCount = Get-Random -Minimum 2 -Maximum 6
+            for ($loc = 1; $loc -le $locCount; $loc++) {
+                $locId = "N$($nodeIndex.ToString('D6'))"
+                $locName = "Loc_$($opName)_$loc"
+                $location = New-DemoNode `
+                    -NodeId $locId `
+                    -Name $locName `
+                    -NodeType 'Location' `
+                    -ParentId $opId `
+                    -Path "/$($Config.ProjectName)/$stationName/Operations/$opName/$locName"
+                $nodes += $location
+                $nodeIndex++
+            }
+        }
+        
+        # Stop if we've reached target count
+        if ($nodes.Count -ge $NodeCount) { break }
+    }
+    
     return $nodes
 }
 
 function Apply-Mutations {
     param(
         [array]$Nodes,
-        [double]$MutationRate
+        [double]$Rate,
+        [hashtable]$Config
     )
     
-    Write-Host "  Applying mutations (rate: $([Math]::Round($MutationRate * 100))%)..." -ForegroundColor Cyan
+    $mutated = @()
+    $mutationCount = [int]($Nodes.Count * $Rate)
+    $mutationTypes = @('rename', 'move', 'transform', 'add', 'delete', 'rekey')
     
-    $mutatedNodes = $Nodes | ForEach-Object { $_.PSObject.Copy() }
-    $mutations = @{
-        renames = 0
-        moves = 0
-        adds = 0
-        deletes = 0
-        rekeys = 0
-        transforms = 0
+    # Copy all nodes
+    foreach ($node in $Nodes) {
+        $copy = $node.PSObject.Copy()
+        $mutated += $copy
     }
     
-    $random = New-Object System.Random
-    $targetMutations = [Math]::Floor($Nodes.Count * $MutationRate)
+    # Apply mutations
+    $selectedIndices = 0..($mutated.Count - 1) | Get-Random -Count ([Math]::Min($mutationCount, $mutated.Count))
     
-    # Select random nodes for mutation (skip root)
-    $candidateNodes = $mutatedNodes | Where-Object { $_.parentId -ne $null } | Get-Random -Count ([Math]::Min($targetMutations * 2, $mutatedNodes.Count - 1))
-    
-    $mutationIndex = 0
-    foreach ($node in $candidateNodes) {
-        $mutationType = $random.Next(6)
+    foreach ($idx in $selectedIndices) {
+        $node = $mutated[$idx]
+        $mutationType = $mutationTypes | Get-Random
         
         switch ($mutationType) {
-            0 {
-                # Rename
-                $oldName = $node.name
-                $node.name = $node.name + "_v2"
-                $node.path = $node.path -replace [regex]::Escape($oldName), $node.name
-                $node.fingerprints.contentHash = Get-ContentHash -Name $node.name -ExternalId $node.attributes.externalId -ClassName $node.attributes.className
-                $mutations.renames++
+            'rename' {
+                $node.name = "$($node.name)_renamed"
             }
-            1 {
-                # Move (change parent within same station type)
-                $potentialParents = $mutatedNodes | Where-Object { $_.nodeType -eq 'ResourceGroup' -and $_.nodeId -ne $node.nodeId -and $_.parentId -ne $null }
-                if ($potentialParents.Count -gt 0) {
-                    $newParent = $potentialParents | Get-Random
-                    $node.parentId = $newParent.nodeId
-                    $node.path = "$($newParent.path)/$($node.name)"
-                    $mutations.moves++
-                }
+            'move' {
+                # Simulate move by changing path
+                $node.path = $node.path -replace '/([^/]+)$', '/Moved/$1'
             }
-            2 {
-                # Rekey (same logical node, new nodeId)
-                $oldId = $node.nodeId
-                $node.nodeId = "$([int]$oldId + 900000)"
-                # Update children's parentId
-                $mutatedNodes | Where-Object { $_.parentId -eq $oldId } | ForEach-Object {
-                    $_.parentId = $node.nodeId
-                }
-                $mutations.rekeys++
+            'transform' {
+                # Change transform values
+                $node.transform = "$(Get-Random -Minimum -2000 -Maximum 2000),$(Get-Random -Minimum -2000 -Maximum 2000),$(Get-Random -Minimum 0 -Maximum 1000),$(Get-Random -Minimum 0 -Maximum 360),$(Get-Random -Minimum 0 -Maximum 360),$(Get-Random -Minimum 0 -Maximum 360)"
             }
-            3 {
-                # Transform change (for operations)
-                if ($node.nodeType -eq 'Operation') {
-                    $node.fingerprints.transformHash = [guid]::NewGuid().ToString().Substring(0, 16)
-                    $mutations.transforms++
-                }
+            'rekey' {
+                # Simulate rekey - new nodeId but same externalId
+                $node.nodeId = "N$(Get-Random -Minimum 900000 -Maximum 999999)"
             }
-            4 {
-                # Delete (mark for removal)
-                $node | Add-Member -NotePropertyName '_delete' -NotePropertyValue $true -Force
-                $mutations.deletes++
-            }
-            5 {
-                # Add new sibling
-                $newId = "$([int]$node.nodeId + 500000)"
-                $newName = "New_Node_$mutationIndex"
-                $mutatedNodes += New-DemoNode `
-                    -NodeId $newId `
-                    -Name $newName `
-                    -ParentId $node.parentId `
-                    -Path "$($node.path | Split-Path -Parent)/$newName" `
+            'add' {
+                # Add new sibling node
+                $newNode = New-DemoNode `
+                    -NodeId "N$(Get-Random -Minimum 800000 -Maximum 899999)" `
+                    -Name "NewNode_$(Get-Random -Minimum 100 -Maximum 999)" `
                     -NodeType $node.nodeType `
-                    -ClassName $node.attributes.className `
-                    -ExternalId (New-RandomUuid)
-                $mutations.adds++
+                    -ParentId $node.parentId `
+                    -Path "$($node.path | Split-Path)/NewNode_$(Get-Random)"
+                $mutated += $newNode
             }
         }
-        
-        $mutationIndex++
-        if ($mutationIndex -ge $targetMutations) { break }
     }
     
-    # Remove deleted nodes
-    $finalNodes = $mutatedNodes | Where-Object { -not $_._delete }
+    # Delete some nodes (mark by removing from array)
+    $deleteCount = [int]($mutationCount * 0.2)
+    if ($deleteCount -gt 0 -and $mutated.Count -gt $deleteCount) {
+        $toDelete = 0..($mutated.Count - 1) | Get-Random -Count $deleteCount
+        $mutated = $mutated | Where-Object { $mutated.IndexOf($_) -notin $toDelete }
+    }
     
-    Write-Host "    Renames: $($mutations.renames)" -ForegroundColor Yellow
-    Write-Host "    Moves: $($mutations.moves)" -ForegroundColor Magenta
-    Write-Host "    Rekeys: $($mutations.rekeys)" -ForegroundColor DarkYellow
-    Write-Host "    Transforms: $($mutations.transforms)" -ForegroundColor Cyan
-    Write-Host "    Adds: $($mutations.adds)" -ForegroundColor Green
-    Write-Host "    Deletes: $($mutations.deletes)" -ForegroundColor Red
-    
-    return $finalNodes
+    return $mutated
 }
 
-function Save-Snapshot {
-    param(
-        [array]$Nodes,
-        [string]$Path,
-        [string]$Label
-    )
+function Write-Progress {
+    param([string]$Message, [string]$Status = 'Info')
     
-    if (-not (Test-Path $Path)) {
-        New-Item -ItemType Directory -Path $Path -Force | Out-Null
+    $color = switch ($Status) {
+        'Success' { 'Green' }
+        'Warning' { 'Yellow' }
+        'Error'   { 'Red' }
+        default   { 'Cyan' }
     }
     
-    # Resolve identities
-    $nodesWithIdentity = Resolve-NodeIdentities -Nodes $Nodes
-    
-    # Sort for deterministic output
-    $sortedNodes = $nodesWithIdentity | Sort-Object { [long]$_.nodeId }
-    
-    # Write nodes.json
-    $nodesJson = $sortedNodes | ConvertTo-Json -Depth 10
-    $utf8NoBom = New-Object System.Text.UTF8Encoding $false
-    [System.IO.File]::WriteAllText((Join-Path $Path 'nodes.json'), $nodesJson, $utf8NoBom)
-    
-    # Write meta.json
-    $meta = [PSCustomObject]@{
-        version = '0.3.0'
-        timestamp = (Get-Date).ToUniversalTime().ToString('o')
-        label = $Label
-        source = [PSCustomObject]@{
-            type = 'demo'
-            projectName = $demoConfig.ProjectName
-        }
-        stats = [PSCustomObject]@{
-            totalNodes = $Nodes.Count
-            nodeTypes = ($Nodes | Group-Object nodeType | ForEach-Object { [PSCustomObject]@{ type = $_.Name; count = $_.Count } })
-        }
-    }
-    $metaJson = $meta | ConvertTo-Json -Depth 10
-    [System.IO.File]::WriteAllText((Join-Path $Path 'meta.json'), $metaJson, $utf8NoBom)
-    
-    return $Path
+    Write-Host "  [$(Get-Date -Format 'HH:mm:ss')] $Message" -ForegroundColor $color
 }
 
-# Main demo flow
+# ============================================================================
+# MAIN DEMO EXECUTION
+# ============================================================================
+
 Show-DemoBanner
 
-$timestamp = Get-Date -Format 'yyyyMMdd_HHmmss'
-$demoDir = Join-Path $scriptRoot "demo_output_$timestamp"
+Write-Progress "Generating baseline dataset (~$NodeCount nodes)..."
+$baselineNodes = New-DemoDataset -NodeCount $NodeCount -Config $demoConfig
+Write-Progress "Created $($baselineNodes.Count) baseline nodes" -Status 'Success'
 
-Write-Host "Step 1: Generate Baseline Snapshot" -ForegroundColor White
-Write-Host "─────────────────────────────────────────────" -ForegroundColor DarkGray
-$baselineNodes = Generate-BaselineSnapshot -TargetCount $NodeCount
-$baselinePath = Join-Path $demoDir 'baseline'
-Save-Snapshot -Nodes $baselineNodes -Path $baselinePath -Label 'baseline'
-Write-Host ""
+Write-Progress "Applying mutations (rate: $($MutationRate * 100)%)..."
+$currentNodes = Apply-Mutations -Nodes $baselineNodes -Rate $MutationRate -Config $demoConfig
+Write-Progress "Current snapshot: $($currentNodes.Count) nodes" -Status 'Success'
 
-Write-Host "Step 2: Apply Mutations (Simulating Real Changes)" -ForegroundColor White
-Write-Host "─────────────────────────────────────────────" -ForegroundColor DarkGray
-$mutatedNodes = Apply-Mutations -Nodes $baselineNodes -MutationRate $MutationRate
-$currentPath = Join-Path $demoDir 'current'
-Save-Snapshot -Nodes $mutatedNodes -Path $currentPath -Label 'current'
-Write-Host ""
+Write-Progress "Resolving identities..."
+$baselineNodes = Resolve-NodeIdentities -Nodes $baselineNodes
+$currentNodes = Resolve-NodeIdentities -Nodes $currentNodes
+Write-Progress "Identities resolved" -Status 'Success'
 
-Write-Host "Step 3: Run Diff Engine with Identity Resolution" -ForegroundColor White
-Write-Host "─────────────────────────────────────────────" -ForegroundColor DarkGray
-$diffPath = Join-Path $demoDir 'diff'
+Write-Progress "Computing diff with identity matching..."
+$diffResult = Compare-NodesWithIdentity -BaselineNodes $baselineNodes -CurrentNodes $currentNodes -ConfidenceThreshold 0.85
+$diff = $diffResult.changes
+Write-Progress "Found $($diff.Count) changes" -Status 'Success'
 
-# Read snapshots
-$baseline = [PSCustomObject]@{
-    Nodes = Get-Content (Join-Path $baselinePath 'nodes.json') -Raw | ConvertFrom-Json
-    Meta = Get-Content (Join-Path $baselinePath 'meta.json') -Raw | ConvertFrom-Json
-    Path = $baselinePath
+Write-Progress "Grouping into work sessions..."
+$sessions = Group-ChangesIntoSessions -Changes $diff -TimeWindowMinutes 30 -MinChangesPerSession 2
+Write-Progress "Detected $($sessions.Count) work sessions" -Status 'Success'
+
+Write-Progress "Analyzing intents..."
+$intents = @()
+foreach ($session in $sessions) {
+    $sessionIntents = Invoke-IntentAnalysis -Changes $session.changes -SessionId $session.sessionId
+    $intents += $sessionIntents
 }
-$current = [PSCustomObject]@{
-    Nodes = Get-Content (Join-Path $currentPath 'nodes.json') -Raw | ConvertFrom-Json
-    Meta = Get-Content (Join-Path $currentPath 'meta.json') -Raw | ConvertFrom-Json
-    Path = $currentPath
+Write-Progress "Detected $($intents.Count) intents" -Status 'Success'
+
+Write-Progress "Computing impact analysis..."
+$impactReport = Get-ImpactForChanges -Changes $diff -Nodes $currentNodes -MaxDepth 3
+Write-Progress "Impact: $($impactReport.totalDownstreamImpact) downstream nodes affected" -Status 'Success'
+
+Write-Progress "Measuring drift..."
+$driftReport = Measure-Drift -Nodes $currentNodes
+Write-Progress "Drift: $($driftReport.driftedPairs)/$($driftReport.totalPairs) pairs drifted" -Status 'Success'
+
+Write-Progress "Checking compliance..."
+$template = New-GoldenTemplate -Name 'DemoTemplate' -AllowExtras
+$template.requiredTypes = @(
+    (New-TypeRequirement -NodeType 'Station' -MinCount 1 -Required)
+    (New-TypeRequirement -NodeType 'ResourceGroup' -MinCount 1)
+    (New-TypeRequirement -NodeType 'Resource' -MinCount 1)
+)
+$complianceReport = Test-Compliance -Nodes $currentNodes -Template $template
+Write-Progress "Compliance score: $([Math]::Round($complianceReport.score * 100))% ($($complianceReport.level))" -Status 'Success'
+
+Write-Progress "Detecting anomalies..."
+$anomalyReport = Detect-Anomalies -Changes $diff -TotalNodes $baselineNodes.Count
+Write-Progress "Anomalies: $($anomalyReport.criticalCount) critical, $($anomalyReport.warnCount) warnings" -Status $(if ($anomalyReport.criticalCount -gt 0) { 'Warning' } else { 'Success' })
+
+# Create output directory
+$outputDir = Join-Path $scriptRoot 'output' 'demo'
+if (-not (Test-Path $outputDir)) {
+    New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
 }
 
-Write-Host "  Running identity-aware comparison..." -ForegroundColor Cyan
-$diffResult = Compare-NodesWithIdentity -BaselineNodes $baseline.Nodes -CurrentNodes $current.Nodes -ConfidenceThreshold 0.85
-$changes = $diffResult.changes
-$identityMap = $diffResult.identityMap
+Write-Progress "Saving outputs to $outputDir..."
 
-Write-Host "    Found $($changes.Count) changes" -ForegroundColor Gray
-if ($identityMap -and $identityMap.stats) {
-    Write-Host "    Exact matches: $($identityMap.stats.exactMatches)" -ForegroundColor Gray
-    Write-Host "    Rekeyed matches: $($identityMap.stats.rekeyedMatches)" -ForegroundColor Yellow
-}
-Write-Host ""
-
-# Generate diff summary
-$summary = Get-ChangeSummary -Changes $changes -IdentityMap $identityMap
-
-# Build diff object
-$diff = [PSCustomObject]@{
-    version = '0.3.0'
-    timestamp = (Get-Date).ToUniversalTime().ToString('o')
-    baseline = [PSCustomObject]@{
-        path = $baselinePath
-        timestamp = $baseline.Meta.timestamp
-        nodeCount = $baseline.Nodes.Count
+# Build diff object for export
+$diffExport = [PSCustomObject]@{
+    summary = [PSCustomObject]@{
+        totalChanges = $diff.Count
+        added = ($diff | Where-Object { $_.changeType -eq 'added' }).Count
+        removed = ($diff | Where-Object { $_.changeType -eq 'removed' }).Count
+        renamed = ($diff | Where-Object { $_.changeType -eq 'renamed' }).Count
+        moved = ($diff | Where-Object { $_.changeType -eq 'moved' }).Count
+        transform_changed = ($diff | Where-Object { $_.changeType -eq 'transform_changed' }).Count
+        rekeyed = ($diff | Where-Object { $_.changeType -eq 'rekeyed' }).Count
     }
-    current = [PSCustomObject]@{
-        path = $currentPath
-        timestamp = $current.Meta.timestamp
-        nodeCount = $current.Nodes.Count
+    changes = $diff
+}
+
+# Export individual JSON files
+$diffExport | ConvertTo-Json -Depth 10 | Set-Content (Join-Path $outputDir 'diff.json') -Encoding UTF8
+$sessions | ConvertTo-Json -Depth 10 | Set-Content (Join-Path $outputDir 'sessions.json') -Encoding UTF8
+$intents | ConvertTo-Json -Depth 10 | Set-Content (Join-Path $outputDir 'intents.json') -Encoding UTF8
+$impactReport | ConvertTo-Json -Depth 10 | Set-Content (Join-Path $outputDir 'impact.json') -Encoding UTF8
+$driftReport | ConvertTo-Json -Depth 10 | Set-Content (Join-Path $outputDir 'drift.json') -Encoding UTF8
+$complianceReport | ConvertTo-Json -Depth 10 | Set-Content (Join-Path $outputDir 'compliance.json') -Encoding UTF8
+$anomalyReport | ConvertTo-Json -Depth 10 | Set-Content (Join-Path $outputDir 'anomalies.json') -Encoding UTF8
+
+Write-Progress "JSON files saved" -Status 'Success'
+
+# Create offline bundle
+if ($CreateBundle) {
+    Write-Progress "Creating offline bundle..."
+    
+    $bundleDir = Join-Path $outputDir 'bundle'
+    $bundleResult = Export-Bundle `
+        -OutDir $bundleDir `
+        -Name "SimTreeNav Demo - $(Get-Date -Format 'yyyy-MM-dd')" `
+        -BaselineNodes $baselineNodes `
+        -CurrentNodes $currentNodes `
+        -Diff $diffExport `
+        -Sessions $sessions `
+        -Intents $intents `
+        -Impact $impactReport `
+        -Drift $driftReport `
+        -Compliance $complianceReport `
+        -Anomalies $anomalyReport `
+        -CreateZip
+    
+    Write-Progress "Bundle created: $($bundleResult.path)" -Status 'Success'
+}
+
+# Generate sample explanation
+Write-Progress "Generating node explanation for first station..."
+$firstStation = $currentNodes | Where-Object { $_.nodeType -eq 'Station' } | Select-Object -First 1
+if ($firstStation) {
+    $explanation = Get-NodeExplanation -NodeId $firstStation.nodeId -Nodes $currentNodes
+    Export-ExplanationMarkdown -Explanation $explanation -OutputPath (Join-Path $outputDir 'explain') | Out-Null
+    Write-Progress "Explanation saved to explain/$($firstStation.nodeId).md" -Status 'Success'
+}
+
+# Summary
+Write-Host ""
+Write-Host "  ╔═══════════════════════════════════════════════════════════════╗" -ForegroundColor Green
+Write-Host "  ║                      DEMO COMPLETE                            ║" -ForegroundColor Green
+Write-Host "  ╠═══════════════════════════════════════════════════════════════╣" -ForegroundColor Green
+Write-Host "  ║  Baseline Nodes:    $($baselineNodes.Count.ToString().PadLeft(6))                                 ║" -ForegroundColor Green
+Write-Host "  ║  Current Nodes:     $($currentNodes.Count.ToString().PadLeft(6))                                 ║" -ForegroundColor Green
+Write-Host "  ║  Total Changes:     $($diff.Count.ToString().PadLeft(6))                                 ║" -ForegroundColor Green
+Write-Host "  ║  Work Sessions:     $($sessions.Count.ToString().PadLeft(6))                                 ║" -ForegroundColor Green
+Write-Host "  ║  Intents Detected:  $($intents.Count.ToString().PadLeft(6))                                 ║" -ForegroundColor Green
+Write-Host "  ║  Compliance Score:  $([Math]::Round($complianceReport.score * 100).ToString().PadLeft(5))%                                ║" -ForegroundColor Green
+Write-Host "  ║  Anomalies:         $($anomalyReport.totalAnomalies.ToString().PadLeft(6))                                 ║" -ForegroundColor Green
+Write-Host "  ╚═══════════════════════════════════════════════════════════════╝" -ForegroundColor Green
+Write-Host ""
+Write-Host "  Output: $outputDir" -ForegroundColor Cyan
+
+# Open bundle if created
+if ($CreateBundle -and -not $NoOpen) {
+    $indexPath = Join-Path $bundleDir 'index.html'
+    if (Test-Path $indexPath) {
+        Write-Host "  Opening bundle in browser..." -ForegroundColor Cyan
+        if ($IsWindows -or $env:OS -match 'Windows') {
+            Start-Process $indexPath
+        }
+        elseif ($IsMacOS) {
+            & open $indexPath
+        }
+        else {
+            Write-Host "  Bundle ready at: $indexPath" -ForegroundColor Yellow
+        }
     }
-    config = [PSCustomObject]@{
-        useIdentityMatching = $true
-        confidenceThreshold = 0.85
-    }
-    summary = $summary
-    changes = $changes
 }
 
-# Save diff
-if (-not (Test-Path $diffPath)) {
-    New-Item -ItemType Directory -Path $diffPath -Force | Out-Null
-}
-$diffJson = $diff | ConvertTo-Json -Depth 10
-$utf8NoBom = New-Object System.Text.UTF8Encoding $false
-[System.IO.File]::WriteAllText((Join-Path $diffPath 'diff.json'), $diffJson, $utf8NoBom)
-
-# Generate HTML
-Export-DiffHtml -Diff $diff -OutputPath $diffPath
-
-Write-Host "Step 4: Run Narrative Analysis" -ForegroundColor White
-Write-Host "─────────────────────────────────────────────" -ForegroundColor DarkGray
-$actions = Invoke-NarrativeAnalysis -Changes $changes
-
-Write-Host "  Generated $($actions.Count) narrative actions" -ForegroundColor Cyan
-
-$actionSummary = $actions | Group-Object actionType | ForEach-Object {
-    Write-Host "    $($_.Name): $($_.Count)" -ForegroundColor Gray
-}
-
-Export-NarrativeReport -Actions $actions -OutputPath $diffPath -Pretty -GenerateHtml
-Write-Host ""
-
-Write-Host "Step 5: Output Summary" -ForegroundColor White
-Write-Host "─────────────────────────────────────────────" -ForegroundColor DarkGray
-Write-Host ""
-Write-Host "  Demo output directory: $demoDir" -ForegroundColor Cyan
-Write-Host ""
-Write-Host "  Files generated:" -ForegroundColor White
-Write-Host "    baseline/nodes.json    - Baseline snapshot" -ForegroundColor Gray
-Write-Host "    baseline/meta.json     - Baseline metadata" -ForegroundColor Gray
-Write-Host "    current/nodes.json     - Current snapshot" -ForegroundColor Gray
-Write-Host "    current/meta.json      - Current metadata" -ForegroundColor Gray
-Write-Host "    diff/diff.json         - Diff with identity resolution" -ForegroundColor Gray
-Write-Host "    diff/diff.html         - Interactive diff report" -ForegroundColor Green
-Write-Host "    diff/actions.json      - Narrative actions" -ForegroundColor Gray
-Write-Host "    diff/narrative.html    - Narrative report" -ForegroundColor Green
-Write-Host ""
-
-# Open HTML reports
-if (-not $NoOpen) {
-    Write-Host "  Opening reports in browser..." -ForegroundColor Yellow
-    Start-Process (Join-Path $diffPath 'diff.html')
-    Start-Sleep -Milliseconds 500
-    Start-Process (Join-Path $diffPath 'narrative.html')
-}
-
-Write-Host ""
-Write-Host "  ✓ Demo complete!" -ForegroundColor Green
-Write-Host ""
-Write-Host "  Key v0.3 features demonstrated:" -ForegroundColor White
-Write-Host "    • Identity Resolution - Detects rekeyed nodes (same logical node, different ID)" -ForegroundColor Gray
-Write-Host "    • Confidence Scoring - Match quality indicated for each correlation" -ForegroundColor Gray
-Write-Host "    • Narrative Engine - Groups raw changes into meaningful actions" -ForegroundColor Gray
-Write-Host "    • Bulk Detection - Identifies paste clusters and station reorganizations" -ForegroundColor Gray
 Write-Host ""

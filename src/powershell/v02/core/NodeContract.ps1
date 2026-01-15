@@ -361,14 +361,16 @@ function Compute-NodePaths {
     return $Nodes
 }
 
-# Export functions
-Export-ModuleMember -Function @(
-    'New-SimTreeNode',
-    'Get-ContentHash',
-    'Get-AttributeHash',
-    'Get-TransformHash',
-    'ConvertFrom-PipeDelimited',
-    'Get-NodeTypeFromClass',
-    'ConvertTo-CanonicalJson',
-    'Compute-NodePaths'
-)
+# Export functions (when loaded as module)
+if ($MyInvocation.MyCommand.ScriptBlock.Module) {
+    Export-ModuleMember -Function @(
+        'New-SimTreeNode',
+        'Get-ContentHash',
+        'Get-AttributeHash',
+        'Get-TransformHash',
+        'ConvertFrom-PipeDelimited',
+        'Get-NodeTypeFromClass',
+        'ConvertTo-CanonicalJson',
+        'Compute-NodePaths'
+    )
+}
