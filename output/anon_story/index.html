@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SimTreeNav - Offline Viewer</title>
+    <style>
+        :root {
+            --bg-primary: #1e1e2e;
+            --bg-secondary: #2d2d3d;
+            --bg-tertiary: #3d3d4d;
+            --text-primary: #cdd6f4;
+            --text-secondary: #a6adc8;
+            --accent-blue: #89b4fa;
+            --accent-green: #a6e3a1;
+            --accent-yellow: #f9e2af;
+            --accent-red: #f38ba8;
+            --accent-purple: #cba6f7;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+        }
+        .header {
+            background: var(--bg-secondary);
+            padding: 1rem 2rem;
+            border-bottom: 1px solid var(--bg-tertiary);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .header h1 { font-size: 1.5rem; color: var(--accent-blue); }
+        .header .meta { color: var(--text-secondary); font-size: 0.875rem; }
+        .container { display: flex; height: calc(100vh - 60px); }
+        .sidebar {
+            width: 280px;
+            background: var(--bg-secondary);
+            border-right: 1px solid var(--bg-tertiary);
+            overflow-y: auto;
+            padding: 1rem;
+        }
+        .sidebar h3 {
+            color: var(--text-secondary);
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.5rem;
+        }
+        .nav-item {
+            display: block;
+            padding: 0.5rem 0.75rem;
+            margin-bottom: 0.25rem;
+            border-radius: 4px;
+            cursor: pointer;
+            color: var(--text-primary);
+            text-decoration: none;
+        }
+        .nav-item:hover { background: var(--bg-tertiary); }
+        .nav-item.active { background: var(--accent-blue); color: var(--bg-primary); }
+        .main { flex: 1; padding: 2rem; overflow-y: auto; }
+        .panel {
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+        .panel h2 { margin-bottom: 1rem; color: var(--accent-blue); }
+        .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem; }
+        .stat-card {
+            background: var(--bg-tertiary);
+            border-radius: 4px;
+            padding: 1rem;
+            text-align: center;
+        }
+        .stat-card .value { font-size: 2rem; font-weight: bold; color: var(--accent-blue); }
+        .stat-card .label { font-size: 0.75rem; color: var(--text-secondary); }
+        .badge {
+            display: inline-block;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+        .badge-added { background: rgba(166, 227, 161, 0.2); color: var(--accent-green); }
+        .badge-removed { background: rgba(243, 139, 168, 0.2); color: var(--accent-red); }
+        .badge-renamed { background: rgba(249, 226, 175, 0.2); color: var(--accent-yellow); }
+        .badge-moved { background: rgba(137, 180, 250, 0.2); color: var(--accent-blue); }
+        .badge-critical { background: var(--accent-red); color: var(--bg-primary); }
+        .badge-warn { background: var(--accent-yellow); color: var(--bg-primary); }
+        .badge-info { background: var(--accent-blue); color: var(--bg-primary); }
+        .table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .table th, .table td {
+            padding: 0.75rem;
+            text-align: left;
+            border-bottom: 1px solid var(--bg-tertiary);
+        }
+        .table th { color: var(--text-secondary); font-weight: 500; }
+        .tree-node {
+            padding: 0.25rem 0;
+            padding-left: calc(var(--level, 0) * 1rem);
+        }
+        .hidden { display: none !important; }
+        .tab-buttons { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
+        .tab-btn {
+            padding: 0.5rem 1rem;
+            background: var(--bg-tertiary);
+            border: none;
+            border-radius: 4px;
+            color: var(--text-primary);
+            cursor: pointer;
+        }
+        .tab-btn.active { background: var(--accent-blue); color: var(--bg-primary); }
+        #loading { text-align: center; padding: 2rem; }
+        .score-excellent { color: var(--accent-green); }
+        .score-good { color: var(--accent-blue); }
+        .score-warn { color: var(--accent-yellow); }
+        .score-bad { color: var(--accent-red); }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>SimTreeNav</h1>
+        <div class="meta" id="bundle-meta">Loading...</div>
+    </div>
+    <div class="container">
+        <div class="sidebar">
+            <h3>Navigation</h3>
+            <a class="nav-item active" data-section="overview">Overview</a>
+            <a class="nav-item" data-section="diff">Changes</a>
+            <a class="nav-item" data-section="sessions">Sessions</a>
+            <a class="nav-item" data-section="intents">Intents</a>
+            <a class="nav-item" data-section="impact">Impact</a>
+            <a class="nav-item" data-section="drift">Drift</a>
+            <a class="nav-item" data-section="compliance">Compliance</a>
+            <a class="nav-item" data-section="anomalies">Anomalies</a>
+            <a class="nav-item" data-section="tree">Tree View</a>
+        </div>
+        <div class="main" id="main-content">
+            <div id="loading">Loading bundle data...</div>
+        </div>
+    </div>
+    
+    <script>
+        // Bundle data will be embedded here
+        const BUNDLE_DATA = {"meta":{"name":"Manufacturing Evolution Story","createdAt":"2026-01-15T16:57:15.5818530Z","version":"0.4.0","baselineNodeCount":50,"currentNodeCount":45,"isAnonymized":true,"hasTimeline":true,"snapshotCount":8},"diff":{"summary":{"totalChanges":9,"added":0,"removed":5,"renamed":4,"moved":0,"transform_changed":0,"rekeyed":0},"changes":[{"changeType":"removed","nodeId":"N000018","logicalId":"struct:40d6a867a683","nodeName":"TI-4901","nodeType":"ToolInstance","path":"/TI-5266/TI-0218/TI-5655/TI-1689/TI-4901","parentId":"N000016","matchConfidence":null,"matchReason":null,"details":null,"before":{"nodeId":"N000018","name":"Gripper_Robot_Weld_C_2R1_2","nodeType":"ToolInstance","parentId":"N000016","path":"/PLANT_ALPHA/Weld_Cell_A/RG_Weld_Cell_A_2/Robot_Weld_C_2R1/Gripper_Robot_Weld_C_2R1_2","attributes":{"externalId":"EXT-57515EBE","className":"ToolInstanceClass","niceName":"Gripper_Robot_Weld_C_2R1_2","typeId":136},"links":{"prototypeId":"N000003"},"transform":"-823,-373,36,277,225,93","fingerprints":{"contentHash":"8ed24278-adf4-4e","attributeHash":"3a554237-b9fd-41","transformHash":"862402f3-f685-49"},"source":{"table":"DF_ToolInstance_DATA","extractedAt":"2026-01-15T16:57:14.8080198Z"},"identity":{"logicalId":"struct:40d6a867a683","signature":{"nodeId":"N000018","name":"Gripper_Robot_Weld_C_2R1_2","nodeType":"ToolInstance","path":"/PLANT_ALPHA/Weld_Cell_A/RG_Weld_Cell_A_2/Robot_Weld_C_2R1/Gripper_Robot_Weld_C_2R1_2","parentPath":"/PLANT_ALPHA/Weld_Cell_A/RG_Weld_Cell_A_2/Robot_Weld_C_2R1","externalId":"EXT-57515EBE","className":"ToolInstanceClass","contentHash":"8ed24278-adf4-4e","transformHash":"862402f3-f685-49","prototypeId":"N000003"}}},"after":null},{"changeType":"removed","nodeId":"N000020","logicalId":"struct:faf06238479e","nodeName":"TI-4621","nodeType":"ToolInstance","path":"/TI-5266/TI-0218/TI-5655/TI-5433/TI-4621","parentId":"N000019","matchConfidence":null,"matchReason":null,"details":null,"before":{"nodeId":"N000020","name":"Torch_Robot_Weld_C_2R2_1","nodeType":"ToolInstance","parentId":"N000019","path":"/PLANT_ALPHA/Weld_Cell_A/RG_Weld_Cell_A_2/Robot_Weld_C_2R2/Torch_Robot_Weld_C_2R2_1","attributes":{"externalId":"EXT-519161C1","className":"ToolInstanceClass","niceName":"Torch_Robot_Weld_C_2R2_1","typeId":14},"links":{"prototypeId":"N000008"},"transform":"97,-294,67,122,172,251","fingerprints":{"contentHash":"712613bf-0044-4f","attributeHash":"2e471d66-884a-4d","transformHash":"28b37830-bdb7-44"},"source":{"table":"DF_ToolInstance_DATA","extractedAt":"2026-01-15T16:57:14.8089671Z"},"identity":{"logicalId":"struct:faf06238479e","signature":{"nodeId":"N000020","name":"Torch_Robot_Weld_C_2R2_1","nodeType":"ToolInstance","path":"/PLANT_ALPHA/Weld_Cell_A/RG_Weld_Cell_A_2/Robot_Weld_C_2R2/Torch_Robot_Weld_C_2R2_1","parentPath":"/PLANT_ALPHA/Weld_Cell_A/RG_Weld_Cell_A_2/Robot_Weld_C_2R2","externalId":"EXT-519161C1","className":"ToolInstanceClass","contentHash":"712613bf-0044-4f","transformHash":"28b37830-bdb7-44","prototypeId":"N000008"}}},"after":null},{"changeType":"removed","nodeId":"N000031","logicalId":"struct:70e5b5358b28","nodeName":"TI-4714","nodeType":"ToolInstance","path":"/TI-5266/TI-0218/TI-0606/TI-9283/TI-4714","parentId":"N000030","matchConfidence":null,"matchReason":null,"details":null,"before":{"nodeId":"N000031","name":"Sensor_Robot_Weld_C_4R2_1","nodeType":"ToolInstance","parentId":"N000030","path":"/PLANT_ALPHA/Weld_Cell_A/RG_Weld_Cell_A_4/Robot_Weld_C_4R2/Sensor_Robot_Weld_C_4R2_1","attributes":{"externalId":"EXT-A6486119","className":"ToolInstanceClass","niceName":"Sensor_Robot_Weld_C_4R2_1","typeId":132},"links":{"prototypeId":"N000006"},"transform":"363,195,458,38,29,241","fingerprints":{"contentHash":"8766cc17-3b81-46","attributeHash":"4a028162-716c-4c","transformHash":"b3388d2c-6a9c-4d"},"source":{"table":"DF_ToolInstance_DATA","extractedAt":"2026-01-15T16:57:14.8138791Z"},"identity":{"logicalId":"struct:70e5b5358b28","signature":{"nodeId":"N000031","name":"Sensor_Robot_Weld_C_4R2_1","nodeType":"ToolInstance","path":"/PLANT_ALPHA/Weld_Cell_A/RG_Weld_Cell_A_4/Robot_Weld_C_4R2/Sensor_Robot_Weld_C_4R2_1","parentPath":"/PLANT_ALPHA/Weld_Cell_A/RG_Weld_Cell_A_4/Robot_Weld_C_4R2","externalId":"EXT-A6486119","className":"ToolInstanceClass","contentHash":"8766cc17-3b81-46","transformHash":"b3388d2c-6a9c-4d","prototypeId":"N000006"}}},"after":null},{"changeType":"removed","nodeId":"N000038","logicalId":"struct:ea97ef89ae38","nodeName":"LOC-0542","nodeType":"Location","path":"/LOC-2640/LOC-5650/LOC-1243/LOC-7167/LOC-0542","parentId":"N000036","matchConfidence":null,"matchReason":null,"details":null,"before":{"nodeId":"N000038","name":"Loc_Op_Weld_C_Weld_1_2","nodeType":"Location","parentId":"N000036","path":"/PLANT_ALPHA/Weld_Cell_A/Operations/Op_Weld_C_Weld_1/Loc_Op_Weld_C_Weld_1_2","attributes":{"externalId":"EXT-465EFA7A","className":"LocationClass","niceName":"Loc_Op_Weld_C_Weld_1_2","typeId":19},"links":null,"transform":"-538,441,354,218,249,140","fingerprints":{"contentHash":"b8a4c6c7-5545-45","attributeHash":"81df5981-a51e-43","transformHash":"e4b2923f-8001-49"},"source":{"table":"DF_Location_DATA","extractedAt":"2026-01-15T16:57:14.8189048Z"},"identity":{"logicalId":"struct:ea97ef89ae38","signature":{"nodeId":"N000038","name":"Loc_Op_Weld_C_Weld_1_2","nodeType":"Location","path":"/PLANT_ALPHA/Weld_Cell_A/Operations/Op_Weld_C_Weld_1/Loc_Op_Weld_C_Weld_1_2","parentPath":"/PLANT_ALPHA/Weld_Cell_A/Operations/Op_Weld_C_Weld_1","externalId":"EXT-465EFA7A","className":"LocationClass","contentHash":"b8a4c6c7-5545-45","transformHash":"e4b2923f-8001-49","prototypeId":null}}},"after":null},{"changeType":"removed","nodeId":"N000048","logicalId":"struct:3d0bf028b554","nodeName":"LOC-1570","nodeType":"Location","path":"/LOC-2640/LOC-5650/LOC-1243/LOC-6414/LOC-1570","parentId":"N000046","matchConfidence":null,"matchReason":null,"details":null,"before":{"nodeId":"N000048","name":"Loc_Op_Weld_C_Signal_3_2","nodeType":"Location","parentId":"N000046","path":"/PLANT_ALPHA/Weld_Cell_A/Operations/Op_Weld_C_Signal_3/Loc_Op_Weld_C_Signal_3_2","attributes":{"externalId":"EXT-A948D3CB","className":"LocationClass","niceName":"Loc_Op_Weld_C_Signal_3_2","typeId":113},"links":null,"transform":"-944,-72,163,172,279,246","fingerprints":{"contentHash":"4a318665-514a-4a","attributeHash":"01d675ee-6413-42","transformHash":"88e36743-8a05-4d"},"source":{"table":"DF_Location_DATA","extractedAt":"2026-01-15T16:57:14.8233876Z"},"identity":{"logicalId":"struct:3d0bf028b554","signature":{"nodeId":"N000048","name":"Loc_Op_Weld_C_Signal_3_2","nodeType":"Location","path":"/PLANT_ALPHA/Weld_Cell_A/Operations/Op_Weld_C_Signal_3/Loc_Op_Weld_C_Signal_3_2","parentPath":"/PLANT_ALPHA/Weld_Cell_A/Operations/Op_Weld_C_Signal_3","externalId":"EXT-A948D3CB","className":"LocationClass","contentHash":"4a318665-514a-4a","transformHash":"88e36743-8a05-4d","prototypeId":null}}},"after":null},{"changeType":"renamed","nodeId":"N000003","logicalId":"struct:24846322c7c3","nodeName":"TP-4711","nodeType":"ToolPrototype","path":"/TP-2051/TP-6620/TP-5088","parentId":"N000001","matchConfidence":1.0,"matchReason":"exact_nodeId","details":{"oldName":"Gripper_Proto_Master","newName":"Gripper_Proto_Master_STD"},"before":{"nodeId":"N000003","name":"Gripper_Proto_Master","nodeType":"ToolPrototype","parentId":"N000001","path":"/PLANT_ALPHA/Prototypes/Gripper_Proto_Master","attributes":{"externalId":"EXT-F4CC384B","className":"ToolPrototypeClass","niceName":"Gripper_Proto_Master","typeId":124},"links":null,"transform":"-434,127,53,228,44,73","fingerprints":{"contentHash":"3378a6ac-9e04-47","attributeHash":"03052a11-e207-44","transformHash":"a3ff3652-7324-41"},"source":{"table":"DF_ToolPrototype_DATA","extractedAt":"2026-01-15T16:57:14.7903221Z"},"identity":{"logicalId":"struct:24846322c7c3","signature":{"nodeId":"N000003","name":"Gripper_Proto_Master","nodeType":"ToolPrototype","path":"/PLANT_ALPHA/Prototypes/Gripper_Proto_Master","parentPath":"/PLANT_ALPHA/Prototypes","externalId":"EXT-F4CC384B","className":"ToolPrototypeClass","contentHash":"3378a6ac-9e04-47","transformHash":"a3ff3652-7324-41","prototypeId":null}}},"after":{"nodeId":"N000003","name":"Gripper_Proto_Master_STD","nodeType":"ToolPrototype","parentId":"N000001","path":"/PLANT_ALPHA/Prototypes/Gripper_Proto_Master","attributes":{"externalId":"EXT-F4CC384B","className":"ToolPrototypeClass","niceName":"Gripper_Proto_Master","typeId":124},"links":null,"transform":"-434,127,53,228,44,73","fingerprints":{"contentHash":"3378a6ac-9e04-47","attributeHash":"03052a11-e207-44","transformHash":"a3ff3652-7324-41"},"source":{"table":"DF_ToolPrototype_DATA","extractedAt":"2026-01-15T16:57:14.7903221Z"},"identity":{"logicalId":"struct:24846322c7c3","signature":{"nodeId":"N000003","name":"Gripper_Proto_Master_STD","nodeType":"ToolPrototype","path":"/PLANT_ALPHA/Prototypes/Gripper_Proto_Master","parentPath":"/PLANT_ALPHA/Prototypes","externalId":"EXT-F4CC384B","className":"ToolPrototypeClass","contentHash":"3378a6ac-9e04-47","transformHash":"a3ff3652-7324-41","prototypeId":null}}}},{"changeType":"renamed","nodeId":"N000022","logicalId":"struct:69f26206cb32","nodeName":"RSC-8331","nodeType":"Resource","path":"/RSC-2427/RSC-8708/RSC-3634/RSC-8826","parentId":"N000015","matchConfidence":1.0,"matchReason":"exact_nodeId","details":{"oldName":"Robot_Weld_C_2R3","newName":"Robot_Weld_C_2R3_STD"},"before":{"nodeId":"N000022","name":"Robot_Weld_C_2R3","nodeType":"Resource","parentId":"N000015","path":"/PLANT_ALPHA/Weld_Cell_A/RG_Weld_Cell_A_2/Robot_Weld_C_2R3","attributes":{"externalId":"EXT-7A25D128","className":"ResourceClass","niceName":"Robot_Weld_C_2R3","typeId":179},"links":null,"transform":"445,547,210,38,190,157","fingerprints":{"contentHash":"987829a7-590d-4b","attributeHash":"b6694214-2519-4c","transformHash":"24093af1-b7f8-42"},"source":{"table":"DF_Resource_DATA","extractedAt":"2026-01-15T16:57:14.8097872Z"},"identity":{"logicalId":"struct:69f26206cb32","signature":{"nodeId":"N000022","name":"Robot_Weld_C_2R3","nodeType":"Resource","path":"/PLANT_ALPHA/Weld_Cell_A/RG_Weld_Cell_A_2/Robot_Weld_C_2R3","parentPath":"/PLANT_ALPHA/Weld_Cell_A/RG_Weld_Cell_A_2","externalId":"EXT-7A25D128","className":"ResourceClass","contentHash":"987829a7-590d-4b","transformHash":"24093af1-b7f8-42","prototypeId":null}}},"after":{"nodeId":"N000022","name":"Robot_Weld_C_2R3_STD","nodeType":"Resource","parentId":"N000015","path":"/PLANT_ALPHA/Weld_Cell_A/RG_Weld_Cell_A_2/Robot_Weld_C_2R3","attributes":{"externalId":"EXT-7A25D128","className":"ResourceClass","niceName":"Robot_Weld_C_2R3","typeId":179},"links":null,"transform":"476,544,223,38,190,157","fingerprints":{"contentHash":"987829a7-590d-4b","attributeHash":"b6694214-2519-4c","transformHash":"24093af1-b7f8-42"},"source":{"table":"DF_Resource_DATA","extractedAt":"2026-01-15T16:57:14.8097872Z"},"identity":{"logicalId":"struct:69f26206cb32","signature":{"nodeId":"N000022","name":"Robot_Weld_C_2R3_STD","nodeType":"Resource","path":"/PLANT_ALPHA/Weld_Cell_A/RG_Weld_Cell_A_2/Robot_Weld_C_2R3","parentPath":"/PLANT_ALPHA/Weld_Cell_A/RG_Weld_Cell_A_2","externalId":"EXT-7A25D128","className":"ResourceClass","contentHash":"987829a7-590d-4b","transformHash":"24093af1-b7f8-42","prototypeId":null}}}},{"changeType":"renamed","nodeId":"N000026","logicalId":"struct:f2e39e22c35d","nodeName":"TI-3948","nodeType":"ToolInstance","path":"/TI-5266/TI-0218/TI-4981/TI-1103/TI-8653","parentId":"N000025","matchConfidence":1.0,"matchReason":"exact_nodeId","details":{"oldName":"WeldGun_Robot_Weld_C_3R1_1","newName":"WeldGun_Robot_Weld_C_3R1_1_STD"},"before":{"nodeId":"N000026","name":"WeldGun_Robot_Weld_C_3R1_1","nodeType":"ToolInstance","parentId":"N000025","path":"/PLANT_ALPHA/Weld_Cell_A/RG_Weld_Cell_A_3/Robot_Weld_C_3R1/WeldGun_Robot_Weld_C_3R1_1","attributes":{"externalId":"EXT-0587B0D1","className":"ToolInstanceClass","niceName":"WeldGun_Robot_Weld_C_3R1_1","typeId":1},"links":{"prototypeId":"N000002"},"transform":"605,438,100,219,8,123","fingerprints":{"contentHash":"e7e49039-bbaf-4b","attributeHash":"0385eb3b-3810-4c","transformHash":"fd5ba7bf-9711-47"},"source":{"table":"DF_ToolInstance_DATA","extractedAt":"2026-01-15T16:57:14.8116408Z"},"identity":{"logicalId":"struct:f2e39e22c35d","signature":{"nodeId":"N000026","name":"WeldGun_Robot_Weld_C_3R1_1","nodeType":"ToolInstance","path":"/PLANT_ALPHA/Weld_Cell_A/RG_Weld_Cell_A_3/Robot_Weld_C_3R1/WeldGun_Robot_Weld_C_3R1_1","parentPath":"/PLANT_ALPHA/Weld_Cell_A/RG_Weld_Cell_A_3/Robot_Weld_C_3R1","externalId":"EXT-0587B0D1","className":"ToolInstanceClass","contentHash":"e7e49039-bbaf-4b","transformHash":"fd5ba7bf-9711-47","prototypeId":"N000002"}}},"after":{"nodeId":"N000026","name":"WeldGun_Robot_Weld_C_3R1_1_STD","nodeType":"ToolInstance","parentId":"N000025","path":"/PLANT_ALPHA/Weld_Cell_A/RG_Weld_Cell_A_3/Robot_Weld_C_3R1/WeldGun_Robot_Weld_C_3R1_1","attributes":{"externalId":"EXT-0587B0D1","className":"ToolInstanceClass","niceName":"WeldGun_Robot_Weld_C_3R1_1","typeId":1},"links":{"prototypeId":"N000002"},"transform":"642,440,81,219,8,123","fingerprints":{"contentHash":"e7e49039-bbaf-4b","attributeHash":"0385eb3b-3810-4c","transformHash":"fd5ba7bf-9711-47"},"source":{"table":"DF_ToolInstance_DATA","extractedAt":"2026-01-15T16:57:14.8116408Z"},"identity":{"logicalId":"struct:f2e39e22c35d","signature":{"nodeId":"N000026","name":"WeldGun_Robot_Weld_C_3R1_1_STD","nodeType":"ToolInstance","path":"/PLANT_ALPHA/Weld_Cell_A/RG_Weld_Cell_A_3/Robot_Weld_C_3R1/WeldGun_Robot_Weld_C_3R1_1","parentPath":"/PLANT_ALPHA/Weld_Cell_A/RG_Weld_Cell_A_3/Robot_Weld_C_3R1","externalId":"EXT-0587B0D1","className":"ToolInstanceClass","contentHash":"e7e49039-bbaf-4b","transformHash":"fd5ba7bf-9711-47","prototypeId":"N000002"}}}},{"changeType":"renamed","nodeId":"N000039","logicalId":"struct:66354688831f","nodeName":"LOC-2962","nodeType":"Location","path":"/LOC-2640/LOC-5650/LOC-1243/LOC-7167/LOC-4658","parentId":"N000036","matchConfidence":1.0,"matchReason":"exact_nodeId","details":{"oldName":"Loc_Op_Weld_C_Weld_1_3","newName":"Loc_Op_Weld_C_Weld_1_3_STD"},"before":{"nodeId":"N000039","name":"Loc_Op_Weld_C_Weld_1_3","nodeType":"Location","parentId":"N000036","path":"/PLANT_ALPHA/Weld_Cell_A/Operations/Op_Weld_C_Weld_1/Loc_Op_Weld_C_Weld_1_3","attributes":{"externalId":"EXT-7F6DB8CF","className":"LocationClass","niceName":"Loc_Op_Weld_C_Weld_1_3","typeId":178},"links":null,"transform":"-501,-559,430,215,271,333","fingerprints":{"contentHash":"3582546e-0f21-42","attributeHash":"36252ad9-86aa-43","transformHash":"24bad5c7-45a0-45"},"source":{"table":"DF_Location_DATA","extractedAt":"2026-01-15T16:57:14.8193125Z"},"identity":{"logicalId":"struct:66354688831f","signature":{"nodeId":"N000039","name":"Loc_Op_Weld_C_Weld_1_3","nodeType":"Location","path":"/PLANT_ALPHA/Weld_Cell_A/Operations/Op_Weld_C_Weld_1/Loc_Op_Weld_C_Weld_1_3","parentPath":"/PLANT_ALPHA/Weld_Cell_A/Operations/Op_Weld_C_Weld_1","externalId":"EXT-7F6DB8CF","className":"LocationClass","contentHash":"3582546e-0f21-42","transformHash":"24bad5c7-45a0-45","prototypeId":null}}},"after":{"nodeId":"N000039","name":"Loc_Op_Weld_C_Weld_1_3_STD","nodeType":"Location","parentId":"N000036","path":"/PLANT_ALPHA/Weld_Cell_A/Operations/Op_Weld_C_Weld_1/Loc_Op_Weld_C_Weld_1_3","attributes":{"externalId":"EXT-7F6DB8CF","className":"LocationClass","niceName":"Loc_Op_Weld_C_Weld_1_3","typeId":178},"links":null,"transform":"-501,-559,430,215,271,333","fingerprints":{"contentHash":"3582546e-0f21-42","attributeHash":"36252ad9-86aa-43","transformHash":"24bad5c7-45a0-45"},"source":{"table":"DF_Location_DATA","extractedAt":"2026-01-15T16:57:14.8193125Z"},"identity":{"logicalId":"struct:66354688831f","signature":{"nodeId":"N000039","name":"Loc_Op_Weld_C_Weld_1_3_STD","nodeType":"Location","path":"/PLANT_ALPHA/Weld_Cell_A/Operations/Op_Weld_C_Weld_1/Loc_Op_Weld_C_Weld_1_3","parentPath":"/PLANT_ALPHA/Weld_Cell_A/Operations/Op_Weld_C_Weld_1","externalId":"EXT-7F6DB8CF","className":"LocationClass","contentHash":"3582546e-0f21-42","transformHash":"24bad5c7-45a0-45","prototypeId":null}}}}]},"sessions":[{"sessionId":"session_001","startTime":"2026-01-15T16:57:15.1060716Z","endTime":"2026-01-15T16:57:15.1060716Z","changeCount":5,"subtrees":["/PLANT_ALPHA/Weld_Cell_A"],"changeTypes":["removed"],"nodeTypes":["ToolInstance","Location"],"changes":[{"changeType":"removed","nodeId":"N000018","logicalId":"struct:40d6a867a683","nodeName":"TI-4901","nodeType":"ToolInstance","path":"/PLANT_ALPHA/Weld_Cell_A/RG_Weld_Cell_A_2/Robot_Weld_C_2R1/Gripper_Robot_Weld_C_2R1_2","parentId":"N000016","matchConfidence":null,"matchReason":null,"details":null,"before":{"nodeId":"N000018","name":"Gripper_Robot_Weld_C_2R1_2","nodeType":"ToolInstance","parentId":"N000016","path":"/PLANT_ALPHA/Weld_Cell_A/RG_Weld_Cell_A_2/Robot_Weld_C_2R1/Gripper_Robot_Weld_C_2R1_2","attributes":{"externalId":"EXT-57515EBE","className":"ToolInstanceClass","niceName":"Gripper_Robot_Weld_C_2R1_2","typeId":136},"links":{"prototypeId":"N000003"},"transform":"-823,-373,36,277,225,93","fingerprints":{"contentHash":"8ed24278-adf4-4e","attributeHash":"3a554237-b9fd-41","transformHash":"862402f3-f685-49"},"source":{"table":"DF_ToolInstance_DATA","extractedAt":"2026-01-15T16:57:14.8080198Z"},"identity":{"logicalId":"struct:40d6a867a683","signature":{"nodeId":"N000018","name":"Gripper_Robot_Weld_C_2R1_2","nodeType":"ToolInstance","path":"/PLANT_ALPHA/Weld_Cell_A/RG_Weld_Cell_A_2/Robot_Weld_C_2R1/Gripper_Robot_Weld_C_2R1_2","parentPath":"/PLANT_ALPHA/Weld_Cell_A/RG_Weld_Cell_A_2/Robot_Weld_C_2R1","externalId":"EXT-57515EBE","className":"ToolInstanceClass","contentHash":"8ed24278-adf4-4e","transformHash":"862402f3-f685-49","prototypeId":"N000003"}}},"after":null},{"changeType":"removed","nodeId":"N000020","logicalId":"struct:faf06238479e","nodeName":"TI-4621","nodeType":"ToolInstance","path":"/PLANT_ALPHA/Weld_Cell_A/RG_Weld_Cell_A_2/Robot_Weld_C_2R2/Torch_Robot_Weld_C_2R2_1","parentId":"N000019","matchConfidence":null,"matchReason":null,"details":null,"before":{"nodeId":"N000020","name":"Torch_Robot_Weld_C_2R2_1","nodeType":"ToolInstance","parentId":"N000019","path":"/PLANT_ALPHA/Weld_Cell_A/RG_Weld_Cell_A_2/Robot_Weld_C_2R2/Torch_Robot_Weld_C_2R2_1","attributes":{"externalId":"EXT-519161C1","className":"ToolInstanceClass","niceName":"Torch_Robot_Weld_C_2R2_1","typeId":14},"links":{"prototypeId":"N000008"},"transform":"97,-294,67,122,172,251","fingerprints":{"contentHash":"712613bf-0044-4f","attributeHash":"2e471d66-884a-4d","transformHash":"28b37830-bdb7-44"},"source":{"table":"DF_ToolInstance_DATA","extractedAt":"2026-01-15T16:57:14.8089671Z"},"identity":{"logicalId":"struct:faf06238479e","signature":{"nodeId":"N000020","name":"Torch_Robot_Weld_C_2R2_1","nodeType":"ToolInstance","path":"/PLANT_ALPHA/Weld_Cell_A/RG_Weld_Cell_A_2/Robot_Weld_C_2R2/Torch_Robot_Weld_C_2R2_1","parentPath":"/PLANT_ALPHA/Weld_Cell_A/RG_Weld_Cell_A_2/Robot_Weld_C_2R2","externalId":"EXT-519161C1","className":"ToolInstanceClass","contentHash":"712613bf-0044-4f","transformHash":"28b37830-bdb7-44","prototypeId":"N000008"}}},"after":null},{"changeType":"removed","nodeId":"N000031","logicalId":"struct:70e5b5358b28","nodeName":"TI-4714","nodeType":"ToolInstance","path":"/PLANT_ALPHA/Weld_Cell_A/RG_Weld_Cell_A_4/Robot_Weld_C_4R2/Sensor_Robot_Weld_C_4R2_1","parentId":"N000030","matchConfidence":null,"matchReason":null,"details":null,"before":{"nodeId":"N000031","name":"Sensor_Robot_Weld_C_4R2_1","nodeType":"ToolInstance","parentId":"N000030","path":"/PLANT_ALPHA/Weld_Cell_A/RG_Weld_Cell_A_4/Robot_Weld_C_4R2/Sensor_Robot_Weld_C_4R2_1","attributes":{"externalId":"EXT-A6486119","className":"ToolInstanceClass","niceName":"Sensor_Robot_Weld_C_4R2_1","typeId":132},"links":{"prototypeId":"N000006"},"transform":"363,195,458,38,29,241","fingerprints":{"contentHash":"8766cc17-3b81-46","attributeHash":"4a028162-716c-4c","transformHash":"b3388d2c-6a9c-4d"},"source":{"table":"DF_ToolInstance_DATA","extractedAt":"2026-01-15T16:57:14.8138791Z"},"identity":{"logicalId":"struct:70e5b5358b28","signature":{"nodeId":"N000031","name":"Sensor_Robot_Weld_C_4R2_1","nodeType":"ToolInstance","path":"/PLANT_ALPHA/Weld_Cell_A/RG_Weld_Cell_A_4/Robot_Weld_C_4R2/Sensor_Robot_Weld_C_4R2_1","parentPath":"/PLANT_ALPHA/Weld_Cell_A/RG_Weld_Cell_A_4/Robot_Weld_C_4R2","externalId":"EXT-A6486119","className":"ToolInstanceClass","contentHash":"8766cc17-3b81-46","transformHash":"b3388d2c-6a9c-4d","prototypeId":"N000006"}}},"after":null},{"changeType":"removed","nodeId":"N000038","logicalId":"struct:ea97ef89ae38","nodeName":"LOC-0542","nodeType":"Location","path":"/PLANT_ALPHA/Weld_Cell_A/Operations/Op_Weld_C_Weld_1/Loc_Op_Weld_C_Weld_1_2","parentId":"N000036","matchConfidence":null,"matchReason":null,"details":null,"before":{"nodeId":"N000038","name":"Loc_Op_Weld_C_Weld_1_2","nodeType":"Location","parentId":"N000036","path":"/PLANT_ALPHA/Weld_Cell_A/Operations/Op_Weld_C_Weld_1/Loc_Op_Weld_C_Weld_1_2","attributes":{"externalId":"EXT-465EFA7A","className":"LocationClass","niceName":"Loc_Op_Weld_C_Weld_1_2","typeId":19},"links":null,"transform":"-538,441,354,218,249,140","fingerprints":{"contentHash":"b8a4c6c7-5545-45","attributeHash":"81df5981-a51e-43","transformHash":"e4b2923f-8001-49"},"source":{"table":"DF_Location_DATA","extractedAt":"2026-01-15T16:57:14.8189048Z"},"identity":{"logicalId":"struct:ea97ef89ae38","signature":{"nodeId":"N000038","name":"Loc_Op_Weld_C_Weld_1_2","nodeType":"Location","path":"/PLANT_ALPHA/Weld_Cell_A/Operations/Op_Weld_C_Weld_1/Loc_Op_Weld_C_Weld_1_2","parentPath":"/PLANT_ALPHA/Weld_Cell_A/Operations/Op_Weld_C_Weld_1","externalId":"EXT-465EFA7A","className":"LocationClass","contentHash":"b8a4c6c7-5545-45","transformHash":"e4b2923f-8001-49","prototypeId":null}}},"after":null},{"changeType":"removed","nodeId":"N000048","logicalId":"struct:3d0bf028b554","nodeName":"LOC-1570","nodeType":"Location","path":"/PLANT_ALPHA/Weld_Cell_A/Operations/Op_Weld_C_Signal_3/Loc_Op_Weld_C_Signal_3_2","parentId":"N000046","matchConfidence":null,"matchReason":null,"details":null,"before":{"nodeId":"N000048","name":"Loc_Op_Weld_C_Signal_3_2","nodeType":"Location","parentId":"N000046","path":"/PLANT_ALPHA/Weld_Cell_A/Operations/Op_Weld_C_Signal_3/Loc_Op_Weld_C_Signal_3_2","attributes":{"externalId":"EXT-A948D3CB","className":"LocationClass","niceName":"Loc_Op_Weld_C_Signal_3_2","typeId":113},"links":null,"transform":"-944,-72,163,172,279,246","fingerprints":{"contentHash":"4a318665-514a-4a","attributeHash":"01d675ee-6413-42","transformHash":"88e36743-8a05-4d"},"source":{"table":"DF_Location_DATA","extractedAt":"2026-01-15T16:57:14.8233876Z"},"identity":{"logicalId":"struct:3d0bf028b554","signature":{"nodeId":"N000048","name":"Loc_Op_Weld_C_Signal_3_2","nodeType":"Location","path":"/PLANT_ALPHA/Weld_Cell_A/Operations/Op_Weld_C_Signal_3/Loc_Op_Weld_C_Signal_3_2","parentPath":"/PLANT_ALPHA/Weld_Cell_A/Operations/Op_Weld_C_Signal_3","externalId":"EXT-A948D3CB","className":"LocationClass","contentHash":"4a318665-514a-4a","transformHash":"88e36743-8a05-4d","prototypeId":null}}},"after":null}],"topPaths":{"/PLANT_ALPHA/Weld_Cell_A/Operations":2,"/PLANT_ALPHA/Weld_Cell_A/RG_Weld_Cell_A_2":1,"/PLANT_ALPHA/Weld_Cell_A/RG_Weld_Cell_A_4":1},"summary":{"totalChanges":5,"byChangeType":{"type":"removed","count":5},"byNodeType":[{"nodeType":"Location","count":2},{"nodeType":"ToolInstance","count":3}],"topPaths":[{"path":"/PLANT_ALPHA/Weld_Cell_A/Operations","count":2},{"path":"/PLANT_ALPHA/Weld_Cell_A/RG_Weld_Cell_A_2","count":1},{"path":"/PLANT_ALPHA/Weld_Cell_A/RG_Weld_Cell_A_4","count":1}],"subtreeCount":1,"duration":0.0},"confidence":1.0},{"sessionId":"session_002","startTime":"2026-01-15T16:57:15.1494772Z","endTime":"2026-01-15T16:57:15.1494772Z","changeCount":4,"subtrees":["/PLANT_ALPHA/Prototypes","/PLANT_ALPHA/Weld_Cell_A"],"changeTypes":["renamed"],"nodeTypes":["ToolPrototype","Resource","ToolInstance","Location"],"changes":[{"changeType":"renamed","nodeId":"N000003","logicalId":"struct:24846322c7c3","nodeName":"TP-4711","nodeType":"ToolPrototype","path":"/PLANT_ALPHA/Prototypes/Gripper_Proto_Master","parentId":"N000001","matchConfidence":1.0,"matchReason":"exact_nodeId","details":{"oldName":"Gripper_Proto_Master","newName":"Gripper_Proto_Master_STD"},"before":{"nodeId":"N000003","name":"Gripper_Proto_Master","nodeType":"ToolPrototype","parentId":"N000001","path":"/PLANT_ALPHA/Prototypes/Gripper_Proto_Master","attributes":{"externalId":"EXT-F4CC384B","className":"ToolPrototypeClass","niceName":"Gripper_Proto_Master","typeId":124},"links":null,"transform":"-434,127,53,228,44,73","fingerprints":{"contentHash":"3378a6ac-9e04-47","attributeHash":"03052a11-e207-44","transformHash":"a3ff3652-7324-41"},"source":{"table":"DF_ToolPrototype_DATA","extractedAt":"2026-01-15T16:57:14.7903221Z"},"identity":{"logicalId":"struct:24846322c7c3","signature":{"nodeId":"N000003","name":"Gripper_Proto_Master","nodeType":"ToolPrototype","path":"/PLANT_ALPHA/Prototypes/Gripper_Proto_Master","parentPath":"/PLANT_ALPHA/Prototypes","externalId":"EXT-F4CC384B","className":"ToolPrototypeClass","contentHash":"3378a6ac-9e04-47","transformHash":"a3ff3652-7324-41","prototypeId":null}}},"after":{"nodeId":"N000003","name":"Gripper_Proto_Master_STD","nodeType":"ToolPrototype","parentId":"N000001","path":"/PLANT_ALPHA/Prototypes/Gripper_Proto_Master","attributes":{"externalId":"EXT-F4CC384B","className":"ToolPrototypeClass","niceName":"Gripper_Proto_Master","typeId":124},"links":null,"transform":"-434,127,53,228,44,73","fingerprints":{"contentHash":"3378a6ac-9e04-47","attributeHash":"03052a11-e207-44","transformHash":"a3ff3652-7324-41"},"source":{"table":"DF_ToolPrototype_DATA","extractedAt":"2026-01-15T16:57:14.7903221Z"},"identity":{"logicalId":"struct:24846322c7c3","signature":{"nodeId":"N000003","name":"Gripper_Proto_Master_STD","nodeType":"ToolPrototype","path":"/PLANT_ALPHA/Prototypes/Gripper_Proto_Master","parentPath":"/PLANT_ALPHA/Prototypes","externalId":"EXT-F4CC384B","className":"ToolPrototypeClass","contentHash":"3378a6ac-9e04-47","transformHash":"a3ff3652-7324-41","prototypeId":null}}}},{"changeType":"renamed","nodeId":"N000022","logicalId":"struct:69f26206cb32","nodeName":"RSC-8331","nodeType":"Resource","path":"/PLANT_ALPHA/Weld_Cell_A/RG_Weld_Cell_A_2/Robot_Weld_C_2R3","parentId":"N000015","matchConfidence":1.0,"matchReason":"exact_nodeId","details":{"oldName":"Robot_Weld_C_2R3","newName":"Robot_Weld_C_2R3_STD"},"before":{"nodeId":"N000022","name":"Robot_Weld_C_2R3","nodeType":"Resource","parentId":"N000015","path":"/PLANT_ALPHA/Weld_Cell_A/RG_Weld_Cell_A_2/Robot_Weld_C_2R3","attributes":{"externalId":"EXT-7A25D128","className":"ResourceClass","niceName":"Robot_Weld_C_2R3","typeId":179},"links":null,"transform":"445,547,210,38,190,157","fingerprints":{"contentHash":"987829a7-590d-4b","attributeHash":"b6694214-2519-4c","transformHash":"24093af1-b7f8-42"},"source":{"table":"DF_Resource_DATA","extractedAt":"2026-01-15T16:57:14.8097872Z"},"identity":{"logicalId":"struct:69f26206cb32","signature":{"nodeId":"N000022","name":"Robot_Weld_C_2R3","nodeType":"Resource","path":"/PLANT_ALPHA/Weld_Cell_A/RG_Weld_Cell_A_2/Robot_Weld_C_2R3","parentPath":"/PLANT_ALPHA/Weld_Cell_A/RG_Weld_Cell_A_2","externalId":"EXT-7A25D128","className":"ResourceClass","contentHash":"987829a7-590d-4b","transformHash":"24093af1-b7f8-42","prototypeId":null}}},"after":{"nodeId":"N000022","name":"Robot_Weld_C_2R3_STD","nodeType":"Resource","parentId":"N000015","path":"/PLANT_ALPHA/Weld_Cell_A/RG_Weld_Cell_A_2/Robot_Weld_C_2R3","attributes":{"externalId":"EXT-7A25D128","className":"ResourceClass","niceName":"Robot_Weld_C_2R3","typeId":179},"links":null,"transform":"476,544,223,38,190,157","fingerprints":{"contentHash":"987829a7-590d-4b","attributeHash":"b6694214-2519-4c","transformHash":"24093af1-b7f8-42"},"source":{"table":"DF_Resource_DATA","extractedAt":"2026-01-15T16:57:14.8097872Z"},"identity":{"logicalId":"struct:69f26206cb32","signature":{"nodeId":"N000022","name":"Robot_Weld_C_2R3_STD","nodeType":"Resource","path":"/PLANT_ALPHA/Weld_Cell_A/RG_Weld_Cell_A_2/Robot_Weld_C_2R3","parentPath":"/PLANT_ALPHA/Weld_Cell_A/RG_Weld_Cell_A_2","externalId":"EXT-7A25D128","className":"ResourceClass","contentHash":"987829a7-590d-4b","transformHash":"24093af1-b7f8-42","prototypeId":null}}}},{"changeType":"renamed","nodeId":"N000026","logicalId":"struct:f2e39e22c35d","nodeName":"TI-3948","nodeType":"ToolInstance","path":"/PLANT_ALPHA/Weld_Cell_A/RG_Weld_Cell_A_3/Robot_Weld_C_3R1/WeldGun_Robot_Weld_C_3R1_1","parentId":"N000025","matchConfidence":1.0,"matchReason":"exact_nodeId","details":{"oldName":"WeldGun_Robot_Weld_C_3R1_1","newName":"WeldGun_Robot_Weld_C_3R1_1_STD"},"before":{"nodeId":"N000026","name":"WeldGun_Robot_Weld_C_3R1_1","nodeType":"ToolInstance","parentId":"N000025","path":"/PLANT_ALPHA/Weld_Cell_A/RG_Weld_Cell_A_3/Robot_Weld_C_3R1/WeldGun_Robot_Weld_C_3R1_1","attributes":{"externalId":"EXT-0587B0D1","className":"ToolInstanceClass","niceName":"WeldGun_Robot_Weld_C_3R1_1","typeId":1},"links":{"prototypeId":"N000002"},"transform":"605,438,100,219,8,123","fingerprints":{"contentHash":"e7e49039-bbaf-4b","attributeHash":"0385eb3b-3810-4c","transformHash":"fd5ba7bf-9711-47"},"source":{"table":"DF_ToolInstance_DATA","extractedAt":"2026-01-15T16:57:14.8116408Z"},"identity":{"logicalId":"struct:f2e39e22c35d","signature":{"nodeId":"N000026","name":"WeldGun_Robot_Weld_C_3R1_1","nodeType":"ToolInstance","path":"/PLANT_ALPHA/Weld_Cell_A/RG_Weld_Cell_A_3/Robot_Weld_C_3R1/WeldGun_Robot_Weld_C_3R1_1","parentPath":"/PLANT_ALPHA/Weld_Cell_A/RG_Weld_Cell_A_3/Robot_Weld_C_3R1","externalId":"EXT-0587B0D1","className":"ToolInstanceClass","contentHash":"e7e49039-bbaf-4b","transformHash":"fd5ba7bf-9711-47","prototypeId":"N000002"}}},"after":{"nodeId":"N000026","name":"WeldGun_Robot_Weld_C_3R1_1_STD","nodeType":"ToolInstance","parentId":"N000025","path":"/PLANT_ALPHA/Weld_Cell_A/RG_Weld_Cell_A_3/Robot_Weld_C_3R1/WeldGun_Robot_Weld_C_3R1_1","attributes":{"externalId":"EXT-0587B0D1","className":"ToolInstanceClass","niceName":"WeldGun_Robot_Weld_C_3R1_1","typeId":1},"links":{"prototypeId":"N000002"},"transform":"642,440,81,219,8,123","fingerprints":{"contentHash":"e7e49039-bbaf-4b","attributeHash":"0385eb3b-3810-4c","transformHash":"fd5ba7bf-9711-47"},"source":{"table":"DF_ToolInstance_DATA","extractedAt":"2026-01-15T16:57:14.8116408Z"},"identity":{"logicalId":"struct:f2e39e22c35d","signature":{"nodeId":"N000026","name":"WeldGun_Robot_Weld_C_3R1_1_STD","nodeType":"ToolInstance","path":"/PLANT_ALPHA/Weld_Cell_A/RG_Weld_Cell_A_3/Robot_Weld_C_3R1/WeldGun_Robot_Weld_C_3R1_1","parentPath":"/PLANT_ALPHA/Weld_Cell_A/RG_Weld_Cell_A_3/Robot_Weld_C_3R1","externalId":"EXT-0587B0D1","className":"ToolInstanceClass","contentHash":"e7e49039-bbaf-4b","transformHash":"fd5ba7bf-9711-47","prototypeId":"N000002"}}}},{"changeType":"renamed","nodeId":"N000039","logicalId":"struct:66354688831f","nodeName":"LOC-2962","nodeType":"Location","path":"/PLANT_ALPHA/Weld_Cell_A/Operations/Op_Weld_C_Weld_1/Loc_Op_Weld_C_Weld_1_3","parentId":"N000036","matchConfidence":1.0,"matchReason":"exact_nodeId","details":{"oldName":"Loc_Op_Weld_C_Weld_1_3","newName":"Loc_Op_Weld_C_Weld_1_3_STD"},"before":{"nodeId":"N000039","name":"Loc_Op_Weld_C_Weld_1_3","nodeType":"Location","parentId":"N000036","path":"/PLANT_ALPHA/Weld_Cell_A/Operations/Op_Weld_C_Weld_1/Loc_Op_Weld_C_Weld_1_3","attributes":{"externalId":"EXT-7F6DB8CF","className":"LocationClass","niceName":"Loc_Op_Weld_C_Weld_1_3","typeId":178},"links":null,"transform":"-501,-559,430,215,271,333","fingerprints":{"contentHash":"3582546e-0f21-42","attributeHash":"36252ad9-86aa-43","transformHash":"24bad5c7-45a0-45"},"source":{"table":"DF_Location_DATA","extractedAt":"2026-01-15T16:57:14.8193125Z"},"identity":{"logicalId":"struct:66354688831f","signature":{"nodeId":"N000039","name":"Loc_Op_Weld_C_Weld_1_3","nodeType":"Location","path":"/PLANT_ALPHA/Weld_Cell_A/Operations/Op_Weld_C_Weld_1/Loc_Op_Weld_C_Weld_1_3","parentPath":"/PLANT_ALPHA/Weld_Cell_A/Operations/Op_Weld_C_Weld_1","externalId":"EXT-7F6DB8CF","className":"LocationClass","contentHash":"3582546e-0f21-42","transformHash":"24bad5c7-45a0-45","prototypeId":null}}},"after":{"nodeId":"N000039","name":"Loc_Op_Weld_C_Weld_1_3_STD","nodeType":"Location","parentId":"N000036","path":"/PLANT_ALPHA/Weld_Cell_A/Operations/Op_Weld_C_Weld_1/Loc_Op_Weld_C_Weld_1_3","attributes":{"externalId":"EXT-7F6DB8CF","className":"LocationClass","niceName":"Loc_Op_Weld_C_Weld_1_3","typeId":178},"links":null,"transform":"-501,-559,430,215,271,333","fingerprints":{"contentHash":"3582546e-0f21-42","attributeHash":"36252ad9-86aa-43","transformHash":"24bad5c7-45a0-45"},"source":{"table":"DF_Location_DATA","extractedAt":"2026-01-15T16:57:14.8193125Z"},"identity":{"logicalId":"struct:66354688831f","signature":{"nodeId":"N000039","name":"Loc_Op_Weld_C_Weld_1_3_STD","nodeType":"Location","path":"/PLANT_ALPHA/Weld_Cell_A/Operations/Op_Weld_C_Weld_1/Loc_Op_Weld_C_Weld_1_3","parentPath":"/PLANT_ALPHA/Weld_Cell_A/Operations/Op_Weld_C_Weld_1","externalId":"EXT-7F6DB8CF","className":"LocationClass","contentHash":"3582546e-0f21-42","transformHash":"24bad5c7-45a0-45","prototypeId":null}}}}],"topPaths":{"/PLANT_ALPHA/Weld_Cell_A/Operations":1,"/PLANT_ALPHA/Weld_Cell_A/RG_Weld_Cell_A_3":1,"/PLANT_ALPHA/Weld_Cell_A/RG_Weld_Cell_A_2":1},"summary":{"totalChanges":4,"byChangeType":{"type":"renamed","count":4},"byNodeType":[{"nodeType":"Location","count":1},{"nodeType":"Resource","count":1},{"nodeType":"ToolInstance","count":1},{"nodeType":"ToolPrototype","count":1}],"topPaths":[{"path":"/PLANT_ALPHA/Weld_Cell_A/Operations","count":1},{"path":"/PLANT_ALPHA/Weld_Cell_A/RG_Weld_Cell_A_3","count":1},{"path":"/PLANT_ALPHA/Weld_Cell_A/RG_Weld_Cell_A_2","count":1}],"subtreeCount":2,"duration":0.0},"confidence":0.85}],"intents":[{"intentType":"cleanup","explanation":"Cleanup detected: 5 nodes removed","confidence":1.0,"evidenceCount":5,"evidence":[{"nodeId":"N000018","changeType":"removed","nodeName":"Gripper_Robot_Weld_C_2R1_2","path":"/PLANT_ALPHA/Weld_Cell_A/RG_Weld_Cell_A_2/Robot_Weld_C_2R1/Gripper_Robot_Weld_C_2R1_2"},{"nodeId":"N000020","changeType":"removed","nodeName":"Torch_Robot_Weld_C_2R2_1","path":"/PLANT_ALPHA/Weld_Cell_A/RG_Weld_Cell_A_2/Robot_Weld_C_2R2/Torch_Robot_Weld_C_2R2_1"},{"nodeId":"N000031","changeType":"removed","nodeName":"Sensor_Robot_Weld_C_4R2_1","path":"/PLANT_ALPHA/Weld_Cell_A/RG_Weld_Cell_A_4/Robot_Weld_C_4R2/Sensor_Robot_Weld_C_4R2_1"},{"nodeId":"N000038","changeType":"removed","nodeName":"Loc_Op_Weld_C_Weld_1_2","path":"/PLANT_ALPHA/Weld_Cell_A/Operations/Op_Weld_C_Weld_1/Loc_Op_Weld_C_Weld_1_2"},{"nodeId":"N000048","changeType":"removed","nodeName":"Loc_Op_Weld_C_Signal_3_2","path":"/PLANT_ALPHA/Weld_Cell_A/Operations/Op_Weld_C_Signal_3/Loc_Op_Weld_C_Signal_3_2"}],"details":{"nodeTypes":"Location:2, ToolInstance:3","topSubtrees":"/PLANT_ALPHA/Weld_Cell_A:5","deleteCount":5},"timestamp":"2026-01-15T16:57:15.1786605Z","sessionId":"session_001"},{"intentType":"unknown","explanation":"Mixed changes, no clear pattern detected (dominant: renamed)","confidence":0.3,"evidenceCount":4,"evidence":[{"nodeId":"N000003","changeType":"renamed","nodeName":"Gripper_Proto_Master_STD","path":"/PLANT_ALPHA/Prototypes/Gripper_Proto_Master"},{"nodeId":"N000022","changeType":"renamed","nodeName":"Robot_Weld_C_2R3_STD","path":"/PLANT_ALPHA/Weld_Cell_A/RG_Weld_Cell_A_2/Robot_Weld_C_2R3"},{"nodeId":"N000026","changeType":"renamed","nodeName":"WeldGun_Robot_Weld_C_3R1_1_STD","path":"/PLANT_ALPHA/Weld_Cell_A/RG_Weld_Cell_A_3/Robot_Weld_C_3R1/WeldGun_Robot_Weld_C_3R1_1"},{"nodeId":"N000039","changeType":"renamed","nodeName":"Loc_Op_Weld_C_Weld_1_3_STD","path":"/PLANT_ALPHA/Weld_Cell_A/Operations/Op_Weld_C_Weld_1/Loc_Op_Weld_C_Weld_1_3"}],"details":{"dominantCount":4,"dominantChangeType":"renamed"},"timestamp":"2026-01-15T16:57:15.1876256Z","sessionId":"session_002"}],"impact":{"totalChangesAnalyzed":4,"totalDownstreamImpact":1.0,"maxRiskScore":0.4,"criticalRiskCount":0,"highRiskCount":0,"topRiskNodes":[{"nodeId":"N000022","nodeName":"Robot_Weld_C_2R3_STD","riskScore":0.4,"riskLevel":"Medium","downstreamCount":1},{"nodeId":"N000003","nodeName":"Gripper_Proto_Master_STD","riskScore":0.39,"riskLevel":"Low","downstreamCount":0},{"nodeId":"N000026","nodeName":"WeldGun_Robot_Weld_C_3R1_1_STD","riskScore":0.3,"riskLevel":"Low","downstreamCount":0},{"nodeId":"N000039","nodeName":"Loc_Op_Weld_C_Weld_1_3_STD","riskScore":0.27,"riskLevel":"Low","downstreamCount":0}],"impacts":[{"nodeId":"N000022","nodeName":"Robot_Weld_C_2R3_STD","nodeType":"Resource","path":"/PLANT_ALPHA/Weld_Cell_A/RG_Weld_Cell_A_2/Robot_Weld_C_2R3","upstreamCount":3,"downstreamCount":1,"directDependents":1,"transitiveDependents":0,"maxDepth":1.0,"riskScore":0.4,"riskLevel":"Medium","upstream":[{"nodeId":"N000015","depth":1,"relation":"parent"},{"nodeId":"N000010","depth":2,"relation":"parent"},{"nodeId":"N000001","depth":3,"relation":"parent"}],"downstream":{"nodeId":"N000023","depth":1,"relation":"child"},"relatedTypes":{"nodeType":"ToolInstance","count":1}},{"nodeId":"N000003","nodeName":"Gripper_Proto_Master_STD","nodeType":"ToolPrototype","path":"/PLANT_ALPHA/Prototypes/Gripper_Proto_Master","upstreamCount":1,"downstreamCount":0,"directDependents":0,"transitiveDependents":0,"maxDepth":0,"riskScore":0.39,"riskLevel":"Low","upstream":{"nodeId":"N000001","depth":1,"relation":"parent"},"downstream":null,"relatedTypes":null},{"nodeId":"N000026","nodeName":"WeldGun_Robot_Weld_C_3R1_1_STD","nodeType":"ToolInstance","path":"/PLANT_ALPHA/Weld_Cell_A/RG_Weld_Cell_A_3/Robot_Weld_C_3R1/WeldGun_Robot_Weld_C_3R1_1","upstreamCount":5,"downstreamCount":0,"directDependents":0,"transitiveDependents":0,"maxDepth":0,"riskScore":0.3,"riskLevel":"Low","upstream":[{"nodeId":"N000025","depth":1,"relation":"parent"},{"nodeId":"N000002","depth":1,"relation":"prototype"},{"nodeId":"N000024","depth":2,"relation":"parent"},{"nodeId":"N000001","depth":2,"relation":"parent"},{"nodeId":"N000010","depth":3,"relation":"parent"}],"downstream":null,"relatedTypes":null},{"nodeId":"N000039","nodeName":"Loc_Op_Weld_C_Weld_1_3_STD","nodeType":"Location","path":"/PLANT_ALPHA/Weld_Cell_A/Operations/Op_Weld_C_Weld_1/Loc_Op_Weld_C_Weld_1_3","upstreamCount":3,"downstreamCount":0,"directDependents":0,"transitiveDependents":0,"maxDepth":0,"riskScore":0.27,"riskLevel":"Low","upstream":[{"nodeId":"N000036","depth":1,"relation":"parent"},{"nodeId":"N000010","depth":2,"relation":"parent"},{"nodeId":"N000001","depth":3,"relation":"parent"}],"downstream":null,"relatedTypes":null}]},"drift":{"timestamp":"2026-01-15T16:57:15.2810614Z","totalPairs":10,"driftedPairs":10,"positionDrifted":10,"rotationDrifted":10,"attributeDrifted":10,"driftRate":1.0,"avgPositionDelta":1330.0277,"maxPositionDelta":1821.6053,"avgRotationDelta":137.6,"maxRotationDelta":178.0,"tolerances":{"rotation_deg":0.01,"attribute_count":0,"position_mm":0.1},"topDrifted":[{"sourceNodeId":"N000004","sourceName":"Fixture_Proto_Master","sourceType":"ToolPrototype","targetNodeId":"N000014","targetName":"Fixture_Robot_Weld_C_1R1_2","targetType":"ToolInstance","relation":"prototype_instance","positionDelta_mm":1780.9161,"rotationDelta_deg":178.0,"attributeDeltaCount":4,"attributeDiffs":[{"attribute":"typeId","value1":131,"value2":19},{"attribute":"className","value1":"ToolPrototypeClass","value2":"ToolInstanceClass"},{"attribute":"externalId","value1":"EXT-55D5ED9C","value2":"EXT-CAF67DB4"},{"attribute":"niceName","value1":"Fixture_Proto_Master","value2":"Fixture_Robot_Weld_C_1R1_2"}],"hasDrift":true,"positionDrift":true,"rotationDrift":true,"attributeDrift":true,"severity":1.0},{"sourceNodeId":"N000006","sourceName":"Sensor_Proto_Master","sourceType":"ToolPrototype","targetNodeId":"N000017","targetName":"Sensor_Robot_Weld_C_2R1_1","targetType":"ToolInstance","relation":"prototype_instance","positionDelta_mm":1198.8069,"rotationDelta_deg":178.0,"attributeDeltaCount":4,"attributeDiffs":[{"attribute":"typeId","value1":169,"value2":8},{"attribute":"className","value1":"ToolPrototypeClass","value2":"ToolInstanceClass"},{"attribute":"externalId","value1":"EXT-37B13770","value2":"EXT-683034AE"},{"attribute":"niceName","value1":"Sensor_Proto_Master","value2":"Sensor_Robot_Weld_C_2R1_1"}],"hasDrift":true,"positionDrift":true,"rotationDrift":true,"attributeDrift":true,"severity":1.0},{"sourceNodeId":"N000004","sourceName":"Fixture_Proto_Master","sourceType":"ToolPrototype","targetNodeId":"N000023","targetName":"Fixture_Robot_Weld_C_2R3_1","targetType":"ToolInstance","relation":"prototype_instance","positionDelta_mm":1199.8021,"rotationDelta_deg":56.0,"attributeDeltaCount":4,"attributeDiffs":[{"attribute":"typeId","value1":131,"value2":176},{"attribute":"className","value1":"ToolPrototypeClass","value2":"ToolInstanceClass"},{"attribute":"externalId","value1":"EXT-55D5ED9C","value2":"EXT-B2ED27B9"},{"attribute":"niceName","value1":"Fixture_Proto_Master","value2":"Fixture_Robot_Weld_C_2R3_1"}],"hasDrift":true,"positionDrift":true,"rotationDrift":true,"attributeDrift":true,"severity":1.0},{"sourceNodeId":"N000002","sourceName":"WeldGun_Proto_Master","sourceType":"ToolPrototype","targetNodeId":"N000026","targetName":"WeldGun_Robot_Weld_C_3R1_1_STD","targetType":"ToolInstance","relation":"prototype_instance","positionDelta_mm":1356.3403,"rotationDelta_deg":65.0,"attributeDeltaCount":4,"attributeDiffs":[{"attribute":"typeId","value1":11,"value2":1},{"attribute":"className","value1":"ToolPrototypeClass","value2":"ToolInstanceClass"},{"attribute":"externalId","value1":"EXT-1EFE5111","value2":"EXT-0587B0D1"},{"attribute":"niceName","value1":"WeldGun_Proto_Master","value2":"WeldGun_Robot_Weld_C_3R1_1"}],"hasDrift":true,"positionDrift":true,"rotationDrift":true,"attributeDrift":true,"severity":1.0},{"sourceNodeId":"N000005","sourceName":"Clamp_Proto_Master","sourceType":"ToolPrototype","targetNodeId":"N000029","targetName":"Clamp_Robot_Weld_C_4R1_1","targetType":"ToolInstance","relation":"prototype_instance","positionDelta_mm":1738.8887,"rotationDelta_deg":178.0,"attributeDeltaCount":4,"attributeDiffs":[{"attribute":"typeId","value1":115,"value2":5},{"attribute":"className","value1":"ToolPrototypeClass","value2":"ToolInstanceClass"},{"attribute":"externalId","value1":"EXT-8A86C270","value2":"EXT-00352A8B"},{"attribute":"niceName","value1":"Clamp_Proto_Master","value2":"Clamp_Robot_Weld_C_4R1_1"}],"hasDrift":true,"positionDrift":true,"rotationDrift":true,"attributeDrift":true,"severity":1.0},{"sourceNodeId":"N000006","sourceName":"Sensor_Proto_Master","sourceType":"ToolPrototype","targetNodeId":"N000032","targetName":"Sensor_Robot_Weld_C_4R2_2","targetType":"ToolInstance","relation":"prototype_instance","positionDelta_mm":797.1963,"rotationDelta_deg":140.0,"attributeDeltaCount":4,"attributeDiffs":[{"attribute":"typeId","value1":169,"value2":117},{"attribute":"className","value1":"ToolPrototypeClass","value2":"ToolInstanceClass"},{"attribute":"externalId","value1":"EXT-37B13770","value2":"EXT-5B3DD4E4"},{"attribute":"niceName","value1":"Sensor_Proto_Master","value2":"Sensor_Robot_Weld_C_4R2_2"}],"hasDrift":true,"positionDrift":true,"rotationDrift":true,"attributeDrift":true,"severity":1.0},{"sourceNodeId":"N000004","sourceName":"Fixture_Proto_Master","sourceType":"ToolPrototype","targetNodeId":"N000033","targetName":"Fixture_Robot_Weld_C_4R2_3","targetType":"ToolInstance","relation":"prototype_instance","positionDelta_mm":1821.6053,"rotationDelta_deg":114.0,"attributeDeltaCount":4,"attributeDiffs":[{"attribute":"typeId","value1":131,"value2":79},{"attribute":"className","value1":"ToolPrototypeClass","value2":"ToolInstanceClass"},{"attribute":"externalId","value1":"EXT-55D5ED9C","value2":"EXT-576918A0"},{"attribute":"niceName","value1":"Fixture_Proto_Master","value2":"Fixture_Robot_Weld_C_4R2_3"}],"hasDrift":true,"positionDrift":true,"rotationDrift":true,"attributeDrift":true,"severity":1.0},{"sourceNodeId":"N000005","sourceName":"Clamp_Proto_Master","sourceType":"ToolPrototype","targetNodeId":"N000035","targetName":"Clamp_Robot_Weld_C_4R3_1","targetType":"ToolInstance","relation":"prototype_instance","positionDelta_mm":660.1341,"rotationDelta_deg":135.0,"attributeDeltaCount":4,"attributeDiffs":[{"attribute":"typeId","value1":115,"value2":15},{"attribute":"className","value1":"ToolPrototypeClass","value2":"ToolInstanceClass"},{"attribute":"externalId","value1":"EXT-8A86C270","value2":"EXT-58593FB9"},{"attribute":"niceName","value1":"Clamp_Proto_Master","value2":"Clamp_Robot_Weld_C_4R3_1"}],"hasDrift":true,"positionDrift":true,"rotationDrift":true,"attributeDrift":true,"severity":1.0},{"sourceNodeId":"N000009","sourceName":"Nozzle_Proto_Master","sourceType":"ToolPrototype","targetNodeId":"N000021","targetName":"Nozzle_Robot_Weld_C_2R2_2","targetType":"ToolInstance","relation":"prototype_instance","positionDelta_mm":1206.9511,"rotationDelta_deg":167.0,"attributeDeltaCount":4,"attributeDiffs":[{"attribute":"typeId","value1":186,"value2":109},{"attribute":"className","value1":"ToolPrototypeClass","value2":"ToolInstanceClass"},{"attribute":"externalId","value1":"EXT-D08FFF4F","value2":"EXT-1F51B7C5"},{"attribute":"niceName","value1":"Nozzle_Proto_Master","value2":"Nozzle_Robot_Weld_C_2R2_2"}],"hasDrift":true,"positionDrift":true,"rotationDrift":true,"attributeDrift":true,"severity":1.0},{"sourceNodeId":"N000006","sourceName":"Sensor_Proto_Master","sourceType":"ToolPrototype","targetNodeId":"N000013","targetName":"Clamp_Robot_Weld_C_1R1_1","targetType":"ToolInstance","relation":"prototype_instance","positionDelta_mm":1539.6357,"rotationDelta_deg":165.0,"attributeDeltaCount":4,"attributeDiffs":[{"attribute":"typeId","value1":169,"value2":182},{"attribute":"className","value1":"ToolPrototypeClass","value2":"ToolInstanceClass"},{"attribute":"externalId","value1":"EXT-37B13770","value2":"EXT-8AEE453C"},{"attribute":"niceName","value1":"Sensor_Proto_Master","value2":"Clamp_Robot_Weld_C_1R1_1"}],"hasDrift":true,"positionDrift":true,"rotationDrift":true,"attributeDrift":true,"severity":1.0}],"measurements":[{"sourceNodeId":"N000004","sourceName":"Fixture_Proto_Master","sourceType":"ToolPrototype","targetNodeId":"N000014","targetName":"Fixture_Robot_Weld_C_1R1_2","targetType":"ToolInstance","relation":"prototype_instance","positionDelta_mm":1780.9161,"rotationDelta_deg":178.0,"attributeDeltaCount":4,"attributeDiffs":[{"attribute":"typeId","value1":131,"value2":19},{"attribute":"className","value1":"ToolPrototypeClass","value2":"ToolInstanceClass"},{"attribute":"externalId","value1":"EXT-55D5ED9C","value2":"EXT-CAF67DB4"},{"attribute":"niceName","value1":"Fixture_Proto_Master","value2":"Fixture_Robot_Weld_C_1R1_2"}],"hasDrift":true,"positionDrift":true,"rotationDrift":true,"attributeDrift":true,"severity":1.0},{"sourceNodeId":"N000006","sourceName":"Sensor_Proto_Master","sourceType":"ToolPrototype","targetNodeId":"N000017","targetName":"Sensor_Robot_Weld_C_2R1_1","targetType":"ToolInstance","relation":"prototype_instance","positionDelta_mm":1198.8069,"rotationDelta_deg":178.0,"attributeDeltaCount":4,"attributeDiffs":[{"attribute":"typeId","value1":169,"value2":8},{"attribute":"className","value1":"ToolPrototypeClass","value2":"ToolInstanceClass"},{"attribute":"externalId","value1":"EXT-37B13770","value2":"EXT-683034AE"},{"attribute":"niceName","value1":"Sensor_Proto_Master","value2":"Sensor_Robot_Weld_C_2R1_1"}],"hasDrift":true,"positionDrift":true,"rotationDrift":true,"attributeDrift":true,"severity":1.0},{"sourceNodeId":"N000004","sourceName":"Fixture_Proto_Master","sourceType":"ToolPrototype","targetNodeId":"N000023","targetName":"Fixture_Robot_Weld_C_2R3_1","targetType":"ToolInstance","relation":"prototype_instance","positionDelta_mm":1199.8021,"rotationDelta_deg":56.0,"attributeDeltaCount":4,"attributeDiffs":[{"attribute":"typeId","value1":131,"value2":176},{"attribute":"className","value1":"ToolPrototypeClass","value2":"ToolInstanceClass"},{"attribute":"externalId","value1":"EXT-55D5ED9C","value2":"EXT-B2ED27B9"},{"attribute":"niceName","value1":"Fixture_Proto_Master","value2":"Fixture_Robot_Weld_C_2R3_1"}],"hasDrift":true,"positionDrift":true,"rotationDrift":true,"attributeDrift":true,"severity":1.0},{"sourceNodeId":"N000002","sourceName":"WeldGun_Proto_Master","sourceType":"ToolPrototype","targetNodeId":"N000026","targetName":"WeldGun_Robot_Weld_C_3R1_1_STD","targetType":"ToolInstance","relation":"prototype_instance","positionDelta_mm":1356.3403,"rotationDelta_deg":65.0,"attributeDeltaCount":4,"attributeDiffs":[{"attribute":"typeId","value1":11,"value2":1},{"attribute":"className","value1":"ToolPrototypeClass","value2":"ToolInstanceClass"},{"attribute":"externalId","value1":"EXT-1EFE5111","value2":"EXT-0587B0D1"},{"attribute":"niceName","value1":"WeldGun_Proto_Master","value2":"WeldGun_Robot_Weld_C_3R1_1"}],"hasDrift":true,"positionDrift":true,"rotationDrift":true,"attributeDrift":true,"severity":1.0},{"sourceNodeId":"N000005","sourceName":"Clamp_Proto_Master","sourceType":"ToolPrototype","targetNodeId":"N000029","targetName":"Clamp_Robot_Weld_C_4R1_1","targetType":"ToolInstance","relation":"prototype_instance","positionDelta_mm":1738.8887,"rotationDelta_deg":178.0,"attributeDeltaCount":4,"attributeDiffs":[{"attribute":"typeId","value1":115,"value2":5},{"attribute":"className","value1":"ToolPrototypeClass","value2":"ToolInstanceClass"},{"attribute":"externalId","value1":"EXT-8A86C270","value2":"EXT-00352A8B"},{"attribute":"niceName","value1":"Clamp_Proto_Master","value2":"Clamp_Robot_Weld_C_4R1_1"}],"hasDrift":true,"positionDrift":true,"rotationDrift":true,"attributeDrift":true,"severity":1.0},{"sourceNodeId":"N000006","sourceName":"Sensor_Proto_Master","sourceType":"ToolPrototype","targetNodeId":"N000032","targetName":"Sensor_Robot_Weld_C_4R2_2","targetType":"ToolInstance","relation":"prototype_instance","positionDelta_mm":797.1963,"rotationDelta_deg":140.0,"attributeDeltaCount":4,"attributeDiffs":[{"attribute":"typeId","value1":169,"value2":117},{"attribute":"className","value1":"ToolPrototypeClass","value2":"ToolInstanceClass"},{"attribute":"externalId","value1":"EXT-37B13770","value2":"EXT-5B3DD4E4"},{"attribute":"niceName","value1":"Sensor_Proto_Master","value2":"Sensor_Robot_Weld_C_4R2_2"}],"hasDrift":true,"positionDrift":true,"rotationDrift":true,"attributeDrift":true,"severity":1.0},{"sourceNodeId":"N000004","sourceName":"Fixture_Proto_Master","sourceType":"ToolPrototype","targetNodeId":"N000033","targetName":"Fixture_Robot_Weld_C_4R2_3","targetType":"ToolInstance","relation":"prototype_instance","positionDelta_mm":1821.6053,"rotationDelta_deg":114.0,"attributeDeltaCount":4,"attributeDiffs":[{"attribute":"typeId","value1":131,"value2":79},{"attribute":"className","value1":"ToolPrototypeClass","value2":"ToolInstanceClass"},{"attribute":"externalId","value1":"EXT-55D5ED9C","value2":"EXT-576918A0"},{"attribute":"niceName","value1":"Fixture_Proto_Master","value2":"Fixture_Robot_Weld_C_4R2_3"}],"hasDrift":true,"positionDrift":true,"rotationDrift":true,"attributeDrift":true,"severity":1.0},{"sourceNodeId":"N000005","sourceName":"Clamp_Proto_Master","sourceType":"ToolPrototype","targetNodeId":"N000035","targetName":"Clamp_Robot_Weld_C_4R3_1","targetType":"ToolInstance","relation":"prototype_instance","positionDelta_mm":660.1341,"rotationDelta_deg":135.0,"attributeDeltaCount":4,"attributeDiffs":[{"attribute":"typeId","value1":115,"value2":15},{"attribute":"className","value1":"ToolPrototypeClass","value2":"ToolInstanceClass"},{"attribute":"externalId","value1":"EXT-8A86C270","value2":"EXT-58593FB9"},{"attribute":"niceName","value1":"Clamp_Proto_Master","value2":"Clamp_Robot_Weld_C_4R3_1"}],"hasDrift":true,"positionDrift":true,"rotationDrift":true,"attributeDrift":true,"severity":1.0},{"sourceNodeId":"N000009","sourceName":"Nozzle_Proto_Master","sourceType":"ToolPrototype","targetNodeId":"N000021","targetName":"Nozzle_Robot_Weld_C_2R2_2","targetType":"ToolInstance","relation":"prototype_instance","positionDelta_mm":1206.9511,"rotationDelta_deg":167.0,"attributeDeltaCount":4,"attributeDiffs":[{"attribute":"typeId","value1":186,"value2":109},{"attribute":"className","value1":"ToolPrototypeClass","value2":"ToolInstanceClass"},{"attribute":"externalId","value1":"EXT-D08FFF4F","value2":"EXT-1F51B7C5"},{"attribute":"niceName","value1":"Nozzle_Proto_Master","value2":"Nozzle_Robot_Weld_C_2R2_2"}],"hasDrift":true,"positionDrift":true,"rotationDrift":true,"attributeDrift":true,"severity":1.0},{"sourceNodeId":"N000006","sourceName":"Sensor_Proto_Master","sourceType":"ToolPrototype","targetNodeId":"N000013","targetName":"Clamp_Robot_Weld_C_1R1_1","targetType":"ToolInstance","relation":"prototype_instance","positionDelta_mm":1539.6357,"rotationDelta_deg":165.0,"attributeDeltaCount":4,"attributeDiffs":[{"attribute":"typeId","value1":169,"value2":182},{"attribute":"className","value1":"ToolPrototypeClass","value2":"ToolInstanceClass"},{"attribute":"externalId","value1":"EXT-37B13770","value2":"EXT-8AEE453C"},{"attribute":"niceName","value1":"Sensor_Proto_Master","value2":"Clamp_Robot_Weld_C_1R1_1"}],"hasDrift":true,"positionDrift":true,"rotationDrift":true,"attributeDrift":true,"severity":1.0}]},"compliance":{"templateName":"PlantAlphaTemplate","timestamp":"2026-01-15T16:57:15.3158477Z","totalNodes":45,"score":1.0,"level":"Excellent","typeRequirements":{"total":4,"passed":4,"failed":0,"details":[{"nodeType":"Station","required":true,"minCount":1,"maxCount":-1,"actualCount":1,"passed":true,"meetsMinimum":true,"meetsMaximum":true,"nameViolations":[],"reason":"Passed"},{"nodeType":"ResourceGroup","required":true,"minCount":1,"maxCount":-1,"actualCount":4,"passed":true,"meetsMinimum":true,"meetsMaximum":true,"nameViolations":[],"reason":"Passed"},{"nodeType":"Resource","required":true,"minCount":1,"maxCount":-1,"actualCount":8,"passed":true,"meetsMinimum":true,"meetsMaximum":true,"nameViolations":[],"reason":"Passed"},{"nodeType":"ToolPrototype","required":true,"minCount":1,"maxCount":-1,"actualCount":8,"passed":true,"meetsMinimum":true,"meetsMaximum":true,"nameViolations":[],"reason":"Passed"}]},"linkRequirements":{"total":0,"passed":0,"failed":0,"details":null},"namingConventions":{"total":45,"passed":36,"failed":9,"violations":[{"nodeId":"N000002","name":"WeldGun_Proto_Master","nodeType":"ToolPrototype","reason":"Does not match pattern: ^[A-Z][A-Za-z0-9_]+_Proto(type)?$"},{"nodeId":"N000003","name":"Gripper_Proto_Master_STD","nodeType":"ToolPrototype","reason":"Does not match pattern: ^[A-Z][A-Za-z0-9_]+_Proto(type)?$"},{"nodeId":"N000004","name":"Fixture_Proto_Master","nodeType":"ToolPrototype","reason":"Does not match pattern: ^[A-Z][A-Za-z0-9_]+_Proto(type)?$"},{"nodeId":"N000005","name":"Clamp_Proto_Master","nodeType":"ToolPrototype","reason":"Does not match pattern: ^[A-Z][A-Za-z0-9_]+_Proto(type)?$"},{"nodeId":"N000006","name":"Sensor_Proto_Master","nodeType":"ToolPrototype","reason":"Does not match pattern: ^[A-Z][A-Za-z0-9_]+_Proto(type)?$"},{"nodeId":"N000007","name":"Camera_Proto_Master","nodeType":"ToolPrototype","reason":"Does not match pattern: ^[A-Z][A-Za-z0-9_]+_Proto(type)?$"},{"nodeId":"N000008","name":"Torch_Proto_Master","nodeType":"ToolPrototype","reason":"Does not match pattern: ^[A-Z][A-Za-z0-9_]+_Proto(type)?$"},{"nodeId":"N000009","name":"Nozzle_Proto_Master","nodeType":"ToolPrototype","reason":"Does not match pattern: ^[A-Z][A-Za-z0-9_]+_Proto(type)?$"},{"nodeId":"N000026","name":"WeldGun_Robot_Weld_C_3R1_1_STD","nodeType":"ToolInstance","reason":"Does not match pattern: ^[A-Z][A-Za-z0-9_]+_\\d+$"}]},"actionItems":[{"priority":1,"category":"NamingViolation","severity":"Low","description":"Rename 1 ToolInstance node(s) to match convention","nodeType":"ToolInstance","examples":"WeldGun_Robot_Weld_C_3R1_1_STD"},{"priority":2,"category":"NamingViolation","severity":"Low","description":"Rename 8 ToolPrototype node(s) to match convention","nodeType":"ToolPrototype","examples":["WeldGun_Proto_Master","Gripper_Proto_Master_STD","Fixture_Proto_Master"]}]},"anomalies":{"timestamp":"2026-01-15T16:57:15.3439811Z","totalAnomalies":0,"criticalCount":0,"warnCount":0,"infoCount":0,"hasBlockingIssues":false,"anomalies":null},"timeline":[{"snapshotId":"snap_01_baseline","label":"Baseline","timestamp":"2026-01-15T16:57:14.7564987Z","nodeCount":50,"changeCount":0,"eventType":"baseline","description":"Initial clean state"},{"snapshotId":"snap_02_bulkpaste","label":"Bulk Paste","timestamp":"2026-01-15T17:27:14.7564987Z","nodeCount":50,"changeCount":0,"eventType":"bulk_paste","description":"Mass import of station data"},{"snapshotId":"snap_03_rename","label":"Rename Pass","timestamp":"2026-01-15T18:57:14.7564987Z","nodeCount":50,"changeCount":5,"eventType":"standardization","description":"Naming convention standardization"},{"snapshotId":"snap_04_retouch","label":"Retouch","timestamp":"2026-01-15T21:57:14.7564987Z","nodeCount":50,"changeCount":8,"eventType":"transform_adjust","description":"Transform adjustments causing drift"},{"snapshotId":"snap_05_restructure","label":"Restructure","timestamp":"2026-01-16T16:57:14.7564987Z","nodeCount":50,"changeCount":4,"eventType":"reorganization","description":"Station reorganization"},{"snapshotId":"snap_06_protoswap","label":"Prototype Swap","timestamp":"2026-01-16T19:57:14.7564987Z","nodeCount":50,"changeCount":1,"eventType":"prototype_change","description":"Tool prototype updates"},{"snapshotId":"snap_07_anomaly","label":"Anomaly","timestamp":"2026-01-17T16:57:14.7564987Z","nodeCount":42,"changeCount":8,"eventType":"mass_delete","description":"Accidental mass deletion - CRITICAL"},{"snapshotId":"snap_08_recovery","label":"Recovery","timestamp":"2026-01-17T17:57:14.7564987Z","nodeCount":45,"changeCount":3,"eventType":"recovery","description":"Partial restoration"}],"currentNodes":[{"nodeId":"N000001","name":"ROOT-2049","nodeType":"Root","parentId":"","path":"/ROOT-2049"},{"nodeId":"N000002","name":"TP-2025","nodeType":"ToolPrototype","parentId":"N000001","path":"/TP-2051/TP-6620/TP-2025"},{"nodeId":"N000003","name":"TP-4711","nodeType":"ToolPrototype","parentId":"N000001","path":"/TP-2051/TP-6620/TP-5088"},{"nodeId":"N000004","name":"TP-8157","nodeType":"ToolPrototype","parentId":"N000001","path":"/TP-2051/TP-6620/TP-8157"},{"nodeId":"N000005","name":"TP-8403","nodeType":"ToolPrototype","parentId":"N000001","path":"/TP-2051/TP-6620/TP-8403"},{"nodeId":"N000006","name":"TP-5545","nodeType":"ToolPrototype","parentId":"N000001","path":"/TP-2051/TP-6620/TP-5545"},{"nodeId":"N000007","name":"TP-3973","nodeType":"ToolPrototype","parentId":"N000001","path":"/TP-2051/TP-6620/TP-3973"},{"nodeId":"N000008","name":"TP-7291","nodeType":"ToolPrototype","parentId":"N000001","path":"/TP-2051/TP-6620/TP-7291"},{"nodeId":"N000009","name":"TP-3974","nodeType":"ToolPrototype","parentId":"N000001","path":"/TP-2051/TP-6620/TP-3974"},{"nodeId":"N000010","name":"ST-2239","nodeType":"Station","parentId":"N000001","path":"/ST-2424/ST-2239"},{"nodeId":"N000011","name":"RG-5638","nodeType":"ResourceGroup","parentId":"N000010","path":"/RG-6870/RG-4323/RG-5638"},{"nodeId":"N000012","name":"RSC-9500","nodeType":"Resource","parentId":"N000011","path":"/RSC-2427/RSC-8708/RSC-6054/RSC-9500"},{"nodeId":"N000014","name":"TI-2807","nodeType":"ToolInstance","parentId":"N000012","path":"/TI-5266/TI-0218/TI-6587/TI-9505/TI-2807"},{"nodeId":"N000015","name":"RG-5759","nodeType":"ResourceGroup","parentId":"N000010","path":"/RG-6870/RG-4323/RG-5759"},{"nodeId":"N000016","name":"RSC-4899","nodeType":"Resource","parentId":"N000015","path":"/RSC-2427/RSC-8708/RSC-3634/RSC-4899"},{"nodeId":"N000017","name":"TI-6388","nodeType":"ToolInstance","parentId":"N000016","path":"/TI-5266/TI-0218/TI-5655/TI-1689/TI-6388"},{"nodeId":"N000019","name":"RSC-7895","nodeType":"Resource","parentId":"N000015","path":"/RSC-2427/RSC-8708/RSC-3634/RSC-7895"},{"nodeId":"N000022","name":"RSC-8331","nodeType":"Resource","parentId":"N000015","path":"/RSC-2427/RSC-8708/RSC-3634/RSC-8826"},{"nodeId":"N000023","name":"TI-0190","nodeType":"ToolInstance","parentId":"N000022","path":"/TI-5266/TI-0218/TI-5655/TI-0715/TI-0190"},{"nodeId":"N000024","name":"RG-4400","nodeType":"ResourceGroup","parentId":"N000010","path":"/RG-6870/RG-4323/RG-4400"},{"nodeId":"N000025","name":"RSC-0009","nodeType":"Resource","parentId":"N000024","path":"/RSC-2427/RSC-8708/RSC-6081/RSC-0009"},{"nodeId":"N000026","name":"TI-3948","nodeType":"ToolInstance","parentId":"N000025","path":"/TI-5266/TI-0218/TI-4981/TI-1103/TI-8653"},{"nodeId":"N000027","name":"RG-8705","nodeType":"ResourceGroup","parentId":"N000010","path":"/RG-6870/RG-4323/RG-8705"},{"nodeId":"N000028","name":"RSC-2892","nodeType":"Resource","parentId":"N000027","path":"/RSC-2427/RSC-8708/RSC-5533/RSC-2892"},{"nodeId":"N000029","name":"TI-0907","nodeType":"ToolInstance","parentId":"N000028","path":"/TI-5266/TI-0218/TI-0606/TI-1949/TI-0907"},{"nodeId":"N000030","name":"RSC-7467","nodeType":"Resource","parentId":"N000027","path":"/RSC-2427/RSC-8708/RSC-5533/RSC-7467"},{"nodeId":"N000032","name":"TI-6372","nodeType":"ToolInstance","parentId":"N000030","path":"/TI-5266/TI-0218/TI-0606/TI-9283/TI-6372"},{"nodeId":"N000033","name":"TI-9653","nodeType":"ToolInstance","parentId":"N000030","path":"/TI-5266/TI-0218/TI-0606/TI-9283/TI-9653"},{"nodeId":"N000034","name":"RSC-9328","nodeType":"Resource","parentId":"N000027","path":"/RSC-2427/RSC-8708/RSC-5533/RSC-9328"},{"nodeId":"N000035","name":"TI-1426","nodeType":"ToolInstance","parentId":"N000034","path":"/TI-5266/TI-0218/TI-0606/TI-1594/TI-1426"},{"nodeId":"N000036","name":"OP-2764","nodeType":"Operation","parentId":"N000010","path":"/OP-7094/OP-8923/OP-2596/OP-2764"},{"nodeId":"N000037","name":"LOC-4325","nodeType":"Location","parentId":"N000036","path":"/LOC-2640/LOC-5650/LOC-1243/LOC-7167/LOC-4325"},{"nodeId":"N000039","name":"LOC-2962","nodeType":"Location","parentId":"N000036","path":"/LOC-2640/LOC-5650/LOC-1243/LOC-7167/LOC-4658"},{"nodeId":"N000040","name":"LOC-6506","nodeType":"Location","parentId":"N000036","path":"/LOC-2640/LOC-5650/LOC-1243/LOC-7167/LOC-6506"},{"nodeId":"N000041","name":"OP-4093","nodeType":"Operation","parentId":"N000010","path":"/OP-7094/OP-8923/OP-2596/OP-4093"},{"nodeId":"N000042","name":"LOC-3501","nodeType":"Location","parentId":"N000041","path":"/LOC-2640/LOC-5650/LOC-1243/LOC-9066/LOC-3501"},{"nodeId":"N000043","name":"LOC-0284","nodeType":"Location","parentId":"N000041","path":"/LOC-2640/LOC-5650/LOC-1243/LOC-9066/LOC-0284"},{"nodeId":"N000044","name":"LOC-8566","nodeType":"Location","parentId":"N000041","path":"/LOC-2640/LOC-5650/LOC-1243/LOC-9066/LOC-8566"},{"nodeId":"N000045","name":"LOC-8386","nodeType":"Location","parentId":"N000041","path":"/LOC-2640/LOC-5650/LOC-1243/LOC-9066/LOC-8386"},{"nodeId":"N000046","name":"OP-4007","nodeType":"Operation","parentId":"N000010","path":"/OP-7094/OP-8923/OP-2596/OP-4007"},{"nodeId":"N000049","name":"LOC-1147","nodeType":"Location","parentId":"N000046","path":"/LOC-2640/LOC-5650/LOC-1243/LOC-6414/LOC-1147"},{"nodeId":"N000050","name":"OP-0939","nodeType":"Operation","parentId":"N000010","path":"/OP-7094/OP-8923/OP-2596/OP-0939"},{"nodeId":"N000021","name":"TI-9713","nodeType":"ToolInstance","parentId":"N000019","path":"/TI-5266/TI-0218/TI-5655/TI-5433/TI-9713"},{"nodeId":"N000047","name":"LOC-3183","nodeType":"Location","parentId":"N000046","path":"/LOC-2640/LOC-5650/LOC-1243/LOC-6414/LOC-3183"},{"nodeId":"N000013","name":"TI-6206","nodeType":"ToolInstance","parentId":"N000012","path":"/TI-5266/TI-0218/TI-6587/TI-9505/TI-6206"}]};
+        
+        // Section rendering functions
+        const sections = {
+            overview: renderOverview,
+            diff: renderDiff,
+            sessions: renderSessions,
+            intents: renderIntents,
+            impact: renderImpact,
+            drift: renderDrift,
+            compliance: renderCompliance,
+            anomalies: renderAnomalies,
+            tree: renderTree
+        };
+        
+        function init() {
+            document.getElementById('bundle-meta').textContent = 
+                `Bundle: ${BUNDLE_DATA.meta?.name || 'Unknown'} | Created: ${BUNDLE_DATA.meta?.createdAt || 'Unknown'}`;
+            
+            // Set up navigation
+            document.querySelectorAll('.nav-item').forEach(item => {
+                item.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+                    item.classList.add('active');
+                    renderSection(item.dataset.section);
+                });
+            });
+            
+            // Render initial section
+            renderSection('overview');
+        }
+        
+        function renderSection(sectionName) {
+            const fn = sections[sectionName];
+            if (fn) {
+                document.getElementById('main-content').innerHTML = fn();
+            }
+        }
+        
+        function renderOverview() {
+            const meta = BUNDLE_DATA.meta || {};
+            const diff = BUNDLE_DATA.diff || {};
+            const anomalies = BUNDLE_DATA.anomalies || {};
+            const compliance = BUNDLE_DATA.compliance || {};
+            
+            return `
+                <div class="panel">
+                    <h2>Bundle Overview</h2>
+                    <div class="stat-grid">
+                        <div class="stat-card">
+                            <div class="value">${diff.summary?.totalChanges || 0}</div>
+                            <div class="label">Total Changes</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="value">${diff.summary?.added || 0}</div>
+                            <div class="label">Added</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="value">${diff.summary?.removed || 0}</div>
+                            <div class="label">Removed</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="value">${anomalies.criticalCount || 0}</div>
+                            <div class="label">Critical Alerts</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="panel">
+                    <h2>Quick Stats</h2>
+                    <table class="table">
+                        <tr><th>Metric</th><th>Value</th></tr>
+                        <tr><td>Baseline Nodes</td><td>${meta.baselineNodeCount || 'N/A'}</td></tr>
+                        <tr><td>Current Nodes</td><td>${meta.currentNodeCount || 'N/A'}</td></tr>
+                        <tr><td>Compliance Score</td><td class="${getScoreClass(compliance.score)}">${compliance.score !== undefined ? (compliance.score * 100).toFixed(0) + '%' : 'N/A'}</td></tr>
+                        <tr><td>Sessions Detected</td><td>${BUNDLE_DATA.sessions?.length || 0}</td></tr>
+                    </table>
+                </div>
+            `;
+        }
+        
+        function renderDiff() {
+            const diff = BUNDLE_DATA.diff || {};
+            const changes = diff.changes || [];
+            
+            return `
+                <div class="panel">
+                    <h2>Changes (${changes.length})</h2>
+                    <table class="table">
+                        <thead>
+                            <tr><th>Type</th><th>Name</th><th>Node Type</th><th>Path</th></tr>
+                        </thead>
+                        <tbody>
+                            ${changes.slice(0, 100).map(c => `
+                                <tr>
+                                    <td><span class="badge badge-${c.changeType}">${c.changeType}</span></td>
+                                    <td>${escapeHtml(c.nodeName || c.name || '')}</td>
+                                    <td>${c.nodeType || ''}</td>
+                                    <td style="font-size: 0.75rem; color: var(--text-secondary)">${escapeHtml(c.path || '')}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                    ${changes.length > 100 ? '<p style="margin-top: 1rem; color: var(--text-secondary)">Showing first 100 of ' + changes.length + ' changes</p>' : ''}
+                </div>
+            `;
+        }
+        
+        function renderSessions() {
+            const sessions = BUNDLE_DATA.sessions || [];
+            
+            return `
+                <div class="panel">
+                    <h2>Work Sessions (${sessions.length})</h2>
+                    ${sessions.map(s => `
+                        <div style="background: var(--bg-tertiary); padding: 1rem; border-radius: 4px; margin-bottom: 0.5rem;">
+                            <strong>${s.sessionId}</strong>
+                            <span style="float: right; color: var(--text-secondary)">${s.changeCount} changes</span>
+                            <div style="font-size: 0.875rem; color: var(--text-secondary); margin-top: 0.5rem;">
+                                Types: ${s.changeTypes?.join(', ') || 'N/A'} | 
+                                Subtrees: ${s.subtrees?.length || 0}
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
+        
+        function renderIntents() {
+            const intents = BUNDLE_DATA.intents || [];
+            
+            return `
+                <div class="panel">
+                    <h2>Detected Intents (${intents.length})</h2>
+                    ${intents.map(i => `
+                        <div style="background: var(--bg-tertiary); padding: 1rem; border-radius: 4px; margin-bottom: 0.5rem;">
+                            <strong>${i.intentType}</strong>
+                            <span style="float: right;">${(i.confidence * 100).toFixed(0)}% confidence</span>
+                            <p style="margin-top: 0.5rem; color: var(--text-secondary)">${escapeHtml(i.explanation)}</p>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
+        
+        function renderImpact() {
+            const impact = BUNDLE_DATA.impact || {};
+            const topRisk = impact.topRiskNodes || [];
+            
+            return `
+                <div class="panel">
+                    <h2>Impact Analysis</h2>
+                    <div class="stat-grid">
+                        <div class="stat-card">
+                            <div class="value">${impact.totalDownstreamImpact || 0}</div>
+                            <div class="label">Downstream Impact</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="value">${impact.criticalRiskCount || 0}</div>
+                            <div class="label">Critical Risk</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="panel">
+                    <h2>Top Risk Nodes</h2>
+                    <table class="table">
+                        <thead><tr><th>Name</th><th>Risk Score</th><th>Level</th><th>Dependents</th></tr></thead>
+                        <tbody>
+                            ${topRisk.map(n => `
+                                <tr>
+                                    <td>${escapeHtml(n.nodeName || '')}</td>
+                                    <td>${(n.riskScore * 100).toFixed(0)}%</td>
+                                    <td><span class="badge badge-${n.riskLevel?.toLowerCase()}">${n.riskLevel}</span></td>
+                                    <td>${n.downstreamCount || 0}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+        }
+        
+        function renderDrift() {
+            const drift = BUNDLE_DATA.drift || {};
+            
+            return `
+                <div class="panel">
+                    <h2>Drift Analysis</h2>
+                    <div class="stat-grid">
+                        <div class="stat-card">
+                            <div class="value">${drift.totalPairs || 0}</div>
+                            <div class="label">Total Pairs</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="value ${drift.driftedPairs > 0 ? 'score-warn' : ''}">${drift.driftedPairs || 0}</div>
+                            <div class="label">Drifted</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="value">${((drift.driftRate || 0) * 100).toFixed(1)}%</div>
+                            <div class="label">Drift Rate</div>
+                        </div>
+                    </div>
+                </div>
+                ${drift.topDrifted?.length > 0 ? `
+                <div class="panel">
+                    <h2>Top Drifted Pairs</h2>
+                    <table class="table">
+                        <thead><tr><th>Source</th><th>Target</th><th>Position (mm)</th><th>Rotation (deg)</th></tr></thead>
+                        <tbody>
+                            ${drift.topDrifted.map(d => `
+                                <tr>
+                                    <td>${escapeHtml(d.sourceName || '')}</td>
+                                    <td>${escapeHtml(d.targetName || '')}</td>
+                                    <td>${d.positionDelta_mm?.toFixed(2) || '0'}</td>
+                                    <td>${d.rotationDelta_deg?.toFixed(2) || '0'}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+                ` : ''}
+            `;
+        }
+        
+        function renderCompliance() {
+            const c = BUNDLE_DATA.compliance || {};
+            
+            return `
+                <div class="panel">
+                    <h2>Compliance Report</h2>
+                    <div class="stat-grid">
+                        <div class="stat-card">
+                            <div class="value ${getScoreClass(c.score)}">${c.score !== undefined ? (c.score * 100).toFixed(0) + '%' : 'N/A'}</div>
+                            <div class="label">Compliance Score</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="value">${c.level || 'Unknown'}</div>
+                            <div class="label">Level</div>
+                        </div>
+                    </div>
+                </div>
+                ${c.actionItems?.length > 0 ? `
+                <div class="panel">
+                    <h2>Action Items</h2>
+                    ${c.actionItems.map(a => `
+                        <div style="background: var(--bg-tertiary); padding: 0.75rem; border-radius: 4px; margin-bottom: 0.5rem; display: flex; align-items: center;">
+                            <span class="badge badge-${a.severity?.toLowerCase()}" style="margin-right: 1rem;">${a.severity}</span>
+                            <span>${escapeHtml(a.description)}</span>
+                        </div>
+                    `).join('')}
+                </div>
+                ` : ''}
+            `;
+        }
+        
+        function renderAnomalies() {
+            const a = BUNDLE_DATA.anomalies || {};
+            const list = a.anomalies || [];
+            
+            return `
+                <div class="panel">
+                    <h2>Anomaly Detection</h2>
+                    <div class="stat-grid">
+                        <div class="stat-card">
+                            <div class="value ${a.criticalCount > 0 ? 'score-bad' : ''}">${a.criticalCount || 0}</div>
+                            <div class="label">Critical</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="value ${a.warnCount > 0 ? 'score-warn' : ''}">${a.warnCount || 0}</div>
+                            <div class="label">Warnings</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="value">${a.infoCount || 0}</div>
+                            <div class="label">Info</div>
+                        </div>
+                    </div>
+                </div>
+                ${list.length > 0 ? `
+                <div class="panel">
+                    <h2>Alerts</h2>
+                    ${list.map(al => `
+                        <div style="background: var(--bg-tertiary); padding: 1rem; border-radius: 4px; margin-bottom: 0.5rem;">
+                            <span class="badge badge-${al.severity?.toLowerCase()}">${al.severity}</span>
+                            <strong style="margin-left: 0.5rem;">${al.type}</strong>
+                            <p style="margin-top: 0.5rem; color: var(--text-secondary)">${escapeHtml(al.description)}</p>
+                        </div>
+                    `).join('')}
+                </div>
+                ` : '<div class="panel"><p style="color: var(--text-secondary)">No anomalies detected.</p></div>'}
+            `;
+        }
+        
+        function renderTree() {
+            const nodes = BUNDLE_DATA.currentNodes || BUNDLE_DATA.nodes || [];
+            
+            return `
+                <div class="panel">
+                    <h2>Tree View (${nodes.length} nodes)</h2>
+                    <p style="color: var(--text-secondary); margin-bottom: 1rem;">Showing node hierarchy (top-level only for performance)</p>
+                    <div>
+                        ${nodes.filter(n => !n.parentId).slice(0, 50).map(n => renderTreeNode(n, nodes, 0)).join('')}
+                    </div>
+                    ${nodes.length > 50 ? '<p style="margin-top: 1rem; color: var(--text-secondary)">Tree view limited for performance</p>' : ''}
+                </div>
+            `;
+        }
+        
+        function renderTreeNode(node, allNodes, level) {
+            const children = allNodes.filter(n => n.parentId === node.nodeId);
+            const hasChildren = children.length > 0;
+            
+            return `
+                <div class="tree-node" style="--level: ${level}">
+                    ${hasChildren ? '▸' : '•'} <strong>${escapeHtml(node.name || node.nodeId)}</strong>
+                    <span style="color: var(--text-secondary); font-size: 0.75rem;">[${node.nodeType}]</span>
+                </div>
+                ${level < 2 && hasChildren ? children.slice(0, 10).map(c => renderTreeNode(c, allNodes, level + 1)).join('') : ''}
+            `;
+        }
+        
+        function getScoreClass(score) {
+            if (score === undefined) return '';
+            if (score >= 0.9) return 'score-excellent';
+            if (score >= 0.7) return 'score-good';
+            if (score >= 0.5) return 'score-warn';
+            return 'score-bad';
+        }
+        
+        function escapeHtml(str) {
+            if (!str) return '';
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;');
+        }
+        
+        // Initialize
+        init();
+    </script>
+</body>
+</html>

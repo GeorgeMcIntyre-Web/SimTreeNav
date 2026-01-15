@@ -225,17 +225,22 @@ function Resolve-NodeIdentities {
     
     foreach ($node in $Nodes) {
         $logicalId = Get-LogicalId -Node $node
+        $signature = Get-IdentitySignature -Node $node
         
-        # Add identity properties to node
+        # Create identity object
+        $identityObj = [PSCustomObject]@{
+            logicalId = $logicalId
+            signature = $signature
+        }
+        
+        # Add or replace identity property on node
         if (-not $node.PSObject.Properties['identity']) {
-            $node | Add-Member -NotePropertyName 'identity' -NotePropertyValue ([PSCustomObject]@{
-                logicalId = $logicalId
-                signature = Get-IdentitySignature -Node $node
-            }) -Force
+            $node | Add-Member -NotePropertyName 'identity' -NotePropertyValue $identityObj -Force
         }
         else {
-            $node.identity.logicalId = $logicalId
-            $node.identity.signature = Get-IdentitySignature -Node $node
+            # Replace the entire identity object to avoid property-setting issues
+            $node.PSObject.Properties.Remove('identity')
+            $node | Add-Member -NotePropertyName 'identity' -NotePropertyValue $identityObj -Force
         }
     }
     
@@ -255,13 +260,27 @@ function Find-MatchingNode {
         [Parameter(Mandatory = $true)]
         [PSCustomObject]$SourceNode,
         
-        [Parameter(Mandatory = $true)]
-        [array]$TargetNodes,
+        [Parameter(Mandatory = $false)]
+        [AllowNull()]
+        [AllowEmptyCollection()]
+        [array]$TargetNodes = @(),
         
         [double]$ConfidenceThreshold = $Script:IdentityConfig.ConfidenceThreshold,
         
         [switch]$IncludeCandidates
     )
+    
+    # Handle empty target nodes - no match possible
+    if (-not $TargetNodes -or $TargetNodes.Count -eq 0) {
+        return [PSCustomObject]@{
+            matched         = $false
+            matchedNode     = $null
+            matchConfidence = 0.0
+            matchReason     = 'no_targets'
+            isRekeyed       = $false
+            candidates      = @()
+        }
+    }
     
     $sourceSignature = if ($SourceNode.identity -and $SourceNode.identity.signature) {
         $SourceNode.identity.signature

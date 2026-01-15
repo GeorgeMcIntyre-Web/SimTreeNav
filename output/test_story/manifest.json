@@ -1,0 +1,17 @@
+{
+  "bundleName": "Manufacturing Evolution Story",
+  "version": "0.4.0",
+  "createdAt": "2026-01-15T16:57:07.6589293Z",
+  "files": [
+    "index.html",
+    "data/diff.json",
+    "data/sessions.json",
+    "data/intents.json",
+    "data/anomalies.json",
+    "data/impact.json",
+    "data/drift.json",
+    "data/compliance.json"
+  ],
+  "isAnonymized": false,
+  "hasTimeline": true
+}

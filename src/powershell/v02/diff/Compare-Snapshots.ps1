@@ -1,6 +1,7 @@
 # Compare-Snapshots.ps1
 # Compares two snapshots and generates a diff report
 # v0.3: Uses IdentityResolver for stable matching across DB rekeys
+# v0.4: Fixed to support dot-sourcing for module use
 
 <#
 .SYNOPSIS
@@ -16,20 +17,26 @@
     - AttributeChanged: Same node, different attributes
     - TransformChanged: Same node, different transform hash
 
+    When dot-sourced, this script exports functions for programmatic use.
+    When executed directly, pass -BaselinePath and -CurrentPath to run comparison.
+
 .EXAMPLE
+    # As script:
     .\Compare-Snapshots.ps1 -BaselinePath "./snapshots/baseline" -CurrentPath "./snapshots/current"
 
 .EXAMPLE
-    .\Compare-Snapshots.ps1 -BaselinePath "./snapshots/baseline" -CurrentPath "./snapshots/current" -UseIdentityMatching -ConfidenceThreshold 0.85
+    # As module (dot-source then call function):
+    . .\Compare-Snapshots.ps1
+    $result = Compare-NodesWithIdentity -BaselineNodes $baseline -CurrentNodes $current
 #>
 
+# Parameters are optional to allow dot-sourcing without prompts
+# Main execution only runs if both paths are provided
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)]
-    [string]$BaselinePath,
+    [string]$BaselinePath = '',
     
-    [Parameter(Mandatory = $true)]
-    [string]$CurrentPath,
+    [string]$CurrentPath = '',
     
     [string]$OutputPath = '',
     
@@ -37,18 +44,24 @@ param(
     
     [switch]$GenerateHtml,
     
-    [switch]$UseIdentityMatching = $true,
+    [switch]$UseIdentityMatching,
     
     [double]$ConfidenceThreshold = 0.85,
     
     [switch]$Compress
 )
 
-$ErrorActionPreference = 'Stop'
-$scriptRoot = $PSScriptRoot
+# Only set ErrorActionPreference when run directly (not dot-sourced)
+# to avoid affecting the calling script's error handling
+if ($BaselinePath -and $CurrentPath) {
+    $ErrorActionPreference = 'Stop'
+}
+
+# Use Script-scoped variable to avoid overwriting caller's $scriptRoot
+$Script:CompareSnapshotsRoot = $PSScriptRoot
 
 # Import IdentityResolver
-$identityResolverPath = Join-Path $scriptRoot '..\core\IdentityResolver.ps1'
+$identityResolverPath = Join-Path $Script:CompareSnapshotsRoot '..\core\IdentityResolver.ps1'
 if (Test-Path $identityResolverPath) {
     . $identityResolverPath
 }
@@ -848,6 +861,16 @@ function Invoke-SnapshotComparison {
     return $diff
 }
 
-# Run comparison
-$result = Invoke-SnapshotComparison
-$result
+# Run comparison only when paths are provided (not when dot-sourced for functions only)
+if ($BaselinePath -and $CurrentPath) {
+    $result = Invoke-SnapshotComparison `
+        -BaselinePath $BaselinePath `
+        -CurrentPath $CurrentPath `
+        -OutputPath $OutputPath `
+        -Pretty:$Pretty `
+        -GenerateHtml:$GenerateHtml `
+        -UseIdentityMatching:$UseIdentityMatching `
+        -ConfidenceThreshold $ConfidenceThreshold `
+        -Compress:$Compress
+    $result
+}
