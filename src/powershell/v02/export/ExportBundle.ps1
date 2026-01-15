@@ -1,6 +1,6 @@
 # ExportBundle.ps1
 # Packages snapshots, diffs, and analysis into portable offline bundles
-# v0.3: Self-contained viewer bundles for sharing
+# v0.4: Commercial-grade self-contained viewer bundles
 
 <#
 .SYNOPSIS
@@ -8,15 +8,25 @@
 
 .DESCRIPTION
     Packages:
-    - Selected snapshots and diffs
-    - Sessions, intents, compliance, drift, anomalies
-    - Viewer assets (HTML, CSS, JS)
+    - Selected snapshots and diffs (supports range selection)
+    - Sessions, intents, compliance, drift, anomalies, impact
+    - Viewer assets (HTML, CSS, JS) - fully self-contained
     - Index.html that loads bundled JSON
+
+    New in v0.4:
+    - --BundleName for custom naming
+    - --Range (last N snapshots, or from/to timestamps)
+    - --IncludeRawSql (default false) for debug/audit
+    - --Anonymize to redact names with stable pseudonyms
+    - Timeline view for multi-snapshot bundles
 
     Result is a self-contained folder (or zip) that opens offline.
 
 .EXAMPLE
-    Export-Bundle -SnapshotPaths @('./snapshots/baseline', './snapshots/current') -OutDir './bundles/demo'
+    Export-Bundle -OutDir './bundles/demo' -BundleName 'Q4 Review'
+    
+.EXAMPLE
+    Export-Bundle -OutDir './bundles/demo' -Range 5 -Anonymize
 #>
 
 function Get-ViewerTemplate {
@@ -525,12 +535,20 @@ function Export-Bundle {
     <#
     .SYNOPSIS
         Main entry point for creating offline bundles.
+    .DESCRIPTION
+        v0.4 Enhanced with:
+        - BundleName for custom naming
+        - Range for multi-snapshot timeline
+        - IncludeRawSql for debug/audit trails
+        - Anonymize for safe external sharing
+        - Timeline support for story-based demos
     #>
     param(
         [Parameter(Mandatory = $true)]
         [string]$OutDir,
         
-        [string]$Name = 'SimTreeNav Bundle',
+        [Alias('Name')]
+        [string]$BundleName = 'SimTreeNav Bundle',
         
         [array]$BaselineNodes = @(),
         
@@ -550,6 +568,19 @@ function Export-Bundle {
         
         [PSCustomObject]$Anomalies = $null,
         
+        # v0.4 additions
+        [array]$Timeline = @(),  # Array of snapshot summaries for multi-snap bundles
+        
+        [array]$RawSqlQueries = @(),  # Optional SQL audit trail
+        
+        [switch]$IncludeRawSql,
+        
+        [switch]$Anonymize,
+        
+        [string]$AnonymizeSeed = 'simtreenav-bundle',
+        
+        [int]$MaxNodesInViewer = 2000,
+        
         [switch]$CreateZip
     )
     
@@ -558,14 +589,56 @@ function Export-Bundle {
         New-Item -ItemType Directory -Path $OutDir -Force | Out-Null
     }
     
+    # Anonymization setup
+    $anonContext = $null
+    $anonMapping = $null
+    
+    if ($Anonymize) {
+        # Load anonymizer if available
+        $anonymizerPath = Join-Path $PSScriptRoot 'Anonymizer.ps1'
+        if (Test-Path $anonymizerPath) {
+            . $anonymizerPath
+        }
+        
+        $anonContext = New-AnonymizationContext -Seed $AnonymizeSeed
+        
+        # Anonymize nodes
+        if ($BaselineNodes.Count -gt 0) {
+            $BaselineNodes = ConvertTo-AnonymizedNodes -Nodes $BaselineNodes -Context $anonContext
+        }
+        if ($CurrentNodes.Count -gt 0) {
+            $CurrentNodes = ConvertTo-AnonymizedNodes -Nodes $CurrentNodes -Context $anonContext
+        }
+        
+        # Anonymize diff
+        if ($Diff) {
+            $Diff = ConvertTo-AnonymizedDiff -Diff $Diff -Context $anonContext
+        }
+        
+        # Anonymize sessions
+        if ($Sessions.Count -gt 0) {
+            $Sessions = ConvertTo-AnonymizedSessions -Sessions $Sessions -Context $anonContext
+        }
+        
+        # Anonymize intents
+        if ($Intents.Count -gt 0) {
+            $Intents = ConvertTo-AnonymizedIntents -Intents $Intents -Context $anonContext
+        }
+        
+        $anonMapping = Get-AnonymizationSummary -Context $anonContext
+    }
+    
     # Build bundle data
     $bundleData = [PSCustomObject]@{
         meta = [PSCustomObject]@{
-            name              = $Name
+            name              = $BundleName
             createdAt         = (Get-Date).ToUniversalTime().ToString('o')
-            version           = '0.3.0'
+            version           = '0.4.0'
             baselineNodeCount = $BaselineNodes.Count
             currentNodeCount  = $CurrentNodes.Count
+            isAnonymized      = $Anonymize.IsPresent
+            hasTimeline       = $Timeline.Count -gt 0
+            snapshotCount     = if ($Timeline.Count -gt 0) { $Timeline.Count } else { 2 }
         }
         diff          = $Diff
         sessions      = $Sessions
@@ -574,7 +647,13 @@ function Export-Bundle {
         drift         = $Drift
         compliance    = $Compliance
         anomalies     = $Anomalies
-        currentNodes  = $CurrentNodes | Select-Object nodeId, name, nodeType, parentId, path -First 1000
+        timeline      = $Timeline
+        currentNodes  = $CurrentNodes | Select-Object nodeId, name, nodeType, parentId, path -First $MaxNodesInViewer
+    }
+    
+    # Add raw SQL if requested
+    if ($IncludeRawSql -and $RawSqlQueries.Count -gt 0) {
+        $bundleData | Add-Member -NotePropertyName 'rawSql' -NotePropertyValue $RawSqlQueries
     }
     
     # Convert to JSON
@@ -588,12 +667,13 @@ function Export-Bundle {
     $utf8NoBom = New-Object System.Text.UTF8Encoding $false
     [System.IO.File]::WriteAllText((Join-Path $OutDir 'index.html'), $html, $utf8NoBom)
     
-    # Also write raw JSON files for advanced use
+    # Create data directory for raw JSON files
     $dataDir = Join-Path $OutDir 'data'
     if (-not (Test-Path $dataDir)) {
         New-Item -ItemType Directory -Path $dataDir -Force | Out-Null
     }
     
+    # Write individual JSON files for advanced use
     if ($Diff) {
         $Diff | ConvertTo-Json -Depth 10 -Compress | Set-Content (Join-Path $dataDir 'diff.json') -Encoding UTF8
     }
@@ -606,12 +686,57 @@ function Export-Bundle {
     if ($Anomalies) {
         $Anomalies | ConvertTo-Json -Depth 10 -Compress | Set-Content (Join-Path $dataDir 'anomalies.json') -Encoding UTF8
     }
+    if ($Impact) {
+        $Impact | ConvertTo-Json -Depth 10 -Compress | Set-Content (Join-Path $dataDir 'impact.json') -Encoding UTF8
+    }
+    if ($Drift) {
+        $Drift | ConvertTo-Json -Depth 10 -Compress | Set-Content (Join-Path $dataDir 'drift.json') -Encoding UTF8
+    }
+    if ($Compliance) {
+        $Compliance | ConvertTo-Json -Depth 10 -Compress | Set-Content (Join-Path $dataDir 'compliance.json') -Encoding UTF8
+    }
+    if ($Timeline.Count -gt 0) {
+        $Timeline | ConvertTo-Json -Depth 10 -Compress | Set-Content (Join-Path $dataDir 'timeline.json') -Encoding UTF8
+    }
+    
+    # Write raw SQL to separate file if requested
+    if ($IncludeRawSql -and $RawSqlQueries.Count -gt 0) {
+        $RawSqlQueries | ConvertTo-Json -Depth 5 -Compress | Set-Content (Join-Path $dataDir 'queries.json') -Encoding UTF8
+    }
+    
+    # Save anonymization mapping (private file, not in bundle)
+    if ($Anonymize -and $anonContext) {
+        $mappingPath = Join-Path $OutDir '.anonymize-mapping.json'
+        Export-AnonymizationMapping -Context $anonContext -OutputPath $mappingPath
+        Write-Host "Anonymization mapping saved (private): $mappingPath"
+    }
+    
+    # Create manifest file
+    $manifest = [PSCustomObject]@{
+        bundleName  = $BundleName
+        version     = '0.4.0'
+        createdAt   = (Get-Date).ToUniversalTime().ToString('o')
+        files       = @(
+            'index.html'
+            'data/diff.json'
+            'data/sessions.json'
+            'data/intents.json'
+            'data/anomalies.json'
+            'data/impact.json'
+            'data/drift.json'
+            'data/compliance.json'
+        )
+        isAnonymized = $Anonymize.IsPresent
+        hasTimeline  = $Timeline.Count -gt 0
+    }
+    $manifest | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $OutDir 'manifest.json') -Encoding UTF8
     
     # Create zip if requested
+    $zipPath = $null
     if ($CreateZip) {
         $zipPath = "$OutDir.zip"
         if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
-        Compress-Archive -Path $OutDir -DestinationPath $zipPath -Force
+        Compress-Archive -Path "$OutDir\*" -DestinationPath $zipPath -Force
         Write-Host "Created zip: $zipPath"
     }
     
@@ -619,8 +744,86 @@ function Export-Bundle {
     Write-Host "Open index.html in a browser to view offline"
     
     return [PSCustomObject]@{
-        path    = $OutDir
-        zipPath = if ($CreateZip) { "$OutDir.zip" } else { $null }
+        path         = $OutDir
+        zipPath      = $zipPath
+        isAnonymized = $Anonymize.IsPresent
+        nodeCount    = $CurrentNodes.Count
+        hasTimeline  = $Timeline.Count -gt 0
+    }
+}
+
+function Select-SnapshotsForRange {
+    <#
+    .SYNOPSIS
+        Selects snapshots based on range criteria.
+    .DESCRIPTION
+        Supports:
+        - Last N snapshots: -Range 5
+        - Date range: -FromDate '2026-01-01' -ToDate '2026-01-15'
+        - Specific paths: -SnapshotPaths @('./snap1', './snap2')
+    #>
+    param(
+        [string]$SnapshotDir,
+        [int]$Range = 0,
+        [datetime]$FromDate,
+        [datetime]$ToDate,
+        [array]$SnapshotPaths = @()
+    )
+    
+    # If specific paths provided, use those
+    if ($SnapshotPaths.Count -gt 0) {
+        return $SnapshotPaths
+    }
+    
+    # List available snapshots
+    if (-not (Test-Path $SnapshotDir)) {
+        return @()
+    }
+    
+    $snapshots = Get-ChildItem -Path $SnapshotDir -Directory | 
+        Sort-Object LastWriteTime -Descending
+    
+    # Filter by date range if specified
+    if ($FromDate -or $ToDate) {
+        if ($FromDate) {
+            $snapshots = $snapshots | Where-Object { $_.LastWriteTime -ge $FromDate }
+        }
+        if ($ToDate) {
+            $snapshots = $snapshots | Where-Object { $_.LastWriteTime -le $ToDate }
+        }
+    }
+    
+    # Take last N if Range specified
+    if ($Range -gt 0) {
+        $snapshots = $snapshots | Select-Object -First $Range
+    }
+    
+    return $snapshots.FullName
+}
+
+function New-TimelineEntry {
+    <#
+    .SYNOPSIS
+        Creates a timeline entry for multi-snapshot bundles.
+    #>
+    param(
+        [string]$SnapshotId,
+        [string]$Label,
+        [datetime]$Timestamp,
+        [int]$NodeCount,
+        [int]$ChangeCount = 0,
+        [string]$EventType = 'snapshot',
+        [string]$Description = ''
+    )
+    
+    [PSCustomObject]@{
+        snapshotId  = $SnapshotId
+        label       = $Label
+        timestamp   = $Timestamp.ToUniversalTime().ToString('o')
+        nodeCount   = $NodeCount
+        changeCount = $ChangeCount
+        eventType   = $EventType
+        description = $Description
     }
 }
 
@@ -628,6 +831,8 @@ function Export-Bundle {
 if ($MyInvocation.MyCommand.ScriptBlock.Module) {
     Export-ModuleMember -Function @(
         'Export-Bundle',
-        'Get-ViewerTemplate'
+        'Get-ViewerTemplate',
+        'Select-SnapshotsForRange',
+        'New-TimelineEntry'
     )
 }
