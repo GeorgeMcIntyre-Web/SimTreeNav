@@ -3,9 +3,9 @@
 [![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-blue)](https://github.com/PowerShell/PowerShell)
 [![Oracle](https://img.shields.io/badge/Oracle-12c-red)](https://www.oracle.com/database/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.2.0-brightgreen)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.3.0-brightgreen)](CHANGELOG.md)
 
-A PowerShell-based tree navigation and **change tracking** system for Siemens Process Simulation databases. Extracts, visualizes, snapshots, and tracks changes in hierarchical project structures.
+A PowerShell-based tree navigation and **change tracking** system for Siemens Process Simulation databases. Extracts, visualizes, snapshots, and tracks changes in hierarchical project structures with **identity-aware matching** and **narrative analysis**.
 
 ![Tree Viewer Preview](docs/assets/tree-viewer-screenshot.png)
 
@@ -20,12 +20,20 @@ A PowerShell-based tree navigation and **change tracking** system for Siemens Pr
 - 🔧 **Custom Ordering** - Matches Siemens application node ordering
 - 🚀 **Easy Setup** - Automated Oracle client installation and configuration
 
-### v0.2 Features (NEW)
+### v0.2 Features
 - 📸 **Snapshots** - Point-in-time captures of tree state in canonical JSON format
 - 🔄 **Diff Engine** - Compare snapshots to detect adds, removes, renames, moves, and attribute changes
 - 👁️ **Watch Mode** - Continuous monitoring with automatic change detection
 - 📈 **Timeline** - Track changes over time with hot subtree analysis
 - 🎯 **Canonical Node Contract** - Consistent JSON schema across all node types
+
+### v0.3 Features (NEW)
+- 🔑 **Identity Resolution** - Stable node identity across DB rekeys with confidence scoring
+- 🔄 **Rekeyed Detection** - Detects when same logical node gets a new database ID
+- 📖 **Narrative Engine** - Groups raw changes into meaningful actions (bulk paste, reorganization, retaught locations)
+- 🎯 **Confidence Scoring** - Match quality indicators for cross-snapshot correlations
+- 🗜️ **Compression** - Optional gzip compression for large snapshots
+- 🎭 **Demo Mode** - Full demonstration without database (anonymized data generation)
 
 ## Quick Start
 
@@ -154,6 +162,63 @@ This will:
 - Generate timeline.json with change history
 - Auto-cleanup old snapshots (keep last 100)
 
+### v0.3 Commands (Identity Resolution & Narrative)
+
+#### Run Demo (No Database Required)
+```powershell
+.\Demo.ps1 -NodeCount 150 -MutationRate 0.15
+```
+
+This demonstrates the full v0.3 workflow:
+- Generates anonymized baseline snapshot
+- Applies realistic mutations (renames, moves, rekeys, transforms)
+- Runs identity-aware diff engine
+- Produces narrative analysis
+- Opens HTML reports in browser
+
+#### Compare with Identity Resolution
+```powershell
+.\src\powershell\v02\SimTreeNav.ps1 `
+    -Mode Diff `
+    -BaselinePath "./snapshots/baseline" `
+    -CurrentPath "./snapshots/current" `
+    -UseIdentityMatching `
+    -ConfidenceThreshold 0.85 `
+    -GenerateHtml
+```
+
+Output includes:
+```
+diffs/diff_001/
+├── diff.json        # Diff with identity resolution
+├── diff.html        # Visual diff report
+├── actions.json     # Narrative actions
+└── narrative.html   # Narrative report
+```
+
+#### Diff Change Types (v0.3)
+| Type | Description |
+|------|-------------|
+| `added` | New node in current |
+| `removed` | Node deleted from baseline |
+| `rekeyed` | Same logical node, different nodeId (NEW) |
+| `renamed` | Name changed |
+| `moved` | Parent/path changed |
+| `attribute_changed` | Metadata changed |
+| `transform_changed` | Location/pose changed |
+
+#### Narrative Action Types (v0.3)
+| Action | Description |
+|--------|-------------|
+| `rename` | Node was renamed |
+| `move` | Node was relocated |
+| `rekeyed` | Node was rekeyed (DB ID changed) |
+| `retaught_location` | Operation was retaught/relocated |
+| `bulk_paste_cluster` | Multiple similar nodes added together |
+| `bulk_delete` | Multiple nodes deleted from same parent |
+| `station_reorganized` | Multiple related changes in one subtree |
+| `tooling_change` | Tool prototype/instance changes |
+
 ### Canonical Node Contract
 
 All nodes follow a consistent JSON schema:
@@ -214,14 +279,17 @@ SimTreeNav/
 │   │   ├── CredentialManager.ps1
 │   │   └── PCProfileManager.ps1
 │   ├── database/              # Database connection & setup
-│   └── v02/                   # v0.2 Snapshot & Diff (NEW)
+│   └── v02/                   # v0.2-0.3 Snapshot, Diff & Narrative
 │       ├── SimTreeNav.ps1     # Main entry point
 │       ├── core/
-│       │   └── NodeContract.ps1
+│       │   ├── NodeContract.ps1
+│       │   └── IdentityResolver.ps1  # v0.3: Identity matching
 │       ├── snapshot/
 │       │   └── New-Snapshot.ps1
-│       └── diff/
-│           └── Compare-Snapshots.ps1
+│       ├── diff/
+│       │   └── Compare-Snapshots.ps1
+│       └── narrative/
+│           └── NarrativeEngine.ps1   # v0.3: Action grouping
 ├── docs/
 │   ├── PRODUCT-VISION.md      # Full product vision & roadmap
 │   ├── QUICK-START-GUIDE.md
@@ -234,7 +302,9 @@ SimTreeNav/
 │   └── _example/              # Example snapshot format
 ├── queries/                   # SQL scripts by function
 ├── tests/                     # Pester tests
-│   └── DiffEngine.Tests.ps1
+│   ├── DiffEngine.Tests.ps1
+│   └── IdentityResolver.Tests.ps1  # v0.3
+├── Demo.ps1                   # v0.3: Full demo without database
 └── output/                    # Generated HTML trees
 ```
 

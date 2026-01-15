@@ -1,6 +1,6 @@
 {
   "$schema": "./simtreenav.config.schema.json",
-  "version": "0.2.0",
+  "version": "0.3.0",
   
   "connection": {
     "defaultTnsName": "",
@@ -23,7 +23,36 @@
     "intervalSeconds": 300,
     "probeQuery": "lightweight",
     "maxSnapshots": 100,
-    "autoCleanup": true
+    "autoCleanup": true,
+    "twoStageProbe": true
+  },
+  
+  "identity": {
+    "enabled": true,
+    "confidenceThreshold": 0.85,
+    "weights": {
+      "externalId": 1.0,
+      "nameAndPath": 0.7,
+      "contentHash": 0.6,
+      "nameOnly": 0.4,
+      "prototypeLink": 0.5,
+      "transformHash": 0.3,
+      "nodeTypeMatch": 0.1
+    }
+  },
+  
+  "narrative": {
+    "enabled": true,
+    "bulkThreshold": 3,
+    "reorgThreshold": 5,
+    "generateHtml": true
+  },
+  
+  "logging": {
+    "enabled": true,
+    "level": "info",
+    "outputDir": "./output/logs",
+    "retentionDays": 30
   },
   
   "nodeTypeMapping": {

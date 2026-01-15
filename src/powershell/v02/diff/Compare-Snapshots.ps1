@@ -1,25 +1,26 @@
 # Compare-Snapshots.ps1
 # Compares two snapshots and generates a diff report
-# Detects: Added, Removed, Renamed, Moved, Attribute changes, Transform changes
+# v0.3: Uses IdentityResolver for stable matching across DB rekeys
 
 <#
 .SYNOPSIS
-    Compares two snapshots and produces a diff.
+    Compares two snapshots and produces a diff with identity-aware matching.
 
 .DESCRIPTION
     Detects the following change types:
     - Added: New nodes not in baseline
     - Removed: Nodes missing from current
-    - Renamed: Same nodeId, different name
-    - Moved: Same nodeId, different parentId/path
-    - AttributeChanged: Same nodeId, different attributes
-    - TransformChanged: Same nodeId, different transform hash
+    - Rekeyed: Same logical node, different nodeId (NEW in v0.3)
+    - Renamed: Same node, different name
+    - Moved: Same node, different parentId/path
+    - AttributeChanged: Same node, different attributes
+    - TransformChanged: Same node, different transform hash
 
 .EXAMPLE
-    .\Compare-Snapshots.ps1 -BaselinePath "./snapshots/20260115_100000_baseline" -CurrentPath "./snapshots/20260115_110000_current"
+    .\Compare-Snapshots.ps1 -BaselinePath "./snapshots/baseline" -CurrentPath "./snapshots/current"
 
 .EXAMPLE
-    .\Compare-Snapshots.ps1 -BaselinePath "./snapshots/20260115_100000_baseline" -CurrentPath "./snapshots/20260115_110000_current" -OutputPath "./diffs/diff_001"
+    .\Compare-Snapshots.ps1 -BaselinePath "./snapshots/baseline" -CurrentPath "./snapshots/current" -UseIdentityMatching -ConfidenceThreshold 0.85
 #>
 
 [CmdletBinding()]
@@ -34,15 +35,29 @@ param(
     
     [switch]$Pretty,
     
-    [switch]$GenerateHtml
+    [switch]$GenerateHtml,
+    
+    [switch]$UseIdentityMatching = $true,
+    
+    [double]$ConfidenceThreshold = 0.85,
+    
+    [switch]$Compress
 )
 
 $ErrorActionPreference = 'Stop'
+$scriptRoot = $PSScriptRoot
 
-# Change type enum
+# Import IdentityResolver
+$identityResolverPath = Join-Path $scriptRoot '..\core\IdentityResolver.ps1'
+if (Test-Path $identityResolverPath) {
+    . $identityResolverPath
+}
+
+# Change type enum (v0.3: added 'rekeyed')
 $Script:ChangeTypes = @{
     Added             = 'added'
     Removed           = 'removed'
+    Rekeyed           = 'rekeyed'
     Renamed           = 'renamed'
     Moved             = 'moved'
     AttributeChanged  = 'attribute_changed'
@@ -52,19 +67,39 @@ $Script:ChangeTypes = @{
 function Read-Snapshot {
     <#
     .SYNOPSIS
-        Reads a snapshot from disk.
+        Reads a snapshot from disk with optional decompression.
     #>
     param([string]$Path)
     
     $nodesFile = Join-Path $Path 'nodes.json'
+    $nodesGzFile = Join-Path $Path 'nodes.json.gz'
     $metaFile = Join-Path $Path 'meta.json'
     
-    if (-not (Test-Path $nodesFile)) {
-        Write-Error "nodes.json not found at: $nodesFile"
+    # Try compressed first, then uncompressed
+    $nodes = $null
+    if (Test-Path $nodesGzFile) {
+        try {
+            $gzStream = [System.IO.File]::OpenRead($nodesGzFile)
+            $decompStream = New-Object System.IO.Compression.GZipStream($gzStream, [System.IO.Compression.CompressionMode]::Decompress)
+            $reader = New-Object System.IO.StreamReader($decompStream)
+            $jsonContent = $reader.ReadToEnd()
+            $reader.Close()
+            $nodes = $jsonContent | ConvertFrom-Json
+        }
+        catch {
+            Write-Warning "Failed to read compressed nodes: $_"
+        }
+    }
+    
+    if (-not $nodes -and (Test-Path $nodesFile)) {
+        $nodes = Get-Content $nodesFile -Raw | ConvertFrom-Json
+    }
+    
+    if (-not $nodes) {
+        Write-Error "nodes.json not found at: $Path"
         return $null
     }
     
-    $nodes = Get-Content $nodesFile -Raw | ConvertFrom-Json
     $meta = if (Test-Path $metaFile) {
         Get-Content $metaFile -Raw | ConvertFrom-Json
     } else {
@@ -78,10 +113,192 @@ function Read-Snapshot {
     }
 }
 
-function Compare-Nodes {
+function Compare-NodesWithIdentity {
     <#
     .SYNOPSIS
-        Compares two node sets and returns a list of changes.
+        Compares two node sets using identity-aware matching.
+    
+    .DESCRIPTION
+        Uses IdentityResolver to handle rekeyed nodes where the
+        database OBJECT_ID changed but the logical node is the same.
+    #>
+    param(
+        [array]$BaselineNodes,
+        [array]$CurrentNodes,
+        [double]$ConfidenceThreshold = 0.85
+    )
+    
+    $changes = @()
+    
+    # Build identity map
+    $identityMap = Build-IdentityMap -BaselineNodes $BaselineNodes -CurrentNodes $CurrentNodes -ConfidenceThreshold $ConfidenceThreshold
+    
+    # Process added nodes
+    foreach ($node in $identityMap.addedNodes) {
+        $changes += [PSCustomObject]@{
+            changeType      = $Script:ChangeTypes.Added
+            nodeId          = $node.nodeId
+            logicalId       = if ($node.identity) { $node.identity.logicalId } else { $null }
+            nodeName        = $node.name
+            nodeType        = $node.nodeType
+            path            = $node.path
+            parentId        = $node.parentId
+            matchConfidence = $null
+            matchReason     = $null
+            details         = $null
+            before          = $null
+            after           = $node
+        }
+    }
+    
+    # Process removed nodes
+    foreach ($node in $identityMap.removedNodes) {
+        $changes += [PSCustomObject]@{
+            changeType      = $Script:ChangeTypes.Removed
+            nodeId          = $node.nodeId
+            logicalId       = if ($node.identity) { $node.identity.logicalId } else { $null }
+            nodeName        = $node.name
+            nodeType        = $node.nodeType
+            path            = $node.path
+            parentId        = $node.parentId
+            matchConfidence = $null
+            matchReason     = $null
+            details         = $null
+            before          = $node
+            after           = $null
+        }
+    }
+    
+    # Process matched nodes (including rekeyed)
+    foreach ($mapping in $identityMap.mappings) {
+        $baseline = $mapping.baselineNode
+        $current = $mapping.currentNode
+        
+        # Check for rekey (different nodeId, same logical node)
+        if ($mapping.matchType -like 'rekeyed*') {
+            $changes += [PSCustomObject]@{
+                changeType      = $Script:ChangeTypes.Rekeyed
+                nodeId          = $current.nodeId
+                logicalId       = $mapping.logicalId
+                nodeName        = $current.name
+                nodeType        = $current.nodeType
+                path            = $current.path
+                parentId        = $current.parentId
+                matchConfidence = $mapping.matchConfidence
+                matchReason     = $mapping.matchReason
+                details         = [PSCustomObject]@{
+                    oldNodeId = $baseline.nodeId
+                    newNodeId = $current.nodeId
+                    matchType = $mapping.matchType
+                }
+                before          = $baseline
+                after           = $current
+            }
+        }
+        
+        # Check for rename
+        if ($baseline.name -ne $current.name) {
+            $changes += [PSCustomObject]@{
+                changeType      = $Script:ChangeTypes.Renamed
+                nodeId          = $current.nodeId
+                logicalId       = $mapping.logicalId
+                nodeName        = $current.name
+                nodeType        = $current.nodeType
+                path            = $current.path
+                parentId        = $current.parentId
+                matchConfidence = $mapping.matchConfidence
+                matchReason     = $mapping.matchReason
+                details         = [PSCustomObject]@{
+                    oldName = $baseline.name
+                    newName = $current.name
+                }
+                before          = $baseline
+                after           = $current
+            }
+        }
+        
+        # Check for move (different parent)
+        if ($baseline.parentId -ne $current.parentId) {
+            $changes += [PSCustomObject]@{
+                changeType      = $Script:ChangeTypes.Moved
+                nodeId          = $current.nodeId
+                logicalId       = $mapping.logicalId
+                nodeName        = $current.name
+                nodeType        = $current.nodeType
+                path            = $current.path
+                parentId        = $current.parentId
+                matchConfidence = $mapping.matchConfidence
+                matchReason     = $mapping.matchReason
+                details         = [PSCustomObject]@{
+                    oldParentId = $baseline.parentId
+                    newParentId = $current.parentId
+                    oldPath     = $baseline.path
+                    newPath     = $current.path
+                }
+                before          = $baseline
+                after           = $current
+            }
+        }
+        
+        # Check for attribute changes
+        $baselineAttrHash = if ($baseline.fingerprints) { $baseline.fingerprints.attributeHash } else { $null }
+        $currentAttrHash = if ($current.fingerprints) { $current.fingerprints.attributeHash } else { $null }
+        
+        if ($baselineAttrHash -ne $currentAttrHash -and ($baselineAttrHash -or $currentAttrHash)) {
+            $changes += [PSCustomObject]@{
+                changeType      = $Script:ChangeTypes.AttributeChanged
+                nodeId          = $current.nodeId
+                logicalId       = $mapping.logicalId
+                nodeName        = $current.name
+                nodeType        = $current.nodeType
+                path            = $current.path
+                parentId        = $current.parentId
+                matchConfidence = $mapping.matchConfidence
+                matchReason     = $mapping.matchReason
+                details         = [PSCustomObject]@{
+                    oldHash = $baselineAttrHash
+                    newHash = $currentAttrHash
+                }
+                before          = $baseline
+                after           = $current
+            }
+        }
+        
+        # Check for transform changes
+        $baselineTransformHash = if ($baseline.fingerprints) { $baseline.fingerprints.transformHash } else { $null }
+        $currentTransformHash = if ($current.fingerprints) { $current.fingerprints.transformHash } else { $null }
+        
+        if ($baselineTransformHash -ne $currentTransformHash -and ($baselineTransformHash -or $currentTransformHash)) {
+            $changes += [PSCustomObject]@{
+                changeType      = $Script:ChangeTypes.TransformChanged
+                nodeId          = $current.nodeId
+                logicalId       = $mapping.logicalId
+                nodeName        = $current.name
+                nodeType        = $current.nodeType
+                path            = $current.path
+                parentId        = $current.parentId
+                matchConfidence = $mapping.matchConfidence
+                matchReason     = $mapping.matchReason
+                details         = [PSCustomObject]@{
+                    oldHash = $baselineTransformHash
+                    newHash = $currentTransformHash
+                }
+                before          = $baseline
+                after           = $current
+            }
+        }
+    }
+    
+    return [PSCustomObject]@{
+        changes     = $changes
+        identityMap = $identityMap
+    }
+}
+
+function Compare-NodesLegacy {
+    <#
+    .SYNOPSIS
+        Legacy node comparison using only nodeId (v0.2 behavior).
     #>
     param(
         [array]$BaselineNodes,
@@ -101,133 +318,132 @@ function Compare-Nodes {
         $currentMap[$node.nodeId] = $node
     }
     
-    # Find added nodes (in current but not in baseline)
+    # Find added nodes
     foreach ($nodeId in $currentMap.Keys) {
         if (-not $baselineMap.ContainsKey($nodeId)) {
             $node = $currentMap[$nodeId]
             $changes += [PSCustomObject]@{
-                changeType = $Script:ChangeTypes.Added
-                nodeId     = $nodeId
-                nodeName   = $node.name
-                nodeType   = $node.nodeType
-                path       = $node.path
-                parentId   = $node.parentId
-                details    = $null
-                before     = $null
-                after      = $node
+                changeType      = $Script:ChangeTypes.Added
+                nodeId          = $nodeId
+                logicalId       = $null
+                nodeName        = $node.name
+                nodeType        = $node.nodeType
+                path            = $node.path
+                parentId        = $node.parentId
+                matchConfidence = $null
+                matchReason     = $null
+                details         = $null
+                before          = $null
+                after           = $node
             }
         }
     }
     
-    # Find removed nodes (in baseline but not in current)
+    # Find removed nodes
     foreach ($nodeId in $baselineMap.Keys) {
         if (-not $currentMap.ContainsKey($nodeId)) {
             $node = $baselineMap[$nodeId]
             $changes += [PSCustomObject]@{
-                changeType = $Script:ChangeTypes.Removed
-                nodeId     = $nodeId
-                nodeName   = $node.name
-                nodeType   = $node.nodeType
-                path       = $node.path
-                parentId   = $node.parentId
-                details    = $null
-                before     = $node
-                after      = $null
+                changeType      = $Script:ChangeTypes.Removed
+                nodeId          = $nodeId
+                logicalId       = $null
+                nodeName        = $node.name
+                nodeType        = $node.nodeType
+                path            = $node.path
+                parentId        = $node.parentId
+                matchConfidence = $null
+                matchReason     = $null
+                details         = $null
+                before          = $node
+                after           = $null
             }
         }
     }
     
-    # Find modified nodes (same nodeId, different properties)
+    # Find modified nodes
     foreach ($nodeId in $currentMap.Keys) {
-        if (-not $baselineMap.ContainsKey($nodeId)) {
-            continue
-        }
+        if (-not $baselineMap.ContainsKey($nodeId)) { continue }
         
         $baseline = $baselineMap[$nodeId]
         $current = $currentMap[$nodeId]
         
-        # Check for rename
         if ($baseline.name -ne $current.name) {
             $changes += [PSCustomObject]@{
-                changeType = $Script:ChangeTypes.Renamed
-                nodeId     = $nodeId
-                nodeName   = $current.name
-                nodeType   = $current.nodeType
-                path       = $current.path
-                parentId   = $current.parentId
-                details    = [PSCustomObject]@{
-                    oldName = $baseline.name
-                    newName = $current.name
-                }
-                before     = $baseline
-                after      = $current
+                changeType      = $Script:ChangeTypes.Renamed
+                nodeId          = $nodeId
+                logicalId       = $null
+                nodeName        = $current.name
+                nodeType        = $current.nodeType
+                path            = $current.path
+                parentId        = $current.parentId
+                matchConfidence = 1.0
+                matchReason     = 'exact_nodeId'
+                details         = [PSCustomObject]@{ oldName = $baseline.name; newName = $current.name }
+                before          = $baseline
+                after           = $current
             }
         }
         
-        # Check for move (different parent)
         if ($baseline.parentId -ne $current.parentId) {
             $changes += [PSCustomObject]@{
-                changeType = $Script:ChangeTypes.Moved
-                nodeId     = $nodeId
-                nodeName   = $current.name
-                nodeType   = $current.nodeType
-                path       = $current.path
-                parentId   = $current.parentId
-                details    = [PSCustomObject]@{
-                    oldParentId = $baseline.parentId
-                    newParentId = $current.parentId
-                    oldPath     = $baseline.path
-                    newPath     = $current.path
-                }
-                before     = $baseline
-                after      = $current
+                changeType      = $Script:ChangeTypes.Moved
+                nodeId          = $nodeId
+                logicalId       = $null
+                nodeName        = $current.name
+                nodeType        = $current.nodeType
+                path            = $current.path
+                parentId        = $current.parentId
+                matchConfidence = 1.0
+                matchReason     = 'exact_nodeId'
+                details         = [PSCustomObject]@{ oldParentId = $baseline.parentId; newParentId = $current.parentId; oldPath = $baseline.path; newPath = $current.path }
+                before          = $baseline
+                after           = $current
             }
         }
         
-        # Check for attribute changes (using fingerprints)
         $baselineAttrHash = if ($baseline.fingerprints) { $baseline.fingerprints.attributeHash } else { $null }
         $currentAttrHash = if ($current.fingerprints) { $current.fingerprints.attributeHash } else { $null }
-        
         if ($baselineAttrHash -ne $currentAttrHash -and ($baselineAttrHash -or $currentAttrHash)) {
             $changes += [PSCustomObject]@{
-                changeType = $Script:ChangeTypes.AttributeChanged
-                nodeId     = $nodeId
-                nodeName   = $current.name
-                nodeType   = $current.nodeType
-                path       = $current.path
-                parentId   = $current.parentId
-                details    = [PSCustomObject]@{
-                    oldHash = $baselineAttrHash
-                    newHash = $currentAttrHash
-                }
-                before     = $baseline
-                after      = $current
+                changeType      = $Script:ChangeTypes.AttributeChanged
+                nodeId          = $nodeId
+                logicalId       = $null
+                nodeName        = $current.name
+                nodeType        = $current.nodeType
+                path            = $current.path
+                parentId        = $current.parentId
+                matchConfidence = 1.0
+                matchReason     = 'exact_nodeId'
+                details         = [PSCustomObject]@{ oldHash = $baselineAttrHash; newHash = $currentAttrHash }
+                before          = $baseline
+                after           = $current
             }
         }
         
-        # Check for transform changes
         $baselineTransformHash = if ($baseline.fingerprints) { $baseline.fingerprints.transformHash } else { $null }
         $currentTransformHash = if ($current.fingerprints) { $current.fingerprints.transformHash } else { $null }
-        
         if ($baselineTransformHash -ne $currentTransformHash -and ($baselineTransformHash -or $currentTransformHash)) {
             $changes += [PSCustomObject]@{
-                changeType = $Script:ChangeTypes.TransformChanged
-                nodeId     = $nodeId
-                nodeName   = $current.name
-                nodeType   = $current.nodeType
-                path       = $current.path
-                parentId   = $current.parentId
-                details    = [PSCustomObject]@{
-                    oldHash = $baselineTransformHash
-                    newHash = $currentTransformHash
-                }
-                before     = $baseline
-                after      = $current
+                changeType      = $Script:ChangeTypes.TransformChanged
+                nodeId          = $nodeId
+                logicalId       = $null
+                nodeName        = $current.name
+                nodeType        = $current.nodeType
+                path            = $current.path
+                parentId        = $current.parentId
+                matchConfidence = 1.0
+                matchReason     = 'exact_nodeId'
+                details         = [PSCustomObject]@{ oldHash = $baselineTransformHash; newHash = $currentTransformHash }
+                before          = $baseline
+                after           = $current
             }
         }
     }
     
-    return $changes
+    return [PSCustomObject]@{
+        changes     = $changes
+        identityMap = $null
+    }
 }
 
 function Get-ChangeSummary {
@@ -235,7 +451,10 @@ function Get-ChangeSummary {
     .SYNOPSIS
         Generates a summary of changes by type and subtree.
     #>
-    param([array]$Changes)
+    param(
+        [array]$Changes,
+        [PSCustomObject]$IdentityMap = $null
+    )
     
     $byType = $Changes | Group-Object changeType | ForEach-Object {
         [PSCustomObject]@{
@@ -244,11 +463,10 @@ function Get-ChangeSummary {
         }
     }
     
-    # Find hot subtrees (most changes)
+    # Find hot subtrees
     $pathCounts = @{}
     foreach ($change in $Changes) {
         if ($change.path) {
-            # Get root subtree (first two levels)
             $parts = $change.path -split '/' | Where-Object { $_ }
             $subtree = if ($parts.Count -ge 2) { "/$($parts[0])/$($parts[1])" } else { "/$($parts[0])" }
             if (-not $pathCounts.ContainsKey($subtree)) {
@@ -268,7 +486,6 @@ function Get-ChangeSummary {
             }
         }
     
-    # Group by node type
     $byNodeType = $Changes | Group-Object nodeType | ForEach-Object {
         [PSCustomObject]@{
             nodeType = $_.Name
@@ -276,18 +493,25 @@ function Get-ChangeSummary {
         }
     }
     
-    return [PSCustomObject]@{
+    $summary = [PSCustomObject]@{
         totalChanges   = $Changes.Count
         byChangeType   = $byType
         byNodeType     = $byNodeType
         hotSubtrees    = $hotSubtrees
     }
+    
+    # Add identity stats if available
+    if ($IdentityMap -and $IdentityMap.stats) {
+        $summary | Add-Member -NotePropertyName 'identityStats' -NotePropertyValue $IdentityMap.stats
+    }
+    
+    return $summary
 }
 
 function Export-DiffHtml {
     <#
     .SYNOPSIS
-        Generates an HTML diff report.
+        Generates an HTML diff report with v0.3 features.
     #>
     param(
         [PSCustomObject]$Diff,
@@ -302,104 +526,175 @@ function Export-DiffHtml {
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>SimTreeNav Diff Report</title>
+    <title>SimTreeNav Diff Report v0.3</title>
     <style>
-        body { font-family: 'Segoe UI', sans-serif; margin: 20px; background: #f5f5f5; }
-        .container { max-width: 1200px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-        h1 { color: #333; border-bottom: 2px solid #667eea; padding-bottom: 10px; }
-        h2 { color: #444; margin-top: 20px; }
-        .summary { display: flex; gap: 20px; flex-wrap: wrap; margin: 20px 0; }
-        .summary-card { background: #f8f9fa; padding: 15px 20px; border-radius: 5px; min-width: 150px; }
-        .summary-card h3 { margin: 0 0 10px 0; font-size: 14px; color: #666; }
-        .summary-card .count { font-size: 24px; font-weight: bold; color: #333; }
-        .change-added { color: #28a745; }
-        .change-removed { color: #dc3545; }
-        .change-renamed { color: #fd7e14; }
-        .change-moved { color: #6f42c1; }
-        .change-attribute_changed { color: #17a2b8; }
-        .change-transform_changed { color: #e83e8c; }
-        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-        th, td { padding: 10px; text-align: left; border-bottom: 1px solid #ddd; }
-        th { background: #f8f9fa; }
-        .badge { display: inline-block; padding: 3px 8px; border-radius: 3px; font-size: 12px; color: white; }
-        .badge-added { background: #28a745; }
-        .badge-removed { background: #dc3545; }
-        .badge-renamed { background: #fd7e14; }
-        .badge-moved { background: #6f42c1; }
-        .badge-attribute_changed { background: #17a2b8; }
-        .badge-transform_changed { background: #e83e8c; }
-        .details { font-size: 12px; color: #666; }
-        .path { font-family: monospace; font-size: 12px; color: #888; }
+        * { box-sizing: border-box; }
+        body { font-family: 'Segoe UI', sans-serif; margin: 0; background: #1a1a2e; color: #eee; }
+        .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; }
+        .header h1 { margin: 0; color: white; font-size: 28px; }
+        .header p { margin: 5px 0 0 0; color: rgba(255,255,255,0.8); }
+        .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+        .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 15px; margin: 20px 0; }
+        .summary-card { background: #16213e; padding: 20px; border-radius: 10px; text-align: center; border: 1px solid #0f3460; }
+        .summary-card h3 { margin: 0 0 10px 0; font-size: 12px; color: #888; text-transform: uppercase; }
+        .summary-card .count { font-size: 32px; font-weight: bold; }
+        .change-added { color: #00d26a; }
+        .change-removed { color: #ff6b6b; }
+        .change-rekeyed { color: #ffd93d; }
+        .change-renamed { color: #ff9f43; }
+        .change-moved { color: #a55eea; }
+        .change-attribute_changed { color: #54a0ff; }
+        .change-transform_changed { color: #ff6b81; }
+        .section { background: #16213e; border-radius: 10px; padding: 20px; margin: 20px 0; border: 1px solid #0f3460; }
+        .section h2 { margin: 0 0 15px 0; color: #667eea; font-size: 18px; border-bottom: 1px solid #0f3460; padding-bottom: 10px; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #0f3460; }
+        th { color: #888; font-size: 12px; text-transform: uppercase; }
+        .badge { display: inline-block; padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: bold; text-transform: uppercase; }
+        .badge-added { background: rgba(0,210,106,0.2); color: #00d26a; }
+        .badge-removed { background: rgba(255,107,107,0.2); color: #ff6b6b; }
+        .badge-rekeyed { background: rgba(255,217,61,0.2); color: #ffd93d; }
+        .badge-renamed { background: rgba(255,159,67,0.2); color: #ff9f43; }
+        .badge-moved { background: rgba(165,94,234,0.2); color: #a55eea; }
+        .badge-attribute_changed { background: rgba(84,160,255,0.2); color: #54a0ff; }
+        .badge-transform_changed { background: rgba(255,107,129,0.2); color: #ff6b81; }
+        .path { font-family: 'Consolas', monospace; font-size: 12px; color: #888; }
+        .details { font-size: 12px; color: #aaa; }
+        .confidence { font-size: 11px; color: #667eea; margin-left: 10px; }
+        .hot-bar { height: 6px; background: #0f3460; border-radius: 3px; overflow: hidden; margin-top: 5px; }
+        .hot-bar-fill { height: 100%; background: linear-gradient(90deg, #667eea, #764ba2); }
+        .identity-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 15px; padding-top: 15px; border-top: 1px solid #0f3460; }
+        .identity-stat { text-align: center; }
+        .identity-stat .value { font-size: 20px; font-weight: bold; color: #667eea; }
+        .identity-stat .label { font-size: 11px; color: #888; }
     </style>
 </head>
 <body>
-    <div class="container">
+    <div class="header">
         <h1>SimTreeNav Diff Report</h1>
-        <p>Baseline: <strong>$($Diff.baseline.path)</strong></p>
-        <p>Current: <strong>$($Diff.current.path)</strong></p>
-        <p>Generated: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')</p>
-        
-        <h2>Summary</h2>
-        <div class="summary">
-            <div class="summary-card">
-                <h3>Total Changes</h3>
-                <div class="count">$($summary.totalChanges)</div>
-            </div>
-"@
-    
-    foreach ($ct in $summary.byChangeType) {
-        $html += @"
-            <div class="summary-card">
-                <h3>$($ct.type)</h3>
-                <div class="count change-$($ct.type)">$($ct.count)</div>
-            </div>
-"@
-    }
-    
-    $html += @"
+        <p>Version 0.3 | Identity-Aware Comparison</p>
+    </div>
+    <div class="container">
+        <div class="section">
+            <p><strong>Baseline:</strong> $($Diff.baseline.path) ($($Diff.baseline.nodeCount) nodes)</p>
+            <p><strong>Current:</strong> $($Diff.current.path) ($($Diff.current.nodeCount) nodes)</p>
+            <p><strong>Generated:</strong> $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')</p>
         </div>
         
-        <h2>Hot Subtrees</h2>
-        <table>
-            <tr><th>Subtree</th><th>Changes</th></tr>
+        <div class="summary-grid">
+            <div class="summary-card">
+                <h3>Total Changes</h3>
+                <div class="count" style="color: white;">$($summary.totalChanges)</div>
+            </div>
 "@
     
-    foreach ($hs in $summary.hotSubtrees) {
-        $html += "<tr><td class='path'>$($hs.path)</td><td>$($hs.count)</td></tr>`n"
+    $typeOrder = @('added', 'removed', 'rekeyed', 'renamed', 'moved', 'attribute_changed', 'transform_changed')
+    foreach ($type in $typeOrder) {
+        $ct = $summary.byChangeType | Where-Object { $_.type -eq $type }
+        $count = if ($ct) { $ct.count } else { 0 }
+        if ($count -gt 0) {
+            $html += @"
+            <div class="summary-card">
+                <h3>$type</h3>
+                <div class="count change-$type">$count</div>
+            </div>
+"@
+        }
     }
     
+    $html += "</div>"
+    
+    # Identity stats if available
+    if ($summary.identityStats) {
+        $stats = $summary.identityStats
+        $html += @"
+        <div class="section">
+            <h2>Identity Resolution Stats</h2>
+            <div class="identity-stats">
+                <div class="identity-stat">
+                    <div class="value">$($stats.exactMatches)</div>
+                    <div class="label">Exact Matches</div>
+                </div>
+                <div class="identity-stat">
+                    <div class="value">$($stats.rekeyedMatches)</div>
+                    <div class="label">Rekeyed Nodes</div>
+                </div>
+                <div class="identity-stat">
+                    <div class="value">$($stats.addedCount)</div>
+                    <div class="label">Added</div>
+                </div>
+                <div class="identity-stat">
+                    <div class="value">$($stats.removedCount)</div>
+                    <div class="label">Removed</div>
+                </div>
+            </div>
+        </div>
+"@
+    }
+    
+    # Hot subtrees
+    if ($summary.hotSubtrees -and $summary.hotSubtrees.Count -gt 0) {
+        $maxCount = ($summary.hotSubtrees | Measure-Object -Property count -Maximum).Maximum
+        $html += @"
+        <div class="section">
+            <h2>Hot Subtrees</h2>
+            <table>
+                <tr><th>Subtree</th><th>Changes</th><th></th></tr>
+"@
+        foreach ($hs in $summary.hotSubtrees) {
+            $pct = if ($maxCount -gt 0) { [Math]::Round($hs.count / $maxCount * 100) } else { 0 }
+            $html += @"
+                <tr>
+                    <td class="path">$($hs.path)</td>
+                    <td>$($hs.count)</td>
+                    <td style="width: 200px;"><div class="hot-bar"><div class="hot-bar-fill" style="width: $pct%;"></div></div></td>
+                </tr>
+"@
+        }
+        $html += "</table></div>"
+    }
+    
+    # All changes
     $html += @"
-        </table>
-        
-        <h2>All Changes</h2>
-        <table>
-            <tr><th>Type</th><th>Node</th><th>Path</th><th>Details</th></tr>
+        <div class="section">
+            <h2>All Changes ($($changes.Count))</h2>
+            <table>
+                <tr><th>Type</th><th>Node</th><th>Path</th><th>Details</th></tr>
 "@
     
-    foreach ($change in $changes) {
+    foreach ($change in $changes | Select-Object -First 500) {
         $detailsHtml = ''
         if ($change.details) {
-            if ($change.changeType -eq 'renamed') {
-                $detailsHtml = "$($change.details.oldName) → $($change.details.newName)"
-            } elseif ($change.changeType -eq 'moved') {
-                $detailsHtml = "Parent: $($change.details.oldParentId) → $($change.details.newParentId)"
-            } else {
-                $detailsHtml = "Hash changed"
+            switch ($change.changeType) {
+                'renamed' { $detailsHtml = "$($change.details.oldName) → $($change.details.newName)" }
+                'moved' { $detailsHtml = "Parent: $($change.details.oldParentId) → $($change.details.newParentId)" }
+                'rekeyed' { $detailsHtml = "ID: $($change.details.oldNodeId) → $($change.details.newNodeId)" }
+                default { $detailsHtml = "Hash changed" }
             }
+        }
+        
+        $confidenceHtml = ''
+        if ($change.matchConfidence -and $change.matchConfidence -lt 1.0) {
+            $confidenceHtml = "<span class='confidence'>($([Math]::Round($change.matchConfidence * 100))% confidence)</span>"
         }
         
         $html += @"
             <tr>
                 <td><span class="badge badge-$($change.changeType)">$($change.changeType)</span></td>
-                <td>$($change.nodeName) <span class="details">($($change.nodeId))</span></td>
+                <td>$($change.nodeName) <span class="details">($($change.nodeId))</span>$confidenceHtml</td>
                 <td class="path">$($change.path)</td>
                 <td class="details">$detailsHtml</td>
             </tr>
 "@
     }
     
+    if ($changes.Count -gt 500) {
+        $html += "<tr><td colspan='4' style='text-align:center; color:#888;'>... and $($changes.Count - 500) more changes</td></tr>"
+    }
+    
     $html += @"
-        </table>
+            </table>
+        </div>
     </div>
 </body>
 </html>
@@ -412,11 +707,39 @@ function Export-DiffHtml {
     Write-Host "    HTML report: $htmlFile" -ForegroundColor Gray
 }
 
+function Write-CompressedJson {
+    <#
+    .SYNOPSIS
+        Writes JSON with optional gzip compression.
+    #>
+    param(
+        [string]$Path,
+        [string]$Json,
+        [switch]$Compress
+    )
+    
+    $utf8NoBom = New-Object System.Text.UTF8Encoding $false
+    
+    if ($Compress) {
+        $gzPath = "$Path.gz"
+        $bytes = $utf8NoBom.GetBytes($Json)
+        $fileStream = [System.IO.File]::Create($gzPath)
+        $gzStream = New-Object System.IO.Compression.GZipStream($fileStream, [System.IO.Compression.CompressionMode]::Compress)
+        $gzStream.Write($bytes, 0, $bytes.Length)
+        $gzStream.Close()
+        $fileStream.Close()
+        Write-Host "    Compressed: $gzPath" -ForegroundColor Gray
+    }
+    else {
+        [System.IO.File]::WriteAllText($Path, $Json, $utf8NoBom)
+    }
+}
+
 # Main comparison function
 function Invoke-SnapshotComparison {
     Write-Host ""
     Write-Host "========================================" -ForegroundColor Cyan
-    Write-Host "  SimTreeNav Diff Engine" -ForegroundColor Yellow
+    Write-Host "  SimTreeNav Diff Engine v0.3" -ForegroundColor Yellow
     Write-Host "========================================" -ForegroundColor Cyan
     Write-Host ""
     
@@ -433,19 +756,27 @@ function Invoke-SnapshotComparison {
     Write-Host "    Baseline: $($baseline.Nodes.Count) nodes" -ForegroundColor Gray
     Write-Host "    Current:  $($current.Nodes.Count) nodes" -ForegroundColor Gray
     
-    # Compare
+    # Compare using identity-aware or legacy method
     Write-Host "  Comparing nodes..." -ForegroundColor Cyan
-    $changes = Compare-Nodes -BaselineNodes $baseline.Nodes -CurrentNodes $current.Nodes
+    $result = if ($UseIdentityMatching) {
+        Write-Host "    Using identity-aware matching (threshold: $ConfidenceThreshold)" -ForegroundColor Gray
+        Compare-NodesWithIdentity -BaselineNodes $baseline.Nodes -CurrentNodes $current.Nodes -ConfidenceThreshold $ConfidenceThreshold
+    }
+    else {
+        Write-Host "    Using legacy nodeId matching" -ForegroundColor Gray
+        Compare-NodesLegacy -BaselineNodes $baseline.Nodes -CurrentNodes $current.Nodes
+    }
     
+    $changes = $result.changes
     Write-Host "    Found $($changes.Count) changes" -ForegroundColor Gray
     
     # Generate summary
     Write-Host "  Generating summary..." -ForegroundColor Cyan
-    $summary = Get-ChangeSummary -Changes $changes
+    $summary = Get-ChangeSummary -Changes $changes -IdentityMap $result.identityMap
     
     # Build diff object
     $diff = [PSCustomObject]@{
-        version   = '0.2.0'
+        version   = '0.3.0'
         timestamp = (Get-Date).ToUniversalTime().ToString('o')
         baseline  = [PSCustomObject]@{
             path      = $BaselinePath
@@ -456,6 +787,10 @@ function Invoke-SnapshotComparison {
             path      = $CurrentPath
             timestamp = $current.Meta.timestamp
             nodeCount = $current.Nodes.Count
+        }
+        config    = [PSCustomObject]@{
+            useIdentityMatching = $UseIdentityMatching.IsPresent
+            confidenceThreshold = $ConfidenceThreshold
         }
         summary   = $summary
         changes   = $changes
@@ -476,8 +811,7 @@ function Invoke-SnapshotComparison {
             $diff | ConvertTo-Json -Depth $jsonDepth -Compress
         }
         
-        $utf8NoBom = New-Object System.Text.UTF8Encoding $false
-        [System.IO.File]::WriteAllText((Join-Path $OutputPath 'diff.json'), $diffJson, $utf8NoBom)
+        Write-CompressedJson -Path (Join-Path $OutputPath 'diff.json') -Json $diffJson -Compress:$Compress
         
         if ($GenerateHtml) {
             Export-DiffHtml -Diff $diff -OutputPath $OutputPath
@@ -491,25 +825,22 @@ function Invoke-SnapshotComparison {
     Write-Host "  Summary:" -ForegroundColor Green
     Write-Host "    Total changes: $($summary.totalChanges)" -ForegroundColor White
     
+    $typeColors = @{
+        'added' = 'Green'; 'removed' = 'Red'; 'rekeyed' = 'Yellow'
+        'renamed' = 'DarkYellow'; 'moved' = 'Magenta'
+        'attribute_changed' = 'Cyan'; 'transform_changed' = 'DarkMagenta'
+    }
+    
     foreach ($ct in $summary.byChangeType) {
-        $color = switch ($ct.type) {
-            'added'             { 'Green' }
-            'removed'           { 'Red' }
-            'renamed'           { 'Yellow' }
-            'moved'             { 'Magenta' }
-            'attribute_changed' { 'Cyan' }
-            'transform_changed' { 'DarkMagenta' }
-            default             { 'Gray' }
-        }
+        $color = if ($typeColors.ContainsKey($ct.type)) { $typeColors[$ct.type] } else { 'Gray' }
         Write-Host "      $($ct.type): $($ct.count)" -ForegroundColor $color
     }
     
-    if ($summary.hotSubtrees -and $summary.hotSubtrees.Count -gt 0) {
+    if ($summary.identityStats) {
         Write-Host ""
-        Write-Host "    Hot subtrees:" -ForegroundColor Yellow
-        foreach ($hs in $summary.hotSubtrees | Select-Object -First 5) {
-            Write-Host "      $($hs.path): $($hs.count) changes" -ForegroundColor Gray
-        }
+        Write-Host "    Identity resolution:" -ForegroundColor Yellow
+        Write-Host "      Exact matches: $($summary.identityStats.exactMatches)" -ForegroundColor Gray
+        Write-Host "      Rekeyed: $($summary.identityStats.rekeyedMatches)" -ForegroundColor Yellow
     }
     
     Write-Host ""
