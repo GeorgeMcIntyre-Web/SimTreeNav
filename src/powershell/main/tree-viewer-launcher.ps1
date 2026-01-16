@@ -2,16 +2,8 @@
 # Fast, user-friendly profile-based workflow
 
 param(
-<<<<<<< HEAD
-    [string]$Server = "",
-    [string]$Instance = "",
-    [string]$Schema = "",
-    [switch]$LoadLast = $false,
-    [string]$CustomIconDir = ""
-=======
     [string]$ProfileName,
     [switch]$LoadLast = $false
->>>>>>> e4ca279f2eae6f07d5177454c3edc2c039eb066e
 )
 
 $ErrorActionPreference = "Stop"
