@@ -329,9 +329,11 @@ INNER JOIN $Schema.PART_ p2 ON r.FORWARD_OBJECT_ID = p2.OBJECT_ID
 LEFT JOIN $Schema.CLASS_DEFINITIONS cd ON p.CLASS_ID = cd.TYPE_ID
 WHERE NOT EXISTS (SELECT 1 FROM $Schema.COLLECTION_ c WHERE c.OBJECT_ID = p.OBJECT_ID)
   AND (
-    (p.OBJECT_ID IN (18209343, 18531240) AND r.FORWARD_OBJECT_ID = 18143953)  -- PartInstanceLibrary children
+    (p.OBJECT_ID IN (18209343, 18531240) AND r.FORWARD_OBJECT_ID = 18143953)  -- PartInstanceLibrary children P702, P736
     OR
-    (p.OBJECT_ID IN (18208702, 18208714, 18208725, 18208734))  -- COWL_SILL_SIDE children - any parent
+    (p.OBJECT_ID IN (18208702, 18208714, 18208725, 18208734))  -- COWL_SILL_SIDE -> 4 intermediate nodes
+    OR
+    (p.OBJECT_ID IN (18208716, 18208739, 18208727, 18208707))  -- COWL_SILL_SIDE -> 4 PartInstance children
   );
 
 -- Add StudyFolder children explicitly (these are links/shortcuts to real data)
