@@ -1,0 +1,3 @@
+# Snapshot output directory
+# Generated snapshots are stored here
+# Each snapshot is in a timestamped folder: YYYYMMDD_HHMMSS_label/

@@ -1,0 +1,95 @@
+[
+  {
+    "nodeId": "18140190",
+    "nodeType": "ResourceGroup",
+    "name": "FORD_DEARBORN",
+    "parentId": null,
+    "path": "/FORD_DEARBORN",
+    "attributes": {
+      "externalId": "PP-12345678-abcd-1234-5678-abcdef123456",
+      "className": "class PmProject",
+      "niceName": "Project",
+      "typeId": 1,
+      "seqNumber": 0,
+      "level": 0
+    },
+    "links": {},
+    "fingerprints": {
+      "contentHash": "a1b2c3d4e5f67890",
+      "attributeHash": "1234567890abcdef",
+      "transformHash": null
+    },
+    "timestamps": {
+      "createdAt": null,
+      "updatedAt": null,
+      "lastTouchedAt": null
+    },
+    "source": {
+      "table": "COLLECTION_",
+      "query": "tree-extraction",
+      "schema": "DESIGN12"
+    }
+  },
+  {
+    "nodeId": "18195357",
+    "nodeType": "ResourceGroup",
+    "name": "P702",
+    "parentId": "18140190",
+    "path": "/FORD_DEARBORN/P702",
+    "attributes": {
+      "externalId": "PP-station-p702-uuid",
+      "className": "class PmStation",
+      "niceName": "Station",
+      "typeId": 64,
+      "seqNumber": 1,
+      "level": 1
+    },
+    "links": {},
+    "fingerprints": {
+      "contentHash": "b2c3d4e5f6789012",
+      "attributeHash": null,
+      "transformHash": null
+    },
+    "timestamps": {
+      "createdAt": null,
+      "updatedAt": null,
+      "lastTouchedAt": null
+    },
+    "source": {
+      "table": "COLLECTION_",
+      "query": "tree-extraction",
+      "schema": "DESIGN12"
+    }
+  },
+  {
+    "nodeId": "18153685",
+    "nodeType": "ResourceGroup",
+    "name": "EngineeringResourceLibrary",
+    "parentId": "18140190",
+    "path": "/FORD_DEARBORN/EngineeringResourceLibrary",
+    "attributes": {
+      "externalId": "",
+      "className": "class RobcadResourceLibrary",
+      "niceName": "ResourceLibrary",
+      "typeId": 164,
+      "seqNumber": 3,
+      "level": 1
+    },
+    "links": {},
+    "fingerprints": {
+      "contentHash": "c3d4e5f678901234",
+      "attributeHash": null,
+      "transformHash": null
+    },
+    "timestamps": {
+      "createdAt": null,
+      "updatedAt": null,
+      "lastTouchedAt": null
+    },
+    "source": {
+      "table": "COLLECTION_",
+      "query": "tree-extraction",
+      "schema": "DESIGN12"
+    }
+  }
+]

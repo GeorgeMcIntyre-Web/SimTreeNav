@@ -1,0 +1,116 @@
+{
+  "$schema": "./simtreenav.config.schema.json",
+  "version": "0.3.0",
+  
+  "connection": {
+    "defaultTnsName": "",
+    "defaultSchema": "",
+    "useReadOnlyUser": true,
+    "readOnlyUsername": "simtreenav_readonly",
+    "connectionTimeout": 30
+  },
+  
+  "snapshots": {
+    "outputDir": "./snapshots",
+    "format": "json",
+    "includeEdges": false,
+    "deterministic": true,
+    "prettyPrint": true
+  },
+  
+  "watch": {
+    "enabled": false,
+    "intervalSeconds": 300,
+    "probeQuery": "lightweight",
+    "maxSnapshots": 100,
+    "autoCleanup": true,
+    "twoStageProbe": true
+  },
+  
+  "identity": {
+    "enabled": true,
+    "confidenceThreshold": 0.85,
+    "weights": {
+      "externalId": 1.0,
+      "nameAndPath": 0.7,
+      "contentHash": 0.6,
+      "nameOnly": 0.4,
+      "prototypeLink": 0.5,
+      "transformHash": 0.3,
+      "nodeTypeMatch": 0.1
+    }
+  },
+  
+  "narrative": {
+    "enabled": true,
+    "bulkThreshold": 3,
+    "reorgThreshold": 5,
+    "generateHtml": true
+  },
+  
+  "logging": {
+    "enabled": true,
+    "level": "info",
+    "outputDir": "./output/logs",
+    "retentionDays": 30
+  },
+  
+  "nodeTypeMapping": {
+    "defaultType": "Unknown",
+    "rules": [
+      { "classPattern": "^class Pm(Project|Plant|Factory)$", "nodeType": "ResourceGroup" },
+      { "classPattern": "^class Pm(Line|Station|Cell|Zone)$", "nodeType": "ResourceGroup" },
+      { "classPattern": "^class PmCompoundResource$", "nodeType": "ResourceGroup" },
+      { "classPattern": "^class ToolPrototype$", "nodeType": "ToolPrototype" },
+      { "classPattern": "^class ToolInstanceAspect$", "nodeType": "ToolInstance" },
+      { "classPattern": "^class (Robot|Device|Equipment)$", "nodeType": "ToolInstance" },
+      { "classPattern": "^class .*Operation.*$", "nodeType": "Operation" },
+      { "classPattern": "^class Pm(Study|StudyFolder)$", "nodeType": "OperationGroup" },
+      { "classPattern": "^class (Robcad|Line|Gantt|Simple|Locational).*Study$", "nodeType": "OperationGroup" },
+      { "classPattern": "^class PmMfg.*$", "nodeType": "MfgEntity" },
+      { "classPattern": "^class Pm(Part|Assembly).*$", "nodeType": "PanelEntity" },
+      { "classPattern": "^class PmShortcut$", "nodeType": "Location" },
+      { "classPattern": "^class Resource$", "nodeType": "ToolInstance" }
+    ]
+  },
+  
+  "tableMappings": {
+    "collection": "COLLECTION_",
+    "relationships": "REL_COMMON",
+    "classDefinitions": "CLASS_DEFINITIONS",
+    "icons": "DF_ICONS_DATA",
+    "specializedTables": [
+      { "name": "ROBCADSTUDY_", "nodeType": "OperationGroup" },
+      { "name": "LINESIMULATIONSTUDY_", "nodeType": "OperationGroup" },
+      { "name": "GANTTSTUDY_", "nodeType": "OperationGroup" },
+      { "name": "SIMPLEDETAILEDSTUDY_", "nodeType": "OperationGroup" },
+      { "name": "LOCATIONALSTUDY_", "nodeType": "OperationGroup" },
+      { "name": "TOOLPROTOTYPE_", "nodeType": "ToolPrototype" },
+      { "name": "TOOLINSTANCEASPECT_", "nodeType": "ToolInstance" },
+      { "name": "RESOURCE_", "nodeType": "ToolInstance" },
+      { "name": "OPERATION_", "nodeType": "Operation" },
+      { "name": "SHORTCUT_", "nodeType": "Location" },
+      { "name": "PART_", "nodeType": "PanelEntity" }
+    ]
+  },
+  
+  "fingerprints": {
+    "contentHashFields": ["name", "externalId", "className"],
+    "transformHashFields": ["transform"],
+    "attributeHashFields": ["attributes"]
+  },
+  
+  "output": {
+    "htmlDir": "./output",
+    "jsonDir": "./output/json",
+    "iconsDir": "./output/icons"
+  },
+  
+  "viewer": {
+    "lazyLoadThreshold": 1000,
+    "virtualListEnabled": true,
+    "defaultExpandLevel": 2,
+    "showNodeIds": true,
+    "showTimestamps": true
+  }
+}

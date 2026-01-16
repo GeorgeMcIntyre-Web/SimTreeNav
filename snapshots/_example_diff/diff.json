@@ -1,0 +1,75 @@
+{
+  "version": "0.2.0",
+  "timestamp": "2026-01-15T11:00:00.000Z",
+  "baseline": {
+    "path": "./snapshots/20260115_100000_baseline",
+    "timestamp": "2026-01-15T10:00:00.000Z",
+    "nodeCount": 150
+  },
+  "current": {
+    "path": "./snapshots/20260115_110000_current",
+    "timestamp": "2026-01-15T11:00:00.000Z",
+    "nodeCount": 153
+  },
+  "summary": {
+    "totalChanges": 7,
+    "byChangeType": [
+      { "type": "added", "count": 3 },
+      { "type": "renamed", "count": 2 },
+      { "type": "moved", "count": 1 },
+      { "type": "attribute_changed", "count": 1 }
+    ],
+    "byNodeType": [
+      { "nodeType": "ResourceGroup", "count": 2 },
+      { "nodeType": "ToolInstance", "count": 3 },
+      { "nodeType": "Operation", "count": 2 }
+    ],
+    "hotSubtrees": [
+      { "path": "/FORD_DEARBORN/P702", "count": 5 },
+      { "path": "/FORD_DEARBORN/EngineeringResourceLibrary", "count": 2 }
+    ]
+  },
+  "changes": [
+    {
+      "changeType": "added",
+      "nodeId": "19000001",
+      "nodeName": "NewRobot_01",
+      "nodeType": "ToolInstance",
+      "path": "/FORD_DEARBORN/P702/NewRobot_01",
+      "parentId": "18195357",
+      "details": null,
+      "before": null,
+      "after": { "nodeId": "19000001", "name": "NewRobot_01" }
+    },
+    {
+      "changeType": "renamed",
+      "nodeId": "18200100",
+      "nodeName": "WeldGun_v2",
+      "nodeType": "ToolInstance",
+      "path": "/FORD_DEARBORN/P702/WeldGun_v2",
+      "parentId": "18195357",
+      "details": {
+        "oldName": "WeldGun_v1",
+        "newName": "WeldGun_v2"
+      },
+      "before": { "nodeId": "18200100", "name": "WeldGun_v1" },
+      "after": { "nodeId": "18200100", "name": "WeldGun_v2" }
+    },
+    {
+      "changeType": "moved",
+      "nodeId": "18200200",
+      "nodeName": "Fixture_A",
+      "nodeType": "ToolInstance",
+      "path": "/FORD_DEARBORN/P736/Fixture_A",
+      "parentId": "18195358",
+      "details": {
+        "oldParentId": "18195357",
+        "newParentId": "18195358",
+        "oldPath": "/FORD_DEARBORN/P702/Fixture_A",
+        "newPath": "/FORD_DEARBORN/P736/Fixture_A"
+      },
+      "before": { "nodeId": "18200200", "parentId": "18195357" },
+      "after": { "nodeId": "18200200", "parentId": "18195358" }
+    }
+  ]
+}
