@@ -1,0 +1,159 @@
+======================================
+Regenerating tree with ALL FIXES
+======================================
+
+Fixes applied:
+  1. EngineeringResourceLibrary icon (TYPE_ID 164 -> 48 fallback)
+  2. COWL_SILL_SIDE missing PART_ children extraction
+  3. PartInstanceLibrary PART_->PART_ children extraction
+
+Running tree generation...
+Generating tree for:
+  TNS Name: DB01
+  Schema: DESIGN12
+  Project: FORD_DEARBORN (ID: 18140190)
+
+Extracting icons from database using RAWTOHEX...
+  Running SQL query...
+  Auto-detected username: sys
+Success: Using cached credentials (DEV mode)
+  Found 95 icon entries
+  Extracted TYPE_ID 14 (1334 bytes)
+  Extracted TYPE_ID 16 (246 bytes)
+  Extracted TYPE_ID 18 (1334 bytes)
+  Extracted TYPE_ID 19 (246 bytes)
+  Extracted TYPE_ID 20 (1334 bytes)
+  Extracted TYPE_ID 21 (1334 bytes)
+  Extracted TYPE_ID 22 (246 bytes)
+  Extracted TYPE_ID 23 (246 bytes)
+  Extracted TYPE_ID 39 (1334 bytes)
+  Extracted TYPE_ID 41 (1334 bytes)
+  Extracted TYPE_ID 42 (1334 bytes)
+  Extracted TYPE_ID 44 (1334 bytes)
+  Extracted TYPE_ID 45 (1334 bytes)
+  Extracted TYPE_ID 46 (1334 bytes)
+  Extracted TYPE_ID 47 (1334 bytes)
+  Extracted TYPE_ID 48 (1334 bytes)
+  Extracted TYPE_ID 50 (1334 bytes)
+  Extracted TYPE_ID 51 (822 bytes)
+  Extracted TYPE_ID 52 (246 bytes)
+  Extracted TYPE_ID 53 (246 bytes)
+  Extracted TYPE_ID 54 (246 bytes)
+  Extracted TYPE_ID 57 (1334 bytes)
+  Extracted TYPE_ID 58 (1334 bytes)
+  Extracted TYPE_ID 62 (822 bytes)
+  Extracted TYPE_ID 63 (822 bytes)
+  Extracted TYPE_ID 64 (1334 bytes)
+  Extracted TYPE_ID 65 (246 bytes)
+  Extracted TYPE_ID 68 (246 bytes)
+  Extracted TYPE_ID 69 (1334 bytes)
+  Extracted TYPE_ID 73 (1334 bytes)
+  Extracted TYPE_ID 76 (246 bytes)
+  Extracted TYPE_ID 80 (1334 bytes)
+  Extracted TYPE_ID 83 (1334 bytes)
+  Extracted TYPE_ID 88 (1334 bytes)
+  Extracted TYPE_ID 90 (1334 bytes)
+  Extracted TYPE_ID 91 (246 bytes)
+  Extracted TYPE_ID 92 (246 bytes)
+  Extracted TYPE_ID 93 (246 bytes)
+  Extracted TYPE_ID 94 (246 bytes)
+  Extracted TYPE_ID 96 (246 bytes)
+  Extracted TYPE_ID 97 (246 bytes)
+  Extracted TYPE_ID 98 (246 bytes)
+  Extracted TYPE_ID 103 (822 bytes)
+  Extracted TYPE_ID 104 (1334 bytes)
+  Extracted TYPE_ID 107 (246 bytes)
+  Extracted TYPE_ID 111 (1334 bytes)
+  Extracted TYPE_ID 113 (1334 bytes)
+  Extracted TYPE_ID 114 (246 bytes)
+  Extracted TYPE_ID 119 (246 bytes)
+  Extracted TYPE_ID 120 (246 bytes)
+  Extracted TYPE_ID 121 (246 bytes)
+  Extracted TYPE_ID 122 (1334 bytes)
+  Extracted TYPE_ID 126 (1334 bytes)
+  Extracted TYPE_ID 131 (1334 bytes)
+  Extracted TYPE_ID 133 (1334 bytes)
+  Extracted TYPE_ID 134 (1334 bytes)
+  Extracted TYPE_ID 135 (1334 bytes)
+  Extracted TYPE_ID 141 (246 bytes)
+  Extracted TYPE_ID 157 (822 bytes)
+  Extracted TYPE_ID 158 (822 bytes)
+  Extracted TYPE_ID 159 (822 bytes)
+  Extracted TYPE_ID 160 (822 bytes)
+  Extracted TYPE_ID 161 (822 bytes)
+  Extracted TYPE_ID 162 (822 bytes)
+  Extracted TYPE_ID 166 (822 bytes)
+  Extracted TYPE_ID 167 (822 bytes)
+  Extracted TYPE_ID 168 (822 bytes)
+  Extracted TYPE_ID 169 (822 bytes)
+  Extracted TYPE_ID 170 (822 bytes)
+  Extracted TYPE_ID 171 (822 bytes)
+  Extracted TYPE_ID 172 (822 bytes)
+  Extracted TYPE_ID 173 (822 bytes)
+  Extracted TYPE_ID 174 (822 bytes)
+  Extracted TYPE_ID 175 (822 bytes)
+  Extracted TYPE_ID 185 (822 bytes)
+  Extracted TYPE_ID 186 (822 bytes)
+  Extracted TYPE_ID 187 (822 bytes)
+  Extracted TYPE_ID 188 (822 bytes)
+  Extracted TYPE_ID 189 (822 bytes)
+  Extracted TYPE_ID 190 (822 bytes)
+  Extracted TYPE_ID 191 (822 bytes)
+  Extracted TYPE_ID 192 (822 bytes)
+  Extracted TYPE_ID 193 (822 bytes)
+  Extracted TYPE_ID 194 (822 bytes)
+  Extracted TYPE_ID 195 (822 bytes)
+  Extracted TYPE_ID 197 (822 bytes)
+  Extracted TYPE_ID 198 (822 bytes)
+  Extracted TYPE_ID 199 (822 bytes)
+  Extracted TYPE_ID 204 (822 bytes)
+  Extracted TYPE_ID 206 (822 bytes)
+  Extracted TYPE_ID 207 (822 bytes)
+  Extracted TYPE_ID 208 (822 bytes)
+  Extracted TYPE_ID 251 (822 bytes)
+  Extracted TYPE_ID 321 (822 bytes)
+  Extracted TYPE_ID 322 (822 bytes)
+  Successfully extracted: 95 icons
+  Adding fallback icons for missing TYPE_IDs...
+    Added fallback: TYPE_ID 72 -> 18 (StudyFolder -> Collection parent)
+    Added fallback: TYPE_ID 164 -> 48 (EngineeringResourceLibrary -> ResourceLibrary parent)
+    Added fallback: TYPE_ID 181 -> 69 (SimpleDetailedStudy -> ShortcutFolder parent)
+    Added fallback: TYPE_ID 178 -> 69 (LineSimulationStudy -> ShortcutFolder parent)
+    Added fallback: TYPE_ID 108 -> 69 (LocationalStudy -> ShortcutFolder parent)
+    Added fallback: TYPE_ID 70 -> 69 (Study -> ShortcutFolder parent)
+    Added fallback: TYPE_ID 177 -> 69 (RobcadStudy -> ShortcutFolder parent)
+    Added fallback: TYPE_ID 183 -> 69 (GanttStudy -> ShortcutFolder parent)
+  Total icons (with fallbacks): 102
+  DEBUG: TYPE_ID 64 IS in iconDataMap (length: 1802 chars)
+  Extracted TYPE_IDs: 103,104,107,108,111,113,114,119,120,121,122,126,131,133,134,135,14,141,157,70,158,159,16,160,161,162,72,164,166,167,168,169,170,171,172,173,174,175,23,177,18,19,20,21,22,39,178,181,50,183,185,186,187,188,189,190,191,192,193,194,195,197,198,199,204,206,207,208,251,321,322,41,42,44,45,46,47,48,51,52,53,54,57,58,62,63,64,65,68,69,73,76,80,83,88,90,91,92,93,94,96,97,98
+
+Querying database...
+  Auto-detected username: sys
+Success: Using cached credentials (DEV mode)
+Cleaning data and fixing encoding...
+  Converting encoding (Windows-1252 ƒ+' UTF-8)...
+Extracting user activity...
+  Auto-detected username: sys
+Success: Using cached credentials (DEV mode)
+Generating HTML with database icons...
+
+=== FULL NAVIGATION TREE HTML GENERATED ===
+File: navigation-tree.html
+Project: FORD_DEARBORN (18140190)
+Schema: DESIGN12
+Nodes: ~48187
+Features:
+  [OK] Complete tree (all levels)
+  [OK] Siemens app ordering (SEQ_NUMBER)
+  [OK] Root + Level 1 auto-expanded
+  [OK] Search functionality
+
+Done! Tree saved to: navigation-tree.html
+
+Tree regeneration complete!
+
+Next steps:
+  1. Open the generated HTML file
+  2. Search for node 18153685 (EngineeringResourceLibrary) - verify icon
+  3. Search for node 18208744 (COWL_SILL_SIDE) - verify 4+ children
+  4. Search for node 18143953 (PartInstanceLibrary) - verify children P702, P736

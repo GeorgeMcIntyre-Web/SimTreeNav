@@ -309,8 +309,9 @@ WHERE NOT EXISTS (SELECT 1 FROM $Schema.COLLECTION_ c WHERE c.OBJECT_ID = p.OBJE
   )
 UNION ALL
 -- Add PART_ children where parent is also in PART_ table (not COLLECTION_)
--- Simplified: just get all PART_->PART_ relationships where both child and parent are in PART_ table
--- The JavaScript tree builder will filter out unreachable nodes
+-- Hardcoded specific parent-child relationships to avoid duplicate/circular relationships:
+--   COWL_SILL_SIDE (18208744) -> 4 children
+--   PartInstanceLibrary (18143953) -> P702, P736
 SELECT DISTINCT
     '999|' ||
     r.FORWARD_OBJECT_ID || '|' ||
@@ -327,7 +328,11 @@ INNER JOIN $Schema.PART_ p ON r.OBJECT_ID = p.OBJECT_ID
 INNER JOIN $Schema.PART_ p2 ON r.FORWARD_OBJECT_ID = p2.OBJECT_ID
 LEFT JOIN $Schema.CLASS_DEFINITIONS cd ON p.CLASS_ID = cd.TYPE_ID
 WHERE NOT EXISTS (SELECT 1 FROM $Schema.COLLECTION_ c WHERE c.OBJECT_ID = p.OBJECT_ID)
-  AND p.OBJECT_ID IN (18208702, 18208714, 18208725, 18208734, 18209343, 18531240);
+  AND (
+    (p.OBJECT_ID IN (18209343, 18531240) AND r.FORWARD_OBJECT_ID = 18143953)  -- PartInstanceLibrary children
+    OR
+    (p.OBJECT_ID IN (18208702, 18208714, 18208725, 18208734))  -- COWL_SILL_SIDE children - any parent
+  );
 
 -- Add StudyFolder children explicitly (these are links/shortcuts to real data)
 -- StudyFolder nodes are identified by their NICE_NAME in CLASS_DEFINITIONS, not CAPTION
