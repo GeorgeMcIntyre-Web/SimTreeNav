@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$comment": "Collector Agent Configuration Template - Copy to collector.json and customize",
+
+  "database": {
+    "$comment": "Database connection settings",
+    "tnsName": "SIEMENS_PS_DB",
+    "schema": "DESIGN12",
+    "projectId": null,
+    "maxRows": 10000,
+    "timeout": 300
+  },
+
+  "schedule": {
+    "$comment": "Schedule settings for watch mode",
+    "intervalMinutes": 60,
+    "enabled": true
+  },
+
+  "output": {
+    "$comment": "Output paths (relative to config file location or absolute)",
+    "bundlePath": "bundles",
+    "mappingPath": "mapping",
+    "healthPath": "health"
+  },
+
+  "logging": {
+    "$comment": "Structured logging configuration",
+    "path": "logs",
+    "level": "INFO",
+    "maxSizeMB": 10,
+    "maxFiles": 10,
+    "maxAgeDays": 30
+  },
+
+  "anonymization": {
+    "$comment": "Data anonymization settings",
+    "enabled": true,
+    "createMapping": false,
+    "rules": {
+      "$comment": "Custom anonymization rules (optional)",
+      "sensitivePatterns": [
+        "USERNAME",
+        "EMAIL",
+        "PASSWORD",
+        "HOST",
+        "IP_ADDRESS"
+      ],
+      "removeFields": [
+        "PASSWORD",
+        "SECRET",
+        "API_KEY"
+      ],
+      "hashFields": [
+        "OBJECT_ID",
+        "PROJECTID"
+      ]
+    }
+  },
+
+  "publishing": {
+    "$comment": "Publishing target configurations",
+    "targets": [
+      {
+        "$comment": "Local file share - fully implemented",
+        "type": "local",
+        "enabled": true,
+        "path": "published",
+        "overwrite": false
+      },
+      {
+        "$comment": "HTTP endpoint - stub implementation, no secrets",
+        "type": "http",
+        "enabled": false,
+        "endpoint": "https://api.example.com/v1/bundles",
+        "timeout": 300,
+        "headers": {
+          "$comment": "Add authentication headers here",
+          "X-API-Version": "1.0"
+        }
+      },
+      {
+        "$comment": "Cloudflare R2 - design documentation only",
+        "type": "r2",
+        "enabled": false,
+        "bucket": "collector-bundles",
+        "prefix": "bundles",
+        "$envVars": [
+          "R2_ACCOUNT_ID",
+          "R2_ACCESS_KEY_ID",
+          "R2_SECRET_ACCESS_KEY"
+        ]
+      }
+    ]
+  },
+
+  "health": {
+    "$comment": "Health monitoring thresholds",
+    "thresholds": {
+      "maxErrorRate": 0.1,
+      "maxBundleDurationSeconds": 300,
+      "maxBundleSizeMB": 100,
+      "minDiskSpaceMB": 500,
+      "maxConsecutiveFailures": 3
+    }
+  },
+
+  "security": {
+    "$comment": "Security settings and reminders",
+    "readOnlyMode": true,
+    "notes": [
+      "All database operations use SET TRANSACTION READ ONLY",
+      "No DML/DDL statements are permitted",
+      "Credentials are never stored in bundles",
+      "Mapping files should be stored securely and never shared"
+    ]
+  }
+}
