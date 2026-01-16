@@ -1,0 +1,61 @@
+{
+  "$schema": "https://simtreenav.dev/manifest-schema.json",
+  "schemaVersion": "1.0.0",
+  "appVersion": "0.4.0",
+  "appName": "SimTreeNav",
+  "description": "PowerShell-based tree navigation viewer for Siemens Process Simulation databases",
+  "vendor": "SimTreeNav Project",
+  "license": "MIT",
+  "repository": "https://github.com/GeorgeMcIntyre-Web/SimTreeNav",
+  "releaseDate": "2026-01-16",
+  "build": {
+    "platform": "windows",
+    "powershellVersion": "5.1",
+    "oracleClientVersion": "12c"
+  },
+  "components": {
+    "core": {
+      "version": "0.4.0",
+      "path": "src/powershell/main",
+      "entryPoint": "tree-viewer-launcher.ps1"
+    },
+    "database": {
+      "version": "0.4.0",
+      "path": "src/powershell/database"
+    },
+    "utilities": {
+      "version": "0.4.0",
+      "path": "src/powershell/utilities"
+    }
+  },
+  "dependencies": {
+    "runtime": [
+      "PowerShell >= 5.1",
+      "Oracle Instant Client >= 12c"
+    ],
+    "development": [
+      "Pester >= 5.0",
+      "PSScriptAnalyzer >= 1.21"
+    ]
+  },
+  "artifacts": {
+    "release": {
+      "name": "SimTreeNav-{version}.zip",
+      "includes": [
+        "src/**/*.ps1",
+        "queries/**/*.sql",
+        "docs/**/*.md",
+        "config/*.template",
+        "manifest.json",
+        "README.md",
+        "LICENSE",
+        "CHANGELOG.md"
+      ],
+      "excludes": [
+        "**/*.Tests.ps1",
+        "**/.credentials/**",
+        "**/pc-profiles.json"
+      ]
+    }
+  }
+}

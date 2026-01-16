@@ -1,13 +1,54 @@
 # Changelog
 
-All notable changes to the Siemens Process Simulation Tree Viewer project will be documented in this file.
+All notable changes to SimTreeNav will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.4.0] - 2026-01-16
 
-### Initial Release - 2026-01-13
+### Added
+
+#### Engineering Maturity
+- **CI/CD Pipeline**: GitHub Actions workflow with Pester tests, PSScriptAnalyzer lint, determinism checks
+- **Release Automation**: `Release.ps1` command that prints version and builds artifacts
+- **Build Scripts**: `Build-Release.ps1`, `Verify-Release.ps1`, `New-Changelog.ps1`
+- **Version Manifest**: `manifest.json` with schemaVersion and appVersion tracking
+- **PSScriptAnalyzer Settings**: Lightweight lint configuration for PowerShell style conventions
+
+#### Repository Hygiene
+- **CONTRIBUTING.md**: Comprehensive contribution guidelines with coding standards
+- **SECURITY.md**: Security policy with vulnerability disclosure process
+- **Issue Templates**: Bug report and feature request templates
+- **Pull Request Template**: Standardized PR checklist
+
+#### Documentation
+- **ARCHITECTURE.md**: System architecture with component diagrams
+- **FEATURES.md**: Complete feature documentation
+- **DEPLOYMENT.md**: Installation and configuration guide
+- **ROADMAP.md**: Development roadmap with version planning
+- **LICENSE**: MIT license file
+
+#### Testing
+- **Pester Test Suite**: Tests for manifest, project structure, security compliance, build scripts
+- **Determinism Gate**: CI verification for required files and no hardcoded credentials
+- **DeployPack + VerifyDeploy**: Release packaging and verification workflow
+
+### Changed
+- Updated README with CI badge, version badge, and improved documentation links
+- Updated .gitignore to properly exclude sensitive files while including tests
+- Reorganized documentation structure for better discoverability
+
+### Security
+- Added credential detection in CI pipeline
+- Documented security-nonintrusive design (read-only operations)
+- Added security compliance tests
+
+---
+
+## [0.3.0] - 2026-01-13
+
+### Initial Release
 
 #### Added
 - Interactive tree viewer launcher with dynamic server/schema discovery

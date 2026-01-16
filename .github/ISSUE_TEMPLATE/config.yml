@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security Vulnerability
+    url: https://github.com/GeorgeMcIntyre-Web/SimTreeNav/security/advisories/new
+    about: Report security vulnerabilities privately (do not use public issues)
+  - name: Questions & Discussions
+    url: https://github.com/GeorgeMcIntyre-Web/SimTreeNav/discussions
+    about: Ask questions and discuss ideas in our community discussions
+  - name: Documentation
+    url: https://github.com/GeorgeMcIntyre-Web/SimTreeNav/blob/main/docs/
+    about: Check our documentation before opening an issue

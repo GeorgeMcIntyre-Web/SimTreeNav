@@ -1,8 +1,10 @@
-# Siemens Process Simulation - Tree Viewer
+# SimTreeNav - Siemens Process Simulation Tree Viewer
 
+[![CI](https://github.com/GeorgeMcIntyre-Web/SimTreeNav/actions/workflows/ci.yml/badge.svg)](https://github.com/GeorgeMcIntyre-Web/SimTreeNav/actions/workflows/ci.yml)
 [![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-blue)](https://github.com/PowerShell/PowerShell)
 [![Oracle](https://img.shields.io/badge/Oracle-12c-red)](https://www.oracle.com/database/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![Version](https://img.shields.io/badge/version-0.4.0-blue)](manifest.json)
 
 A PowerShell-based tree navigation viewer for Siemens Process Simulation databases. Extracts, visualizes, and navigates hierarchical project structures with full icon support.
 
@@ -121,9 +123,18 @@ PsSchemaBug/
 
 ## Documentation
 
-- **[Quick Start Guide](docs/QUICK-START-GUIDE.md)** - Comprehensive getting started guide
-- **[Oracle Setup](docs/README-ORACLE-SETUP.md)** - Oracle Instant Client installation and configuration
+### User Guides
+- **[Quick Start Guide](docs/QUICK-START-GUIDE.md)** - Getting started
+- **[Features](docs/FEATURES.md)** - Complete feature documentation
+- **[Deployment](docs/DEPLOYMENT.md)** - Installation and configuration
+
+### Architecture
+- **[Architecture](docs/ARCHITECTURE.md)** - System architecture overview
 - **[Database Structure](docs/DATABASE-STRUCTURE-SUMMARY.md)** - Schema and table reference
+- **[Roadmap](docs/ROADMAP.md)** - Future development plans
+
+### Technical Reference
+- **[Oracle Setup](docs/README-ORACLE-SETUP.md)** - Oracle Instant Client installation
 - **[Icon Extraction](docs/investigation/ICON-EXTRACTION-SUCCESS.md)** - How icon extraction works
 - **[Custom Ordering](docs/investigation/CUSTOM-ORDERING-SOLUTION.md)** - Node ordering implementation
 - **[Query Examples](docs/api/QUERY-EXAMPLES.md)** - SQL query reference
@@ -205,13 +216,17 @@ $env:PATH  # Should include Oracle Instant Client
 
 ## Contributing
 
-Contributions welcome! Please:
+Contributions welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
+Quick start:
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+3. Run quality checks: `Invoke-ScriptAnalyzer -Path ./src -Recurse`
+4. Run tests: `Invoke-Pester -Path ./tests`
+5. Commit your changes (`git commit -m 'feat: add amazing feature'`)
+6. Push and create a Pull Request
+
+See also: [SECURITY.md](SECURITY.md) for security policy.
 
 ## Database Schema
 
@@ -233,12 +248,23 @@ See [DATABASE-STRUCTURE-SUMMARY.md](docs/DATABASE-STRUCTURE-SUMMARY.md) for deta
 
 ## Roadmap
 
-- [ ] Configuration-based node ordering
+See [docs/ROADMAP.md](docs/ROADMAP.md) for the complete roadmap.
+
+**Coming Soon:**
 - [ ] Export to JSON/XML formats
 - [ ] Node diff/comparison between projects
-- [ ] Real-time database sync
-- [ ] Cross-platform support (PowerShell Core)
-- [ ] Web-based interface
+- [ ] Filter by node type
+- [ ] Bookmark favorite projects
+
+## Release
+
+Build a release package:
+
+```powershell
+./Release.ps1
+```
+
+This prints version info and creates deployment artifacts in `./dist`.
 
 ## License
 
@@ -253,8 +279,9 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## Support
 
 - **Documentation**: [docs/](docs/)
-- **Issues**: [GitHub Issues](https://github.com/yourusername/PsSchemaBug/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/yourusername/PsSchemaBug/discussions)
+- **Issues**: [GitHub Issues](https://github.com/GeorgeMcIntyre-Web/SimTreeNav/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/GeorgeMcIntyre-Web/SimTreeNav/discussions)
+- **Security**: [SECURITY.md](SECURITY.md)
 
 ---
 

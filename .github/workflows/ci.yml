@@ -1,0 +1,202 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  PESTER_MIN_VERSION: "5.0.0"
+
+jobs:
+  lint:
+    name: PowerShell Lint
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          Install-Module -Name PSScriptAnalyzer -Force -Scope CurrentUser -SkipPublisherCheck
+
+      - name: Run PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          $results = Invoke-ScriptAnalyzer -Path ./src -Recurse -Settings ./PSScriptAnalyzerSettings.psd1 -Severity Error,Warning
+          if ($results) {
+            $results | Format-Table -AutoSize
+            throw "PSScriptAnalyzer found $($results.Count) issue(s)"
+          }
+          Write-Host "✓ PSScriptAnalyzer passed - no issues found" -ForegroundColor Green
+
+  test:
+    name: Pester Tests
+    runs-on: windows-latest
+    needs: lint
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Pester
+        shell: pwsh
+        run: |
+          Install-Module -Name Pester -MinimumVersion $env:PESTER_MIN_VERSION -Force -Scope CurrentUser -SkipPublisherCheck
+
+      - name: Run Pester Tests
+        shell: pwsh
+        run: |
+          $config = New-PesterConfiguration
+          $config.Run.Path = "./tests"
+          $config.Run.Exit = $true
+          $config.TestResult.Enabled = $true
+          $config.TestResult.OutputPath = "./test-results.xml"
+          $config.TestResult.OutputFormat = "NUnitXml"
+          $config.Output.Verbosity = "Detailed"
+          $config.CodeCoverage.Enabled = $true
+          $config.CodeCoverage.Path = @("./src/**/*.ps1")
+          $config.CodeCoverage.OutputPath = "./coverage.xml"
+          
+          Invoke-Pester -Configuration $config
+
+      - name: Upload Test Results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: |
+            test-results.xml
+            coverage.xml
+
+  determinism:
+    name: Determinism Gate
+    runs-on: windows-latest
+    needs: lint
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify Manifest Version
+        shell: pwsh
+        run: |
+          $manifest = Get-Content ./manifest.json | ConvertFrom-Json
+          if (-not $manifest.appVersion) {
+            throw "manifest.json must contain appVersion"
+          }
+          if (-not $manifest.schemaVersion) {
+            throw "manifest.json must contain schemaVersion"
+          }
+          Write-Host "✓ Manifest version: $($manifest.appVersion)" -ForegroundColor Green
+
+      - name: Verify No Hardcoded Credentials
+        shell: pwsh
+        run: |
+          $patterns = @(
+            'password\s*=\s*["\u0027][^\u0027"]+["\u0027]',
+            'pwd\s*=\s*["\u0027][^\u0027"]+["\u0027]',
+            'secret\s*=\s*["\u0027][^\u0027"]+["\u0027]'
+          )
+          $violations = @()
+          Get-ChildItem -Path ./src -Recurse -Include *.ps1 | ForEach-Object {
+            $content = Get-Content $_.FullName -Raw
+            foreach ($pattern in $patterns) {
+              if ($content -match $pattern) {
+                $violations += "Potential credential in: $($_.FullName)"
+              }
+            }
+          }
+          if ($violations.Count -gt 0) {
+            $violations | ForEach-Object { Write-Warning $_ }
+            throw "Found potential hardcoded credentials"
+          }
+          Write-Host "✓ No hardcoded credentials detected" -ForegroundColor Green
+
+      - name: Verify Required Files Exist
+        shell: pwsh
+        run: |
+          $requiredFiles = @(
+            "manifest.json",
+            "README.md",
+            "CHANGELOG.md",
+            "LICENSE",
+            "CONTRIBUTING.md",
+            "SECURITY.md",
+            "docs/ARCHITECTURE.md",
+            "docs/FEATURES.md",
+            "docs/DEPLOYMENT.md",
+            "docs/ROADMAP.md"
+          )
+          $missing = @()
+          foreach ($file in $requiredFiles) {
+            if (-not (Test-Path $file)) {
+              $missing += $file
+            }
+          }
+          if ($missing.Count -gt 0) {
+            $missing | ForEach-Object { Write-Warning "Missing: $_" }
+            throw "Missing required files"
+          }
+          Write-Host "✓ All required files present" -ForegroundColor Green
+
+  deploy-pack:
+    name: DeployPack
+    runs-on: windows-latest
+    needs: [lint, test, determinism]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build Release Artifacts
+        shell: pwsh
+        run: |
+          ./scripts/Build-Release.ps1 -OutputPath ./dist
+
+      - name: Upload Release Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-package
+          path: ./dist/*
+          retention-days: 30
+
+  verify-deploy:
+    name: VerifyDeploy
+    runs-on: windows-latest
+    needs: deploy-pack
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download Release Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: release-package
+          path: ./dist
+
+      - name: Verify Package Contents
+        shell: pwsh
+        run: |
+          ./scripts/Verify-Release.ps1 -PackagePath ./dist
+
+      - name: Smoke Test
+        shell: pwsh
+        run: |
+          # Import core module and verify it loads
+          . ./src/powershell/utilities/CredentialManager.ps1
+          . ./src/powershell/utilities/PCProfileManager.ps1
+          
+          # Verify functions are available
+          $requiredFunctions = @(
+            "Get-DbConnectionString",
+            "Save-DbCredentials",
+            "Get-PCProfiles",
+            "Get-CurrentPCProfile"
+          )
+          foreach ($fn in $requiredFunctions) {
+            if (-not (Get-Command $fn -ErrorAction SilentlyContinue)) {
+              throw "Required function not found: $fn"
+            }
+          }
+          Write-Host "✓ Smoke test passed - all core functions available" -ForegroundColor Green
