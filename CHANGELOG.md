@@ -5,9 +5,90 @@ All notable changes to the Siemens Process Simulation Tree Viewer project will b
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.0.0] - 2026-01-16
 
-### Initial Release - 2026-01-13
+### Large Tree Support Release
+
+This release adds comprehensive support for very large trees (50k+ nodes) with
+performance optimizations, virtualized viewing, and streaming data handling.
+
+### Added
+
+#### A) Extraction & Snapshot Performance
+- **Paging Support** (`PagedQueries.ps1`): Execute large queries in chunks to prevent memory exhaustion
+  - `Invoke-PagedTreeQuery`: Fetch tree data with configurable page size
+  - `Get-EstimatedRowCount`: Quick node count estimation before extraction
+- **Streaming JSON Writers** (`StreamingJsonWriter.ps1`): Write large JSON files without holding entire array in memory
+  - `New-StreamingJsonWriter`: Create streaming writer instances
+  - `Write-NodesJsonStreaming`: Stream nodes directly to disk
+- **Performance Metrics** (`PerformanceMetrics.ps1`): Track and record operation performance
+  - `Start-PerfSession`: Begin tracking session
+  - `Record-QueryMetrics`: Log query performance (rowsScanned, durationMs)
+  - `Record-MemorySnapshot`: Capture memory usage at key points
+  - `Write-MetaJson`: Output full metrics to meta.json
+  - `Write-ProbeJson`: Output lightweight status to probe.json
+
+#### B) Output Optimization
+- **Optional Gzip Compression** (`CompressionUtils.ps1`): Reduce output file sizes by 80-90%
+  - `Compress-OutputFile`: Gzip any output file
+  - `Compress-TreeOutputs`: Batch compress nodes.json, diff.json, etc.
+- **Index Files**: Fast node lookups without parsing entire JSON
+  - `node_index.json`: id -> offset mapping
+  - `path_index.json`: full path -> id mapping
+- **Deterministic Ordering**: Consistent output for diff operations
+
+#### C) Viewer Performance
+- **Virtualized Tree Viewer** (`generate-virtualized-tree-html.ps1`): Handles 50k+ nodes smoothly
+  - Virtual scrolling: Only renders visible nodes (~50-100 at a time)
+  - Lazy loading: Parse data on demand
+  - Incremental search indexing: First 1000 results instantly
+- **MaxNodesInViewer Cap**: Configurable limit with clear warning banner
+  - Default: 100,000 nodes
+  - Shows warning when exceeded
+- **V3 Launcher** (`tree-viewer-launcher-v3.ps1`): Auto-detects large trees
+  - Estimates node count before generation
+  - Prompts to use virtualized viewer for large trees
+
+#### D) Performance Test Harness
+- **PerfHarness.ps1**: Benchmark tool for performance validation
+  - Generates synthetic 50k/100k node datasets
+  - Measures snapshot, diff, and export operations
+  - Outputs detailed timing and memory stats
+  - Compares against budget targets
+- **PERFORMANCE-BUDGET.md**: Target runtimes and memory limits
+  - 50k nodes snapshot: < 30s, < 500MB memory
+  - 100k nodes snapshot: < 60s, < 800MB memory
+  - Viewer scroll render: < 16ms (60fps target)
+
+### Changed
+- Tree viewer now defaults to virtualized mode for trees > 10,000 nodes
+- JSON export uses streaming by default for trees > 5,000 nodes
+- Added memory and timing metrics to all major operations
+
+### Performance Targets
+
+| Operation | 50k Nodes | 100k Nodes |
+|-----------|-----------|------------|
+| Snapshot Generation | < 30s | < 60s |
+| Peak Memory | < 500MB | < 800MB |
+| Viewer Initial Load | < 5s | < 10s |
+| Scroll Render | < 16ms | < 16ms |
+
+### New Files
+- `src/powershell/utilities/PerformanceMetrics.ps1`
+- `src/powershell/utilities/StreamingJsonWriter.ps1`
+- `src/powershell/utilities/CompressionUtils.ps1`
+- `src/powershell/utilities/PagedQueries.ps1`
+- `src/powershell/main/generate-virtualized-tree-html.ps1`
+- `src/powershell/main/tree-viewer-launcher-v3.ps1`
+- `PerfHarness.ps1`
+- `docs/PERFORMANCE-BUDGET.md`
+
+---
+
+## [1.0.0] - 2026-01-13
+
+### Initial Release
 
 #### Added
 - Interactive tree viewer launcher with dynamic server/schema discovery
@@ -38,43 +119,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Project Statistics
 
-- **PowerShell Scripts**: 12 production scripts
+- **PowerShell Scripts**: 20+ production scripts
 - **SQL Queries**: 133 investigation queries (organized into categories)
-- **Documentation**: 13 markdown files
+- **Documentation**: 15+ markdown files
 - **Icons Extracted**: 95+ custom BMP icons
 - **Database Support**: Oracle 12c, DESIGN1-5 schemas
-- **Code Coverage**: Icon extraction, tree generation, database analysis
-- **Lines of Code**: ~2,500+ lines of PowerShell, ~4,000+ lines of SQL
-
-## File Organization Summary
-
-### Source Code (src/)
-- **12 PowerShell scripts** organized by function
-- **3 main tools**: tree viewer, tree generator, icon extractor
-- **4 database utilities**: install, setup, connect, test
-- **4 utility scripts**: queries, icon mapping, database exploration
-
-### Documentation (docs/)
-- **3 main guides**: Quick Start, Oracle Setup, Database Structure
-- **7 investigation docs**: Icon extraction, node ordering solutions
-- **2 API docs**: Query examples, project names
-
-### Queries (133 SQL files organized into 4 categories)
-- **icon-extraction/** - 18 queries for icon extraction research
-- **tree-navigation/** - 9 queries for tree traversal
-- **analysis/** - 55 analysis and check queries
-- **investigation/** - 50 research and exploration queries
-
-### Configuration
-- Database server configuration
-- Tree viewer settings
-- TNS name template
-
-### Data & Output
-- Icons extracted from database (data/icons/)
-- Generated HTML trees (data/output/)
-- Both ignored in Git (regenerated from source)
-
-<function_calls>
-<invoke name="TodoWrite">
-<parameter name="todos">[{"content": "Create proper folder structure for the project", "status": "completed", "activeForm": "Creating proper folder structure"}, {"content": "Move PowerShell scripts to src/ directory", "status": "completed", "activeForm": "Moving PowerShell scripts"}, {"content": "Organize SQL queries into categorized folders", "status": "completed", "activeForm": "Organizing SQL queries"}, {"content": "Move documentation to docs/ folder", "status": "completed", "activeForm": "Moving documentation"}, {"content": "Organize generated outputs and data files", "status": "completed", "activeForm": "Organizing outputs and data"}, {"content": "Create .gitignore file", "status": "completed", "activeForm": "Creating .gitignore"}, {"content": "Create main README.md", "status": "completed", "activeForm": "Creating main README"}, {"content": "Clean up temporary and test files", "status": "completed", "activeForm": "Cleaning up temporary files"}]
+- **Lines of Code**: ~4,000+ lines of PowerShell, ~4,000+ lines of SQL
