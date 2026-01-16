@@ -197,11 +197,43 @@ $env:PATH  # Should include Oracle Instant Client
 
 ## Performance
 
+### Standard Mode
 - **Icon Extraction**: ~5-10 seconds for 95 icons
 - **Tree Generation**: ~10-30 seconds depending on project size
 - **Tree Display**: Instant (client-side JavaScript)
 - **Database Size**: Works with multi-GB databases
 - **Tested With**: 20,000+ nodes, 8.6M+ relationships
+
+### Large Tree Support (50k+ Nodes)
+
+For very large trees, use the virtualized viewer mode:
+
+| Operation | 50k Nodes | 100k Nodes |
+|-----------|-----------|------------|
+| Snapshot Generation | < 30s | < 60s |
+| Peak Memory | < 500MB | < 800MB |
+| Viewer Initial Load | < 5s | < 10s |
+| Scroll Render | < 16ms | < 16ms |
+
+**Features:**
+- **Virtual Scrolling**: Only renders visible nodes (~50-100 at a time)
+- **Streaming JSON**: Writes large files without memory exhaustion
+- **Paged Queries**: Fetches data in chunks to prevent timeouts
+- **Gzip Compression**: 80-90% output size reduction
+- **Index Files**: Fast node lookups without parsing entire JSON
+
+```powershell
+# Use the v3 launcher with virtualized support
+.\src\powershell\main\tree-viewer-launcher-v3.ps1
+
+# Or explicitly use virtualized mode
+.\src\powershell\main\tree-viewer-launcher-v3.ps1 -UseVirtualized
+
+# Run performance benchmarks
+.\PerfHarness.ps1 -NodeCount 50000
+```
+
+See [PERFORMANCE-BUDGET.md](docs/PERFORMANCE-BUDGET.md) for detailed performance targets.
 
 ## Contributing
 
@@ -229,12 +261,15 @@ See [DATABASE-STRUCTURE-SUMMARY.md](docs/DATABASE-STRUCTURE-SUMMARY.md) for deta
 - Hard-coded node ordering for specific project (FORD_DEARBORN)
 - Requires READ access to system schemas (DESIGN1-5)
 - Windows-only (PowerShell, Oracle Instant Client)
-- Large trees (>10MB HTML) may be slow to load in browser
+- Standard viewer may be slow for very large trees (use virtualized mode)
+- MaxNodesInViewer limit: 100,000 nodes (configurable)
 
 ## Roadmap
 
+- [x] ~~Large tree support (50k+ nodes)~~ **Completed in v2.0.0**
+- [x] ~~Export to JSON format~~ **Completed in v2.0.0**
+- [x] ~~Performance test harness~~ **Completed in v2.0.0**
 - [ ] Configuration-based node ordering
-- [ ] Export to JSON/XML formats
 - [ ] Node diff/comparison between projects
 - [ ] Real-time database sync
 - [ ] Cross-platform support (PowerShell Core)
