@@ -1,0 +1,6 @@
+Missing TYPE_ID icons in DB extraction (fallback will be used where possible):
+164|RobcadResourceLibrary|class RobcadResourceLibrary|8
+177|RobcadStudy|class RobcadStudy|59
+72|StudyFolder|class PmStudyFolder|360
+
+Fallback icons added for TYPE_IDs: 108, 164, 177, 178, 181, 183, 70, 72

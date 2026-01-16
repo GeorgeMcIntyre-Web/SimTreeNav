@@ -1,0 +1,178 @@
+========================================
+ToolPrototype Parent Relationship Check
+========================================
+
+TOOL_OBJECT_ID
+--------------
+TOOL_NAME
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+COLLECTIONS_VR_
+---------------
+PARENT_VIA_COLLECTIONS_VR
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+PARENT_COLLECTION_ID PARENT_VIA_REL_COMMON REL_COMMON_OBJECT_ID
+-------------------- --------------------- --------------------
+       8523380
+CSAP-B-01-CIVILS-CX727_PLANT
+	      1
+
+				   8523390		8523380
+
+       8523380
+CSAP-B-01-CIVILS-CX727_PLANT
+	      1
+
+				   8523382		8523380
+
+       8523380
+CSAP-B-01-CIVILS-CX727_PLANT
+	      1
+
+				   8523381		8523380
+
+       8523391
+CUA-B11-FS-DES_CX727-C-01
+	      1
+
+				   8523392		8523391
+
+       8523391
+CUA-B11-FS-DES_CX727-C-01
+	      1
+
+				   8523393		8523391
+
+       8950711
+CSAP-B-01-TRUSS_COLUMNS-CX727
+	      1
+
+				   8523390		8950711
+
+       8967387
+CSAP-B-01-AISLE-CX727
+	      1
+
+				   8523390		8967387
+
+       9634027
+CSAP_WELD_WATER_COMPRESSED_AIR_UTILITY_TRENCH_SOUTH_BODY
+	      1
+
+				   8523390		9634027
+
+      11957111
+ProxyConnect{S010RTT1FAVB1}_1
+	      1
+
+				   8521254	       11957111
+
+      11957429
+1791ES_20003070{S010RTT1DS1}
+	      1
+
+				   8521254	       11957429
+
+
+========================================
+Check if COLLECTIONS_VR_ points to valid collections
+========================================
+
+TOTAL_TOOLPROTOTYPES WITH_COLLECTIONS_VR VALID_COLLECTION_LINK
+-------------------- ------------------- ---------------------
+	       55778		   55778		     0
+
+========================================
+Check REL_COMMON relationships for ToolPrototypes
+========================================
+
+TOTAL_TOOLPROTOTYPES WITH_REL_COMMON_ENTRY WITH_FORWARD_OBJECT_ID
+-------------------- --------------------- ----------------------
+	      188824		    188824		   188824
+
+========================================
+Sample: How existing COLLECTION_ uses REL_COMMON
+========================================
+
+ OBJECT_ID
+----------
+CAPTION_S_
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ PARENT_ID
+----------
+PARENT_NAME
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+  18140190
+FORD_DEARBORN
+  18144071
+Working Folders
+
+  18140190
+FORD_DEARBORN
+  18143955
+MfgLibrary
+
+  18140190
+FORD_DEARBORN
+  18143951
+PartLibrary
+
+  18140190
+FORD_DEARBORN
+  18143956
+IPA
+
+  18140190
+FORD_DEARBORN
+  18153685
+EngineeringResourceLibrary
+
+  18140190
+FORD_DEARBORN
+  18195358
+P736
+
+  18140190
+FORD_DEARBORN
+  18143953
+
+
+  18140190
+FORD_DEARBORN
+  18195357
+P702
+
+  18140190
+FORD_DEARBORN
+  18144070
+DES_Studies
+
+  18153685
+EngineeringResourceLibrary
+  18140190
+FORD_DEARBORN
+
+  18153685
+EngineeringResourceLibrary
+  18154296
+robcad_local
+
+
+========================================
+Check if any ToolPrototypes are in FORD_DEARBORN project
+========================================
+	SELECT rc.FORWARD_OBJECT_ID
+        *
+ERROR at line 10:
+ORA-01788: CONNECT BY clause required in this query block
+
+
+
+========================================
+Sample ToolPrototypes in FORD_DEARBORN (if any)
+========================================
+	SELECT rc.FORWARD_OBJECT_ID
+        *
+ERROR at line 14:
+ORA-01788: CONNECT BY clause required in this query block
+
+
