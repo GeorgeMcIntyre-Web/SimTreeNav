@@ -11,6 +11,7 @@ find-*.ps1
 # Generated data
 tree-data-*.txt
 navigation-tree-*.html
+missing-icons-*.txt
 
 # Config
 tree-viewer-config.json
@@ -33,6 +34,9 @@ all-icons-hex-output.txt
 test-icon-hex-output.txt
 add-fallback-icons.ps1
 nul
+timing-*.ps1
+TEST-*.ps1
+perf-*.html
 
 # Debug/investigation SQL files
 debug-*.sql
