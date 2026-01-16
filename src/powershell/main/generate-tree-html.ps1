@@ -392,7 +392,8 @@ WHERE NOT EXISTS (SELECT 1 FROM $Schema.COLLECTION_ c WHERE c.OBJECT_ID = p.OBJE
   )
 UNION ALL
 -- Add PART_ children of specific library nodes (hardcoded for performance)
--- PartInstanceLibrary and COWL_SILL_SIDE need their PART_ children explicitly
+-- PartInstanceLibrary needs its PART_ children explicitly since it's a ghost node
+-- NOTE: COWL_SILL_SIDE no longer needs hardcoding - handled by next query
 SELECT DISTINCT
     '999|' ||
     r.FORWARD_OBJECT_ID || '|' ||
@@ -407,14 +408,20 @@ SELECT DISTINCT
 FROM $Schema.REL_COMMON r
 INNER JOIN $Schema.PART_ p ON r.OBJECT_ID = p.OBJECT_ID
 LEFT JOIN $Schema.CLASS_DEFINITIONS cd ON p.CLASS_ID = cd.TYPE_ID
+LEFT JOIN $Schema.PART_ p2 ON r.FORWARD_OBJECT_ID = p2.OBJECT_ID
+LEFT JOIN $Schema.CLASS_DEFINITIONS cd_parent ON p2.CLASS_ID = cd_parent.TYPE_ID
 WHERE NOT EXISTS (SELECT 1 FROM $Schema.COLLECTION_ c WHERE c.OBJECT_ID = p.OBJECT_ID)
   AND r.FORWARD_OBJECT_ID IN (
-    18143953,  -- PartInstanceLibrary (ghost node)
-    18208744   -- COWL_SILL_SIDE
+    18143953  -- PartInstanceLibrary (ghost node)
   )
+  -- Exclude reverse relationships (same filter as next query)
+  AND NVL(cd_parent.TYPE_ID, 0) NOT IN (55, 56, 57, 58, 59, 60)
+  AND r.FORWARD_OBJECT_ID < r.OBJECT_ID
 UNION ALL
 -- Add PART_ children where parent is also in PART_ table (grandchildren)
 -- Get children of P702/P736 and other PART_ nodes
+-- IMPORTANT: Filter out ALL reverse/bidirectional relationships in REL_COMMON
+-- REL_COMMON contains bidirectional entries (A->B AND B->A), we need only parent->child direction
 SELECT DISTINCT
     '999|' ||
     r.FORWARD_OBJECT_ID || '|' ||
@@ -430,7 +437,14 @@ FROM $Schema.REL_COMMON r
 INNER JOIN $Schema.PART_ p ON r.OBJECT_ID = p.OBJECT_ID
 INNER JOIN $Schema.PART_ p2 ON r.FORWARD_OBJECT_ID = p2.OBJECT_ID
 LEFT JOIN $Schema.CLASS_DEFINITIONS cd ON p.CLASS_ID = cd.TYPE_ID
-WHERE NOT EXISTS (SELECT 1 FROM $Schema.COLLECTION_ c WHERE c.OBJECT_ID = p.OBJECT_ID);
+LEFT JOIN $Schema.CLASS_DEFINITIONS cd_parent ON p2.CLASS_ID = cd_parent.TYPE_ID
+WHERE NOT EXISTS (SELECT 1 FROM $Schema.COLLECTION_ c WHERE c.OBJECT_ID = p.OBJECT_ID)
+  -- Exclude ALL reverse/bidirectional relationships
+  -- PartInstance can NEVER be a parent
+  AND NVL(cd_parent.TYPE_ID, 0) NOT IN (55, 56, 57, 58, 59, 60)
+  -- For bidirectional pairs (A->B and B->A both exist), keep only where parent has LOWER ID
+  -- This assumes parents are generally created before children in the database
+  AND r.FORWARD_OBJECT_ID < r.OBJECT_ID;
 
 -- Add StudyFolder children explicitly (these are links/shortcuts to real data)
 -- StudyFolder nodes are identified by their NICE_NAME in CLASS_DEFINITIONS, not CAPTION
