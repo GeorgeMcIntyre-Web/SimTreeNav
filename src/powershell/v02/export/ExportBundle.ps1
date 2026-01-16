@@ -159,6 +159,26 @@ function Get-ViewerTemplate {
         .score-good { color: var(--accent-blue); }
         .score-warn { color: var(--accent-yellow); }
         .score-bad { color: var(--accent-red); }
+        .highlighted { 
+            background: rgba(137, 180, 250, 0.3) !important; 
+            border-left: 3px solid var(--accent-blue);
+            padding-left: calc(var(--level, 0) * 1rem + 0.5rem) !important;
+        }
+        .action-row:hover { background: var(--bg-tertiary); cursor: pointer; }
+        .export-btn {
+            background: var(--accent-purple);
+            color: var(--bg-primary);
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.875rem;
+        }
+        .export-btn:hover { opacity: 0.9; }
+        @keyframes pulse {
+            0%, 100% { background: rgba(137, 180, 250, 0.3); }
+            50% { background: rgba(137, 180, 250, 0.6); }
+        }
     </style>
 </head>
 <body>
@@ -170,14 +190,24 @@ function Get-ViewerTemplate {
         <div class="sidebar">
             <h3>Navigation</h3>
             <a class="nav-item active" data-section="overview">Overview</a>
+            <a class="nav-item" data-section="timeline">Timeline</a>
             <a class="nav-item" data-section="diff">Changes</a>
+            <a class="nav-item" data-section="actions">Actions</a>
             <a class="nav-item" data-section="sessions">Sessions</a>
             <a class="nav-item" data-section="intents">Intents</a>
             <a class="nav-item" data-section="impact">Impact</a>
             <a class="nav-item" data-section="drift">Drift</a>
             <a class="nav-item" data-section="compliance">Compliance</a>
-            <a class="nav-item" data-section="anomalies">Anomalies</a>
+            <a class="nav-item" data-section="anomalies">Alerts</a>
+            <a class="nav-item" data-section="similar">Similar</a>
+            <a class="nav-item" data-section="explain">Explain</a>
             <a class="nav-item" data-section="tree">Tree View</a>
+            
+            <h3 style="margin-top: 1.5rem;">Options</h3>
+            <label style="display: flex; align-items: center; padding: 0.5rem 0; cursor: pointer;">
+                <input type="checkbox" id="changedOnlyToggle" style="margin-right: 0.5rem;">
+                <span style="font-size: 0.875rem;">Changed-only view</span>
+            </label>
         </div>
         <div class="main" id="main-content">
             <div id="loading">Loading bundle data...</div>
@@ -188,16 +218,24 @@ function Get-ViewerTemplate {
         // Bundle data will be embedded here
         const BUNDLE_DATA = __BUNDLE_DATA__;
         
+        // State
+        let highlightedNodeIds = new Set();
+        let changedOnlyMode = false;
+        
         // Section rendering functions
         const sections = {
             overview: renderOverview,
+            timeline: renderTimeline,
             diff: renderDiff,
+            actions: renderActions,
             sessions: renderSessions,
             intents: renderIntents,
             impact: renderImpact,
             drift: renderDrift,
             compliance: renderCompliance,
             anomalies: renderAnomalies,
+            similar: renderSimilar,
+            explain: renderExplain,
             tree: renderTree
         };
         
@@ -214,6 +252,27 @@ function Get-ViewerTemplate {
                     renderSection(item.dataset.section);
                 });
             });
+            
+            // Changed-only toggle
+            const changedOnlyToggle = document.getElementById('changedOnlyToggle');
+            if (changedOnlyToggle) {
+                changedOnlyToggle.addEventListener('change', (e) => {
+                    changedOnlyMode = e.target.checked;
+                    if (changedOnlyMode) {
+                        // Highlight all changed nodes
+                        const changes = BUNDLE_DATA.diff?.changes || [];
+                        highlightedNodeIds.clear();
+                        changes.forEach(c => highlightedNodeIds.add(c.nodeId));
+                    } else {
+                        highlightedNodeIds.clear();
+                    }
+                    // Re-render current section if tree
+                    const activeSection = document.querySelector('.nav-item.active')?.dataset?.section;
+                    if (activeSection === 'tree') {
+                        renderSection('tree');
+                    }
+                });
+            }
             
             // Render initial section
             renderSection('overview');
@@ -338,6 +397,9 @@ function Get-ViewerTemplate {
             return `
                 <div class="panel">
                     <h2>Impact Analysis</h2>
+                    <div style="margin-bottom: 1rem;">
+                        <button class="export-btn" onclick="exportImpact()">Export impact.json</button>
+                    </div>
                     <div class="stat-grid">
                         <div class="stat-card">
                             <div class="value">${impact.totalDownstreamImpact || 0}</div>
@@ -352,7 +414,7 @@ function Get-ViewerTemplate {
                 <div class="panel">
                     <h2>Top Risk Nodes</h2>
                     <table class="table">
-                        <thead><tr><th>Name</th><th>Risk Score</th><th>Level</th><th>Dependents</th></tr></thead>
+                        <thead><tr><th>Name</th><th>Risk Score</th><th>Level</th><th>Dependents</th><th></th></tr></thead>
                         <tbody>
                             ${topRisk.map(n => `
                                 <tr>
@@ -360,6 +422,7 @@ function Get-ViewerTemplate {
                                     <td>${(n.riskScore * 100).toFixed(0)}%</td>
                                     <td><span class="badge badge-${n.riskLevel?.toLowerCase()}">${n.riskLevel}</span></td>
                                     <td>${n.downstreamCount || 0}</td>
+                                    <td><button class="tab-btn" style="padding: 0.25rem 0.5rem;" onclick="highlightNode('${n.nodeId}')">Show</button></td>
                                 </tr>
                             `).join('')}
                         </tbody>
@@ -374,6 +437,9 @@ function Get-ViewerTemplate {
             return `
                 <div class="panel">
                     <h2>Drift Analysis</h2>
+                    <div style="margin-bottom: 1rem;">
+                        <button class="export-btn" onclick="exportDrift()">Export drift.json</button>
+                    </div>
                     <div class="stat-grid">
                         <div class="stat-card">
                             <div class="value">${drift.totalPairs || 0}</div>
@@ -393,7 +459,7 @@ function Get-ViewerTemplate {
                 <div class="panel">
                     <h2>Top Drifted Pairs</h2>
                     <table class="table">
-                        <thead><tr><th>Source</th><th>Target</th><th>Position (mm)</th><th>Rotation (deg)</th></tr></thead>
+                        <thead><tr><th>Source</th><th>Target</th><th>Position (mm)</th><th>Rotation (deg)</th><th></th></tr></thead>
                         <tbody>
                             ${drift.topDrifted.map(d => `
                                 <tr>
@@ -401,6 +467,7 @@ function Get-ViewerTemplate {
                                     <td>${escapeHtml(d.targetName || '')}</td>
                                     <td>${d.positionDelta_mm?.toFixed(2) || '0'}</td>
                                     <td>${d.rotationDelta_deg?.toFixed(2) || '0'}</td>
+                                    <td><button class="tab-btn" style="padding: 0.25rem 0.5rem;" onclick="highlightNode('${d.targetNodeId}')">Show</button></td>
                                 </tr>
                             `).join('')}
                         </tbody>
@@ -496,14 +563,265 @@ function Get-ViewerTemplate {
         function renderTreeNode(node, allNodes, level) {
             const children = allNodes.filter(n => n.parentId === node.nodeId);
             const hasChildren = children.length > 0;
+            const isHighlighted = highlightedNodeIds.has(node.nodeId);
             
             return `
-                <div class="tree-node" style="--level: ${level}">
+                <div class="tree-node ${isHighlighted ? 'highlighted' : ''}" style="--level: ${level}" data-node-id="${node.nodeId}">
                     ${hasChildren ? '▸' : '•'} <strong>${escapeHtml(node.name || node.nodeId)}</strong>
                     <span style="color: var(--text-secondary); font-size: 0.75rem;">[${node.nodeType}]</span>
                 </div>
                 ${level < 2 && hasChildren ? children.slice(0, 10).map(c => renderTreeNode(c, allNodes, level + 1)).join('') : ''}
             `;
+        }
+        
+        function renderTimeline() {
+            const timeline = BUNDLE_DATA.timeline || [];
+            
+            if (timeline.length === 0) {
+                return `
+                    <div class="panel">
+                        <h2>Timeline</h2>
+                        <p style="color: var(--text-secondary)">No timeline data available. Single-snapshot bundle.</p>
+                    </div>
+                `;
+            }
+            
+            return `
+                <div class="panel">
+                    <h2>Snapshot Timeline (${timeline.length} snapshots)</h2>
+                    <div style="position: relative; padding-left: 2rem;">
+                        ${timeline.map((t, i) => `
+                            <div style="position: relative; padding: 1rem 0; border-left: 2px solid var(--accent-blue); padding-left: 1.5rem; margin-left: -2rem;">
+                                <div style="position: absolute; left: -0.5rem; top: 1.5rem; width: 1rem; height: 1rem; background: var(--accent-blue); border-radius: 50%;"></div>
+                                <div style="background: var(--bg-tertiary); padding: 1rem; border-radius: 4px;">
+                                    <strong>${escapeHtml(t.label || 'Snapshot ' + (i+1))}</strong>
+                                    <span class="badge badge-${getEventBadgeClass(t.eventType)}" style="margin-left: 0.5rem;">${t.eventType || 'snapshot'}</span>
+                                    <div style="color: var(--text-secondary); font-size: 0.875rem; margin-top: 0.5rem;">
+                                        ${t.nodeCount || 0} nodes | ${t.changeCount || 0} changes
+                                    </div>
+                                    ${t.description ? `<p style="margin-top: 0.5rem; color: var(--text-secondary);">${escapeHtml(t.description)}</p>` : ''}
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+        }
+        
+        function renderActions() {
+            const diff = BUNDLE_DATA.diff || {};
+            const changes = diff.changes || [];
+            
+            // Group changes by type to show as "actions"
+            const actionGroups = {};
+            changes.forEach(c => {
+                const type = c.changeType || 'unknown';
+                if (!actionGroups[type]) actionGroups[type] = [];
+                actionGroups[type].push(c);
+            });
+            
+            return `
+                <div class="panel">
+                    <h2>Actions Summary</h2>
+                    <div class="stat-grid">
+                        ${Object.entries(actionGroups).map(([type, items]) => `
+                            <div class="stat-card" style="cursor: pointer;" onclick="highlightByChangeType('${type}')">
+                                <div class="value">${items.length}</div>
+                                <div class="label">${type}</div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+                <div class="panel">
+                    <h2>All Actions (${changes.length})</h2>
+                    <div style="margin-bottom: 1rem;">
+                        <button class="tab-btn" onclick="exportActions()">Export actions.json</button>
+                    </div>
+                    <table class="table">
+                        <thead>
+                            <tr><th>Action</th><th>Node</th><th>Details</th><th></th></tr>
+                        </thead>
+                        <tbody>
+                            ${changes.slice(0, 50).map(c => `
+                                <tr class="action-row" data-node-id="${c.nodeId}">
+                                    <td><span class="badge badge-${c.changeType}">${c.changeType}</span></td>
+                                    <td>${escapeHtml(c.nodeName || c.name || c.nodeId)}</td>
+                                    <td style="font-size: 0.75rem; color: var(--text-secondary)">
+                                        ${c.changeType === 'renamed' ? escapeHtml((c.oldName || '') + ' → ' + (c.newName || '')) : ''}
+                                        ${c.changeType === 'moved' ? 'Parent changed' : ''}
+                                        ${c.path ? escapeHtml(c.path) : ''}
+                                    </td>
+                                    <td>
+                                        <button class="tab-btn" style="padding: 0.25rem 0.5rem;" onclick="highlightNode('${c.nodeId}')">Show</button>
+                                    </td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                    ${changes.length > 50 ? '<p style="margin-top: 1rem; color: var(--text-secondary)">Showing first 50 of ' + changes.length + ' actions</p>' : ''}
+                </div>
+            `;
+        }
+        
+        function renderSimilar() {
+            return `
+                <div class="panel">
+                    <h2>Similar Nodes</h2>
+                    <div style="text-align: center; padding: 2rem; color: var(--text-secondary);">
+                        <div style="font-size: 3rem; margin-bottom: 1rem;">🔍</div>
+                        <p><strong>Coming Soon</strong></p>
+                        <p style="margin-top: 0.5rem;">Similarity analysis will find structurally similar subtrees.</p>
+                        <p style="margin-top: 0.5rem; font-size: 0.875rem;">Features planned:</p>
+                        <ul style="text-align: left; max-width: 300px; margin: 1rem auto;">
+                            <li>Structural fingerprint matching</li>
+                            <li>Attribute similarity scoring</li>
+                            <li>Cross-station comparison</li>
+                        </ul>
+                    </div>
+                </div>
+            `;
+        }
+        
+        function renderExplain() {
+            const nodes = BUNDLE_DATA.currentNodes || [];
+            const selectedNode = nodes[0]; // Default to first node
+            
+            return `
+                <div class="panel">
+                    <h2>Node Explain</h2>
+                    <p style="color: var(--text-secondary); margin-bottom: 1rem;">
+                        Select a node from the tree view to see detailed explanation.
+                    </p>
+                    ${selectedNode ? renderNodeExplanation(selectedNode) : '<p>No node selected</p>'}
+                </div>
+                <div class="panel">
+                    <h2>Identity Resolution</h2>
+                    <p style="color: var(--text-secondary);">
+                        Nodes are matched across snapshots using multiple signals:
+                    </p>
+                    <table class="table" style="margin-top: 1rem;">
+                        <tr><th>Signal</th><th>Weight</th><th>Description</th></tr>
+                        <tr><td>externalId</td><td>35%</td><td>External system identifier</td></tr>
+                        <tr><td>name + path</td><td>25%</td><td>Hierarchical position</td></tr>
+                        <tr><td>contentHash</td><td>20%</td><td>Content fingerprint</td></tr>
+                        <tr><td>prototypeLink</td><td>10%</td><td>Prototype reference</td></tr>
+                        <tr><td>transformHash</td><td>5%</td><td>Position fingerprint</td></tr>
+                        <tr><td>nodeType</td><td>5%</td><td>Classification</td></tr>
+                    </table>
+                </div>
+            `;
+        }
+        
+        function renderNodeExplanation(node) {
+            return `
+                <div style="background: var(--bg-tertiary); padding: 1rem; border-radius: 4px;">
+                    <h3 style="margin-bottom: 1rem;">${escapeHtml(node.name || node.nodeId)}</h3>
+                    <table class="table">
+                        <tr><td style="width: 120px; color: var(--text-secondary)">Node ID</td><td>${node.nodeId}</td></tr>
+                        <tr><td style="color: var(--text-secondary)">Node Type</td><td><span class="badge badge-info">${node.nodeType}</span></td></tr>
+                        <tr><td style="color: var(--text-secondary)">Path</td><td style="font-size: 0.875rem;">${escapeHtml(node.path || 'N/A')}</td></tr>
+                        <tr><td style="color: var(--text-secondary)">Parent ID</td><td>${node.parentId || 'None (root)'}</td></tr>
+                    </table>
+                </div>
+            `;
+        }
+        
+        function getEventBadgeClass(eventType) {
+            const map = {
+                'baseline': 'info',
+                'bulk_paste': 'added',
+                'standardization': 'renamed',
+                'transform_adjust': 'moved',
+                'reorganization': 'moved',
+                'prototype_change': 'renamed',
+                'mass_delete': 'removed',
+                'recovery': 'added'
+            };
+            return map[eventType] || 'info';
+        }
+        
+        // Cross-highlighting functions
+        function highlightNode(nodeId) {
+            highlightedNodeIds.clear();
+            highlightedNodeIds.add(nodeId);
+            // Navigate to tree view and highlight
+            document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+            document.querySelector('[data-section="tree"]').classList.add('active');
+            renderSection('tree');
+            
+            // Scroll to highlighted node
+            setTimeout(() => {
+                const el = document.querySelector(`[data-node-id="${nodeId}"]`);
+                if (el) {
+                    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    el.style.animation = 'pulse 1s ease-in-out 3';
+                }
+            }, 100);
+        }
+        
+        function highlightByChangeType(changeType) {
+            const changes = (BUNDLE_DATA.diff?.changes || []).filter(c => c.changeType === changeType);
+            highlightedNodeIds.clear();
+            changes.forEach(c => highlightedNodeIds.add(c.nodeId));
+            
+            // Navigate to tree view
+            document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+            document.querySelector('[data-section="tree"]').classList.add('active');
+            renderSection('tree');
+        }
+        
+        // Export functions
+        function exportActions() {
+            const data = BUNDLE_DATA.diff || {};
+            downloadJson(data, 'actions.json');
+        }
+        
+        function exportSubtree(nodeId) {
+            const nodes = BUNDLE_DATA.currentNodes || [];
+            const subtree = getSubtreeNodes(nodeId, nodes);
+            downloadJson(subtree, `subtree_${nodeId}.json`);
+        }
+        
+        function exportImpact() {
+            const data = BUNDLE_DATA.impact || {};
+            downloadJson(data, 'impact_export.json');
+        }
+        
+        function exportDrift() {
+            const data = BUNDLE_DATA.drift || {};
+            downloadJson(data, 'drift_export.json');
+        }
+        
+        function downloadJson(data, filename) {
+            const json = JSON.stringify(data, null, 2);
+            const blob = new Blob([json], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+        
+        function getSubtreeNodes(rootId, allNodes) {
+            const result = [];
+            const queue = [rootId];
+            const visited = new Set();
+            
+            while (queue.length > 0) {
+                const id = queue.shift();
+                if (visited.has(id)) continue;
+                visited.add(id);
+                
+                const node = allNodes.find(n => n.nodeId === id);
+                if (node) {
+                    result.push(node);
+                    allNodes.filter(n => n.parentId === id).forEach(child => queue.push(child.nodeId));
+                }
+            }
+            return result;
         }
         
         function getScoreClass(score) {
