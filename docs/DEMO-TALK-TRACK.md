@@ -1,8 +1,8 @@
 # SimTreeNav Demo Talk Track
 
-## Manufacturing Evolution Story
+## DeterminismTest
 
-Generated: 2026-01-15 17:18
+Generated: 2025-01-01 09:00
 
 ---
 
@@ -16,14 +16,14 @@ This demo shows how SimTreeNav tracks changes across a manufacturing plant's dig
 
 | Step | Event | Changes | Node Count |
 |------|-------|---------|------------|
-| Baseline | baseline | 0 | 150 |
-| Bulk Paste | bulk_paste | 24 | 174 |
-| Rename Pass | standardization | 17 | 174 |
-| Retouch | transform_adjust | 26 | 174 |
-| Restructure | reorganization | 9 | 174 |
-| Prototype Swap | prototype_change | 3 | 174 |
-| Anomaly | mass_delete | 24 | 150 |
-| Recovery | recovery | 9 | 159 |
+| Baseline | baseline | 0 | 40 |
+| Bulk Paste | bulk_paste | 0 | 40 |
+| Rename Pass | standardization | 4 | 40 |
+| Retouch | transform_adjust | 6 | 40 |
+| Restructure | reorganization | 2 | 40 |
+| Prototype Swap | prototype_change | 1 | 40 |
+| Anomaly | mass_delete | 3 | 37 |
+| Recovery | recovery | 1 | 38 |
 
 ---
 
@@ -32,7 +32,7 @@ This demo shows how SimTreeNav tracks changes across a manufacturing plant's dig
 ### Scene 1: Baseline (Clean State)
 **[CLICK: Timeline -> Baseline]**
 
-> "Here's our starting point - a clean snapshot of Plant Alpha with 150 nodes. 
+> "Here's our starting point - a clean snapshot of Plant Alpha with 40 nodes. 
 > Notice the hierarchical structure: Stations contain Resource Groups, which contain Robots with their Tools."
 
 **Key points:**
@@ -45,7 +45,7 @@ This demo shows how SimTreeNav tracks changes across a manufacturing plant's dig
 ### Scene 2: Bulk Paste Event
 **[CLICK: Timeline -> Bulk Paste]**
 
-> "A technician just imported tools from another project - we see a spike of 24 new nodes.
+> "A technician just imported tools from another project - we see a spike of 0 new nodes.
 > SimTreeNav detects this as a 'Bulk Paste' intent with high confidence."
 
 **Demo actions:**
@@ -134,9 +134,9 @@ This demo shows how SimTreeNav tracks changes across a manufacturing plant's dig
 | Metric | Value |
 |--------|-------|
 | Total Snapshots | 8 |
-| Final Node Count | 159 |
-| Total Changes Tracked | 51 |
-| Anomalies Detected | 1 |
+| Final Node Count | 38 |
+| Total Changes Tracked | 6 |
+| Anomalies Detected | 0 |
 | Compliance Score | 100% |
 
 ---

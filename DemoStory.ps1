@@ -33,6 +33,7 @@ param(
     [int]$NodeCount = 300,
     [string]$OutDir = './bundles/demo_story',
     [string]$StoryName = 'Manufacturing Evolution Story',
+    [int]$Seed = 0,
     [switch]$Anonymize,
     [switch]$CreateZip,
     [switch]$NoOpen,
@@ -41,6 +42,60 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $scriptRoot = $PSScriptRoot
+
+# ============================================================================
+# DETERMINISTIC SEEDING
+# ============================================================================
+
+# If Seed is provided (non-zero), seed the random number generator for deterministic output
+$Script:DeterministicMode = $Seed -ne 0
+$Script:DeterministicCounter = 0
+$Script:DeterministicSeed = $Seed
+
+if ($Script:DeterministicMode) {
+    # Seed PowerShell's random number generator
+    $null = Get-Random -SetSeed $Seed
+}
+
+function Get-DeterministicGuid {
+    <#
+    .SYNOPSIS
+        Returns a deterministic pseudo-GUID when in deterministic mode.
+    #>
+    if (-not $Script:DeterministicMode) {
+        return [guid]::NewGuid()
+    }
+    
+    # Generate deterministic GUID based on seed and counter
+    $Script:DeterministicCounter++
+    $seedValue = $Script:DeterministicSeed
+    $counterValue = $Script:DeterministicCounter
+    $inputStr = "SEED-${seedValue}-${counterValue}"
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($inputStr)
+    $sha256 = [System.Security.Cryptography.SHA256]::Create()
+    $hashBytes = $sha256.ComputeHash($bytes)
+    
+    # Convert first 32 hex chars to GUID format (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)
+    $hexString = [System.BitConverter]::ToString($hashBytes).Replace('-', '').Substring(0, 32).ToLower()
+    $guidString = "$($hexString.Substring(0,8))-$($hexString.Substring(8,4))-$($hexString.Substring(12,4))-$($hexString.Substring(16,4))-$($hexString.Substring(20,12))"
+    return [guid]::new($guidString)
+}
+
+function Get-DeterministicTimestamp {
+    <#
+    .SYNOPSIS
+        Returns a deterministic timestamp when in deterministic mode.
+    #>
+    param([datetime]$BaseTime = (Get-Date '2025-01-01T00:00:00Z'))
+    
+    if (-not $Script:DeterministicMode) {
+        return (Get-Date).ToUniversalTime()
+    }
+    
+    # Return a fixed base time offset by counter (for ordering)
+    $Script:DeterministicCounter++
+    return $BaseTime.AddSeconds($Script:DeterministicCounter)
+}
 
 # ============================================================================
 # IMPORTS
@@ -114,7 +169,7 @@ function New-StoryNode {
         [string]$Transform = $null
     )
     
-    $externalId = "EXT-$(([guid]::NewGuid()).ToString().Substring(0,8).ToUpper())"
+    $externalId = "EXT-$((Get-DeterministicGuid).ToString().Substring(0,8).ToUpper())"
     
     [PSCustomObject]@{
         nodeId      = $NodeId
@@ -131,14 +186,14 @@ function New-StoryNode {
         links       = if ($Links) { [PSCustomObject]$Links } else { $null }
         transform   = if ($Transform) { $Transform } else { "$(Get-Random -Minimum -1000 -Maximum 1000),$(Get-Random -Minimum -1000 -Maximum 1000),$(Get-Random -Minimum 0 -Maximum 500),$(Get-Random -Minimum 0 -Maximum 360),$(Get-Random -Minimum 0 -Maximum 360),$(Get-Random -Minimum 0 -Maximum 360)" }
         fingerprints = [PSCustomObject]@{
-            contentHash   = ([guid]::NewGuid()).ToString().Substring(0, 16)
-            attributeHash = ([guid]::NewGuid()).ToString().Substring(0, 16)
-            transformHash = ([guid]::NewGuid()).ToString().Substring(0, 16)
+            contentHash   = (Get-DeterministicGuid).ToString().Substring(0, 16)
+            attributeHash = (Get-DeterministicGuid).ToString().Substring(0, 16)
+            transformHash = (Get-DeterministicGuid).ToString().Substring(0, 16)
         }
         identity    = $null
         source      = [PSCustomObject]@{
             table       = "DF_$NodeType`_DATA"
-            extractedAt = (Get-Date).ToUniversalTime().ToString('o')
+            extractedAt = (Get-DeterministicTimestamp).ToString('o')
         }
     }
 }
@@ -453,12 +508,13 @@ function New-TalkTrackMarkdown {
         [PSCustomObject]$FinalStats
     )
     
+    $genDate = if ($Script:DeterministicMode) { '2025-01-01 09:00' } else { Get-Date -Format 'yyyy-MM-dd HH:mm' }
     $md = @"
 # SimTreeNav Demo Talk Track
 
 ## $StoryName
 
-Generated: $(Get-Date -Format 'yyyy-MM-dd HH:mm')
+Generated: $genDate
 
 ---
 
@@ -636,7 +692,11 @@ Show-StoryBanner
 # Track timeline
 $timeline = @()
 $allDiffs = @()
-$baseTimestamp = Get-Date
+$baseTimestamp = if ($Script:DeterministicMode) { 
+    [datetime]'2025-01-01T09:00:00Z' 
+} else { 
+    Get-Date 
+}
 
 Write-StoryProgress "1/8" "Creating baseline dataset (~$NodeCount nodes)..." -Status 'Story'
 $baselineNodes = New-BaselineDataset -NodeCount $NodeCount -Config $storyConfig
