@@ -101,19 +101,26 @@ function New-SimTreeNode {
     $contentHash = Get-ContentHash -Name $Name -ExternalId $ExternalId -ClassName $ClassName
     $attributeHash = Get-AttributeHash -Attributes $Attributes
     
+    # Build attributes hashtable first, then merge custom attributes
+    $attrHash = @{
+        externalId  = $ExternalId
+        className   = $ClassName
+        niceName    = $NiceName
+        typeId      = $TypeId
+        seqNumber   = $SeqNumber
+    }
+    # Merge any additional attributes
+    foreach ($key in $Attributes.Keys) {
+        $attrHash[$key] = $Attributes[$key]
+    }
+    
     [PSCustomObject]@{
         nodeId      = $NodeId
         nodeType    = $NodeType
         name        = $Name
         parentId    = $ParentId
         path        = $path
-        attributes  = [PSCustomObject]@{
-            externalId  = $ExternalId
-            className   = $ClassName
-            niceName    = $NiceName
-            typeId      = $TypeId
-            seqNumber   = $SeqNumber
-        } + $Attributes
+        attributes  = [PSCustomObject]$attrHash
         links       = [PSCustomObject]$Links
         fingerprints = [PSCustomObject]@{
             contentHash   = $contentHash
