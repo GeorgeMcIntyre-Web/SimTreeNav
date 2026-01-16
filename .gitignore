@@ -35,6 +35,21 @@ add-fallback-icons.ps1
 
 # Data directories
 data/
-config/
 tests/
 tnsnames.ora
+
+# Config directory (keep templates)
+config/*
+!config/*.template.json
+!config/*.template
+
+# Collector output directories (generated at runtime)
+bundles/
+mapping/
+health/
+logs/
+
+# Collector config (user-specific, not template)
+collector.json
+collector-*.json
+!collector-config.template.json
