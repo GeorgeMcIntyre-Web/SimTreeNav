@@ -42,6 +42,7 @@ if (-not (Test-Path $iconsDir)) {
 }
 
 # Query to extract all icons as hex
+# INCLUDES automatic parent class icon lookup using DERIVED_FROM
 $extractIconsQuery = @"
 SET PAGESIZE 0
 SET LINESIZE 32767
@@ -52,15 +53,25 @@ SET HEADING OFF
 SET TRIMSPOOL ON
 SET VERIFY OFF
 
--- Use DBMS_LOB.SUBSTR to convert BLOB chunks to RAW, then RAWTOHEX
--- We'll extract in one piece since icons are small (< 32KB)
+-- Extract icons directly from DF_ICONS_DATA
 SELECT
     di.TYPE_ID || '|' ||
     DBMS_LOB.GETLENGTH(di.CLASS_IMAGE) || '|' ||
     RAWTOHEX(DBMS_LOB.SUBSTR(di.CLASS_IMAGE, DBMS_LOB.GETLENGTH(di.CLASS_IMAGE), 1))
 FROM $Schema.DF_ICONS_DATA di
 WHERE di.CLASS_IMAGE IS NOT NULL
-ORDER BY di.TYPE_ID;
+UNION ALL
+-- Add parent class icons for TYPE_IDs that don't have their own icon
+-- Uses DERIVED_FROM to find parent class and inherit their icon
+SELECT
+    cd.TYPE_ID || '|' ||
+    DBMS_LOB.GETLENGTH(parent_icon.CLASS_IMAGE) || '|' ||
+    RAWTOHEX(DBMS_LOB.SUBSTR(parent_icon.CLASS_IMAGE, DBMS_LOB.GETLENGTH(parent_icon.CLASS_IMAGE), 1))
+FROM $Schema.CLASS_DEFINITIONS cd
+INNER JOIN $Schema.DF_ICONS_DATA parent_icon ON cd.DERIVED_FROM = parent_icon.TYPE_ID
+WHERE cd.TYPE_ID NOT IN (SELECT TYPE_ID FROM $Schema.DF_ICONS_DATA WHERE CLASS_IMAGE IS NOT NULL)
+  AND parent_icon.CLASS_IMAGE IS NOT NULL
+ORDER BY 1;
 
 EXIT;
 "@
@@ -200,6 +211,41 @@ foreach ($typeId in $studyFallbacks.Keys) {
     }
 }
 
+# Add fallbacks for Part-related types that might be missing
+# PmPartInstance (55) -> use PmPartPrototype icon (54) or CompoundPart (21)
+if ($iconDataMap['54'] -and -not $iconDataMap['55']) {
+    $iconDataMap['55'] = $iconDataMap['54']
+    $extractedTypeIds += 55
+    $iconCount++
+    Write-Host "    Added fallback: TYPE_ID 55 -> 54 (PartInstance -> PartPrototype parent)" -ForegroundColor Gray
+} elseif ($iconDataMap['21'] -and -not $iconDataMap['55']) {
+    $iconDataMap['55'] = $iconDataMap['21']
+    $extractedTypeIds += 55
+    $iconCount++
+    Write-Host "    Added fallback: TYPE_ID 55 -> 21 (PartInstance -> CompoundPart)" -ForegroundColor Gray
+}
+
+# PmToolInstance (74) -> use PmToolPrototype icon (76)
+if ($iconDataMap['76'] -and -not $iconDataMap['74']) {
+    $iconDataMap['74'] = $iconDataMap['76']
+    $extractedTypeIds += 74
+    $iconCount++
+    Write-Host "    Added fallback: TYPE_ID 74 -> 76 (ToolInstance -> ToolPrototype parent)" -ForegroundColor Gray
+}
+
+# PmGenericRoboticOperation (101) -> use CompoundOperation icon (19) or Process (62)
+if ($iconDataMap['19'] -and -not $iconDataMap['101']) {
+    $iconDataMap['101'] = $iconDataMap['19']
+    $extractedTypeIds += 101
+    $iconCount++
+    Write-Host "    Added fallback: TYPE_ID 101 -> 19 (GenericRoboticOperation -> CompoundOperation)" -ForegroundColor Gray
+} elseif ($iconDataMap['62'] -and -not $iconDataMap['101']) {
+    $iconDataMap['101'] = $iconDataMap['62']
+    $extractedTypeIds += 101
+    $iconCount++
+    Write-Host "    Added fallback: TYPE_ID 101 -> 62 (GenericRoboticOperation -> Process)" -ForegroundColor Gray
+}
+
 Write-Host "  Total icons (with fallbacks): $iconCount" -ForegroundColor Green
 if ($invalidIconEntries.Count -gt 0) {
     Write-Host "  Skipped $($invalidIconEntries.Count) icons due to invalid header or size mismatch" -ForegroundColor Yellow
@@ -320,6 +366,71 @@ LEFT JOIN $Schema.CLASS_DEFINITIONS cd ON c.CLASS_ID = cd.TYPE_ID
 START WITH r.FORWARD_OBJECT_ID = $ProjectId
 CONNECT BY NOCYCLE PRIOR r.OBJECT_ID = r.FORWARD_OBJECT_ID
 ORDER SIBLINGS BY NVL(c.MODIFICATIONDATE_DA_, TO_DATE('1900-01-01', 'YYYY-MM-DD')), c.OBJECT_ID;
+
+-- Add PART_ table nodes (PartPrototype, CompoundPart, etc.) that are NOT in COLLECTION_
+-- SIMPLIFIED: Removed slow hierarchical EXISTS query, using direct parent check instead
+-- This query finds PART_ nodes whose parent is in the main tree (from Level 2+ query above)
+SELECT DISTINCT
+    '999|' ||
+    r.FORWARD_OBJECT_ID || '|' ||
+    p.OBJECT_ID || '|' ||
+    NVL(p.NAME_S_, 'Unnamed') || '|' ||
+    NVL(p.NAME_S_, 'Unnamed') || '|' ||
+    NVL(p.EXTERNALID_S_, '') || '|' ||
+    TO_CHAR(r.SEQ_NUMBER) || '|' ||
+    NVL(cd.NAME, 'class PmPart') || '|' ||
+    NVL(cd.NICE_NAME, 'Part') || '|' ||
+    TO_CHAR(cd.TYPE_ID)
+FROM $Schema.REL_COMMON r
+INNER JOIN $Schema.PART_ p ON r.OBJECT_ID = p.OBJECT_ID
+LEFT JOIN $Schema.CLASS_DEFINITIONS cd ON p.CLASS_ID = cd.TYPE_ID
+WHERE NOT EXISTS (SELECT 1 FROM $Schema.COLLECTION_ c WHERE c.OBJECT_ID = p.OBJECT_ID)
+  -- Direct parent check - parent must be in COLLECTION_ table (already fetched above)
+  AND EXISTS (
+    SELECT 1 FROM $Schema.COLLECTION_ c2
+    WHERE c2.OBJECT_ID = r.FORWARD_OBJECT_ID
+  )
+UNION ALL
+-- Add PART_ children of specific library nodes (hardcoded for performance)
+-- PartInstanceLibrary and COWL_SILL_SIDE need their PART_ children explicitly
+SELECT DISTINCT
+    '999|' ||
+    r.FORWARD_OBJECT_ID || '|' ||
+    p.OBJECT_ID || '|' ||
+    NVL(p.NAME_S_, 'Unnamed') || '|' ||
+    NVL(p.NAME_S_, 'Unnamed') || '|' ||
+    NVL(p.EXTERNALID_S_, '') || '|' ||
+    TO_CHAR(r.SEQ_NUMBER) || '|' ||
+    NVL(cd.NAME, 'class PmPart') || '|' ||
+    NVL(cd.NICE_NAME, 'Part') || '|' ||
+    TO_CHAR(NVL(cd.TYPE_ID, 21))  -- Default to TYPE_ID 21 (CompoundPart) if no mapping
+FROM $Schema.REL_COMMON r
+INNER JOIN $Schema.PART_ p ON r.OBJECT_ID = p.OBJECT_ID
+LEFT JOIN $Schema.CLASS_DEFINITIONS cd ON p.CLASS_ID = cd.TYPE_ID
+WHERE NOT EXISTS (SELECT 1 FROM $Schema.COLLECTION_ c WHERE c.OBJECT_ID = p.OBJECT_ID)
+  AND r.FORWARD_OBJECT_ID IN (
+    18143953,  -- PartInstanceLibrary (ghost node)
+    18208744   -- COWL_SILL_SIDE
+  )
+UNION ALL
+-- Add PART_ children where parent is also in PART_ table (grandchildren)
+-- Get children of P702/P736 and other PART_ nodes
+SELECT DISTINCT
+    '999|' ||
+    r.FORWARD_OBJECT_ID || '|' ||
+    p.OBJECT_ID || '|' ||
+    NVL(p.NAME_S_, 'Unnamed') || '|' ||
+    NVL(p.NAME_S_, 'Unnamed') || '|' ||
+    NVL(p.EXTERNALID_S_, '') || '|' ||
+    TO_CHAR(r.SEQ_NUMBER) || '|' ||
+    NVL(cd.NAME, 'class PmPart') || '|' ||
+    NVL(cd.NICE_NAME, 'Part') || '|' ||
+    TO_CHAR(NVL(cd.TYPE_ID, 21))  -- Default to TYPE_ID 21 (CompoundPart) if no mapping
+FROM $Schema.REL_COMMON r
+INNER JOIN $Schema.PART_ p ON r.OBJECT_ID = p.OBJECT_ID
+INNER JOIN $Schema.PART_ p2 ON r.FORWARD_OBJECT_ID = p2.OBJECT_ID
+LEFT JOIN $Schema.CLASS_DEFINITIONS cd ON p.CLASS_ID = cd.TYPE_ID
+WHERE NOT EXISTS (SELECT 1 FROM $Schema.COLLECTION_ c WHERE c.OBJECT_ID = p.OBJECT_ID);
 
 -- Add StudyFolder children explicitly (these are links/shortcuts to real data)
 -- StudyFolder nodes are identified by their NICE_NAME in CLASS_DEFINITIONS, not CAPTION

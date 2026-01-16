@@ -32,6 +32,17 @@ tmpclaude-*
 all-icons-hex-output.txt
 test-icon-hex-output.txt
 add-fallback-icons.ps1
+nul
+
+# Debug/investigation SQL files
+debug-*.sql
+find-*.sql
+test-*.sql
+run-*.ps1
+
+# Documentation files (investigation notes)
+*-SOLUTION.md
+*-RESOLVED.md
 
 # Data directories
 data/
