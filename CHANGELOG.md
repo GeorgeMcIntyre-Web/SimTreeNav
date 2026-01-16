@@ -1,9 +1,85 @@
 # Changelog
 
-All notable changes to the Siemens Process Simulation Tree Viewer project will be documented in this file.
+All notable changes to SimTreeNav will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.6.0] - 2026-01-16 - Deployable Product Surface
+
+### Added
+
+#### Deployment Tools
+- **DeployPack.ps1** - One-command deployment package creation
+  - Creates static site folder ready for Cloudflare Pages or GitHub Pages
+  - Supports custom `basePath` for subdirectory deployment
+  - Generates security headers and hosting configuration
+  - Static and Secure deployment modes
+
+- **VerifyDeploy.ps1** - Deployment validation for CI/CD
+  - Validates all required files exist
+  - Checks for external network URLs (offline compliance)
+  - Verifies manifest schema version
+  - Strict mode for treating warnings as errors
+
+- **DemoStory.ps1** - Synthetic data generation
+  - Generates realistic tree structures with configurable node count
+  - Creates timeline with multiple snapshots
+  - Generates diff, actions, impact, and drift data
+  - Useful for testing and demonstrations without database access
+
+#### Pro Viewer UX
+- **3-Pane Layout** - Tree, Timeline/Activity, Inspector panels
+- **Virtualized Tree Rendering** - Handle 10,000+ nodes efficiently
+- **Timeline Selector** - Navigate between snapshots with play mode
+- **Changed-Only Mode** - Toggle to show only modified nodes
+- **Cross-Highlighting** - Click actions/diffs to highlight nodes in tree
+- **Inspector Panels**:
+  - Identity (logicalId, matchConfidence, fingerprint)
+  - Properties (all node attributes)
+  - Drift Pairing (confidence, deltas)
+  - Impact Analysis (risk score, reasons)
+  - Links (references, related nodes)
+- **Keyboard Shortcuts**:
+  - `/` - Focus search
+  - `n/p` - Next/previous change
+  - Arrow keys - Navigate tree
+  - `c` - Toggle changed-only mode
+- **Copy/Export** - Copy node path/ID, export subtree JSON
+
+#### Architecture
+- **Modular JS Architecture**:
+  - `state.js` - Centralized state management
+  - `dataLoader.js` - Data loading with basePath support
+  - `treeView.js` - Virtualized tree rendering
+  - `timelineView.js` - Timeline and activity feed
+  - `inspectorView.js` - Node detail panel
+  - `app.js` - Main application controller
+- **basePath Support** - Deploy to any URL path
+
+#### Documentation
+- **docs/DEPLOYMENT.md** - Comprehensive deployment guide
+- **docs/ROADMAP.md** - Version roadmap (v0.6 - v1.0)
+- **docs/ADR-0001-Deployment-Model.md** - Architecture decision record
+- **docs/CLOUD-BLUEPRINT.md** - Optional cloud architecture design
+
+#### Testing
+- **Pester Tests**:
+  - DeployPack.Tests.ps1 - Deployment package validation
+  - VerifyDeploy.Tests.ps1 - Verification tool tests
+  - ViewerSmoke.Tests.ps1 - Viewer structure validation
+- **GitHub Actions CI** - Automated testing on push/PR
+
+### Changed
+- Viewer now uses modular JavaScript architecture
+- All assets use relative paths for deployment flexibility
+- Data files moved to `data/` subdirectory in bundles
+
+### Technical Details
+- No external CDN dependencies (works offline)
+- Deterministic outputs (same input → identical output)
+- MaxNodesInViewer enforcement with warning banner
+- Dark mode support via CSS custom properties
 
 ## [Unreleased]
 

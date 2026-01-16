@@ -1,0 +1,160 @@
+name: SimTreeNav CI
+
+on:
+  push:
+    branches: [main, 'cursor/*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Install PowerShell
+        shell: bash
+        run: |
+          # PowerShell is pre-installed on ubuntu-latest
+          pwsh --version
+      
+      - name: Install Pester
+        shell: pwsh
+        run: |
+          Install-Module -Name Pester -Force -Scope CurrentUser -MinimumVersion 5.0
+          Import-Module Pester
+          Get-Module Pester | Select-Object Name, Version
+      
+      - name: Run Viewer Smoke Tests
+        shell: pwsh
+        run: |
+          $config = New-PesterConfiguration
+          $config.Run.Path = "./tests/ViewerSmoke.Tests.ps1"
+          $config.Output.Verbosity = "Detailed"
+          $config.Run.Exit = $true
+          Invoke-Pester -Configuration $config
+      
+      - name: Run DeployPack Tests
+        shell: pwsh
+        run: |
+          $config = New-PesterConfiguration
+          $config.Run.Path = "./tests/DeployPack.Tests.ps1"
+          $config.Output.Verbosity = "Detailed"
+          $config.Run.Exit = $true
+          Invoke-Pester -Configuration $config
+      
+      - name: Run VerifyDeploy Tests
+        shell: pwsh
+        run: |
+          $config = New-PesterConfiguration
+          $config.Run.Path = "./tests/VerifyDeploy.Tests.ps1"
+          $config.Output.Verbosity = "Detailed"
+          $config.Run.Exit = $true
+          Invoke-Pester -Configuration $config
+
+  integration:
+    name: Integration Test
+    runs-on: ubuntu-latest
+    needs: test
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Run Full Workflow
+        shell: pwsh
+        run: |
+          # Step 1: Generate demo bundle
+          Write-Host "Step 1: Generating demo bundle..." -ForegroundColor Cyan
+          ./DemoStory.ps1 -NodeCount 500 -OutDir ./output/demo_ci -NoOpen
+          
+          # Step 2: Create deployment package
+          Write-Host "Step 2: Creating deployment package..." -ForegroundColor Cyan
+          ./DeployPack.ps1 -BundlePath ./output/demo_ci -OutDir ./deploy/site -SiteName simtreenav-ci
+          
+          # Step 3: Verify deployment
+          Write-Host "Step 3: Verifying deployment..." -ForegroundColor Cyan
+          ./VerifyDeploy.ps1 -SiteDir ./deploy/site
+          
+          Write-Host "All steps completed successfully!" -ForegroundColor Green
+      
+      - name: Upload Deployment Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: simtreenav-demo
+          path: ./deploy/site/
+          retention-days: 7
+
+  lint:
+    name: Lint PowerShell
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Install PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          Install-Module -Name PSScriptAnalyzer -Force -Scope CurrentUser
+      
+      - name: Run PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          $results = Invoke-ScriptAnalyzer -Path . -Recurse -Severity Error, Warning -ExcludeRule PSAvoidUsingWriteHost
+          
+          if ($results) {
+              $results | Format-Table -AutoSize
+              Write-Host "Found $($results.Count) issues" -ForegroundColor Yellow
+              
+              # Fail only on errors
+              $errors = $results | Where-Object Severity -eq 'Error'
+              if ($errors) {
+                  Write-Host "Found $($errors.Count) errors" -ForegroundColor Red
+                  exit 1
+              }
+          } else {
+              Write-Host "No issues found" -ForegroundColor Green
+          }
+
+  # Optional: Deploy to GitHub Pages on main branch
+  deploy-demo:
+    name: Deploy Demo
+    runs-on: ubuntu-latest
+    needs: integration
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Generate Demo Bundle
+        shell: pwsh
+        run: |
+          ./DemoStory.ps1 -NodeCount 1000 -OutDir ./output/demo -NoOpen
+          ./DeployPack.ps1 -BundlePath ./output/demo -OutDir ./deploy/site -SiteName simtreenav-demo -BasePath /SimTreeNav/
+      
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+      
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./deploy/site
+      
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

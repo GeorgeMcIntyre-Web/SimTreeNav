@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="SimTreeNav - Professional tree navigation and diff viewer">
+    <title>SimTreeNav</title>
+    
+    <!-- Styles -->
+    <link rel="stylesheet" href="assets/css/ui.css">
+    
+    <!-- No external dependencies - works offline -->
+    <style>
+        /* Critical inline styles for fast initial render */
+        #loading-overlay {
+            display: flex;
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <!-- Header -->
+        <header class="app-header">
+            <div class="app-logo">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M3 3v18h18"/>
+                    <path d="M7 14l4-4 4 4 5-5"/>
+                </svg>
+                <span>SimTreeNav</span>
+            </div>
+            <div id="stats-display"></div>
+        </header>
+
+        <!-- Toolbar -->
+        <div class="app-toolbar">
+            <div class="search-box toolbar-group">
+                <input type="text" id="search-input" placeholder="Search nodes... (press / to focus)">
+            </div>
+            
+            <div class="toolbar-divider"></div>
+            
+            <div class="toggle-group">
+                <input type="checkbox" id="changed-only-toggle">
+                <label for="changed-only-toggle">Changed only</label>
+            </div>
+            
+            <div class="toolbar-divider"></div>
+            
+            <div class="toolbar-group">
+                <button id="expand-all-btn" class="btn btn-icon" title="Expand all">📂</button>
+                <button id="collapse-all-btn" class="btn btn-icon" title="Collapse all">📁</button>
+            </div>
+        </div>
+
+        <!-- Main Content - 3 Pane Layout -->
+        <main class="app-main">
+            <!-- Left: Tree View -->
+            <aside id="tree-panel" class="panel">
+                <div class="panel-header">
+                    <span>Tree</span>
+                </div>
+                <div class="panel-content" id="tree-content">
+                    <!-- TreeView renders here -->
+                </div>
+            </aside>
+
+            <!-- Center: Timeline / Activity -->
+            <section id="center-panel" class="panel">
+                <div class="panel-header">
+                    <span>Activity</span>
+                </div>
+                <div class="panel-content" id="center-content">
+                    <!-- TimelineView renders here -->
+                </div>
+            </section>
+
+            <!-- Right: Inspector -->
+            <aside id="inspector-panel" class="panel">
+                <div class="panel-header">
+                    <span>Inspector</span>
+                </div>
+                <div class="panel-content" id="inspector-content">
+                    <!-- InspectorView renders here -->
+                </div>
+            </aside>
+        </main>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loading-overlay">
+        <div class="loading-spinner"></div>
+    </div>
+
+    <!-- Scripts - Order matters for dependencies -->
+    <script src="assets/js/state.js"></script>
+    <script src="assets/js/dataLoader.js"></script>
+    <script src="assets/js/treeView.js"></script>
+    <script src="assets/js/timelineView.js"></script>
+    <script src="assets/js/inspectorView.js"></script>
+    <script src="assets/js/app.js"></script>
+</body>
+</html>
