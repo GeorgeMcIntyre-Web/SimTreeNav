@@ -1,0 +1,32 @@
+{
+  "$schema": "./pc-profiles-schema.json",
+  "currentProfile": "my-workstation",
+  "profiles": [
+    {
+      "name": "my-workstation",
+      "hostname": "YOUR-PC-HOSTNAME",
+      "description": "My development workstation",
+      "isDefault": true,
+      "servers": [
+        {
+          "name": "des-sim-db1",
+          "displayName": "Production DB Server",
+          "instances": [
+            {
+              "name": "db01",
+              "tnsName": "DB01",
+              "service": "db01"
+            },
+            {
+              "name": "db02",
+              "tnsName": "DB02",
+              "service": "db02"
+            }
+          ],
+          "defaultInstance": "db01"
+        }
+      ],
+      "lastUsed": null
+    }
+  ]
+}
