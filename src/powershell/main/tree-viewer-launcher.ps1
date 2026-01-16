@@ -406,193 +406,6 @@ EXIT;
     return $projects
 }
 
-<<<<<<< HEAD
-function Show-ConfigurationMenu {
-    param([object]$CurrentServer, [string]$CurrentSchema, [string]$CurrentCustomIconDir)
-    
-    try {
-        Clear-Host
-    } catch {
-        # Ignore if non-interactive
-    }
-    Show-Menu
-    
-    Write-Host "Current Configuration:" -ForegroundColor Yellow
-    if ($CurrentServer) {
-        Write-Host "  Server:   " -NoNewline; Write-Host "$($CurrentServer.Name) ($($CurrentServer.TNSName))" -ForegroundColor Cyan
-        Write-Host "  Instance: " -NoNewline; Write-Host $CurrentServer.Instance -ForegroundColor Cyan
-    } else {
-        Write-Host "  Server:   " -NoNewline; Write-Host "Not selected" -ForegroundColor Gray
-        Write-Host "  Instance: " -NoNewline; Write-Host "Not selected" -ForegroundColor Gray
-    }
-    if ($CurrentSchema -and $CurrentSchema -ne "True" -and $CurrentSchema -ne $true) {
-        Write-Host "  Schema:   " -NoNewline; Write-Host $CurrentSchema -ForegroundColor Cyan
-    } else {
-        Write-Host "  Schema:   " -NoNewline; Write-Host "Not selected" -ForegroundColor Gray
-    }
-    if ($CurrentCustomIconDir) {
-        Write-Host "  Custom Icons: " -NoNewline; Write-Host $CurrentCustomIconDir -ForegroundColor Cyan
-    } else {
-        Write-Host "  Custom Icons: " -NoNewline; Write-Host "Not selected" -ForegroundColor Gray
-    }
-    Write-Host ""
-    Write-Host "Options:" -ForegroundColor Yellow
-    Write-Host "  1. Select Server" -ForegroundColor White
-    Write-Host "  2. Select Schema" -ForegroundColor White
-    Write-Host "  3. Set Custom Icon Directory" -ForegroundColor White
-    Write-Host "  4. Load Tree (includes checkout status)" -ForegroundColor Green
-    Write-Host "  5. Exit" -ForegroundColor Red
-    Write-Host ""
-
-    $choice = Read-Host "Select option (1-5)"
-    return $choice
-}
-
-function Select-Server {
-    $servers = Get-DatabaseServers
-    
-    if ($servers.Count -eq 0) {
-        Write-Host "`nNo database servers found!" -ForegroundColor Red
-        Write-Host "Please ensure tnsnames.ora is configured." -ForegroundColor Yellow
-        Read-Host "Press Enter to continue"
-        return $null
-    }
-    
-    Write-Host "`nAvailable Database Servers:" -ForegroundColor Yellow
-    for ($i = 0; $i -lt $servers.Count; $i++) {
-        $source = if ($servers[$i].Source) { " [$($servers[$i].Source)]" } else { "" }
-        Write-Host "  $($i + 1). $($servers[$i].Name) - $($servers[$i].Description)$source" -ForegroundColor White
-        Write-Host "     Instance: $($servers[$i].Instance) | TNS: $($servers[$i].TNSName)" -ForegroundColor Gray
-    }
-    
-    $choice = Read-Host "`nSelect server number"
-    $index = [int]$choice - 1
-    
-    if ($index -ge 0 -and $index -lt $servers.Count) {
-        $selectedServer = $servers[$index]
-        
-        # Resolve TNS name first (use SIEMENS_PS_DB if auto-generated)
-        $tnsToUse = $selectedServer.TNSName
-        if ($tnsToUse -match '_[a-z]' -or -not $tnsToUse) {
-            if (Test-Path "tnsnames.ora") {
-                $tnsContent = Get-Content "tnsnames.ora" -Raw
-                $tnsPattern = '(?s)^(\w+)\s*=\s*\([^)]*?HOST\s*=\s*' + [regex]::Escape($selectedServer.Name)
-                if ($tnsContent -match $tnsPattern) {
-                    $tnsToUse = $matches[1]
-                } else {
-                    $tnsToUse = "SIEMENS_PS_DB"
-                }
-            } else {
-                $tnsToUse = "SIEMENS_PS_DB"
-            }
-        }
-        
-        # Now query and select instance
-        Write-Host "`nQuerying available instances for $($selectedServer.Name)..." -ForegroundColor Yellow
-        $instances = Get-DatabaseInstances -Server $selectedServer.Name -TNSName $tnsToUse
-        
-        if ($instances.Count -gt 1) {
-            Write-Host "`nAvailable Instances:" -ForegroundColor Yellow
-            for ($i = 0; $i -lt $instances.Count; $i++) {
-                Write-Host "  $($i + 1). $($instances[$i].Instance) - $($instances[$i].Description)" -ForegroundColor White
-            }
-            
-            $instChoice = Read-Host "`nSelect instance number (or press Enter for default: $($selectedServer.Instance))"
-            
-            if ($instChoice -and $instChoice -match '^\d+$') {
-                $instIndex = [int]$instChoice - 1
-                if ($instIndex -ge 0 -and $instIndex -lt $instances.Count) {
-                    $selectedServer.Instance = $instances[$instIndex].Instance
-                    $selectedServer.TNSName = $instances[$instIndex].TNSName
-                }
-            }
-        }
-        
-        return $selectedServer
-    }
-    
-    return $null
-}
-
-function Select-Schema {
-    param([object]$Server)
-    
-    if (-not $Server) {
-        Write-Host "Please select a server first!" -ForegroundColor Red
-        Read-Host "Press Enter to continue"
-        return $null
-    }
-    
-    Write-Host "`nQuerying available schemas from $($Server.Name)..." -ForegroundColor Yellow
-    
-    # Resolve actual TNS name based on instance
-    $tnsToUse = $Server.TNSName
-    if (Test-Path "tnsnames.ora") {
-        $tnsContent = Get-Content "tnsnames.ora" -Raw
-        # First, try to find TNS name for the specific instance
-        if ($Server.Instance -eq "db01") {
-            # Look for db01-specific TNS entry
-            if ($tnsContent -match '(\w+)\s*=\s*.*?SERVICE_NAME\s*=\s*db01') {
-                $tnsToUse = $matches[1]
-            } elseif ($tnsContent -match 'SIEMENS_PS_DB_DB01') {
-                $tnsToUse = "SIEMENS_PS_DB_DB01"
-            }
-        } elseif ($Server.Instance -eq "db02") {
-            # Look for db02-specific TNS entry
-            if ($tnsContent -match '(\w+)\s*=\s*.*?SERVICE_NAME\s*=\s*db02') {
-                $tnsToUse = $matches[1]
-            } elseif ($tnsContent -match 'SIEMENS_PS_DB\s*=') {
-                $tnsToUse = "SIEMENS_PS_DB"
-            }
-        }
-        # Fallback: try to find any TNS entry for this server/instance
-        if (($tnsToUse -eq $Server.TNSName -or -not $tnsToUse -or $tnsToUse -match '_[a-z]')) {
-            $tnsPattern = '(?s)^(\w+)\s*=\s*\([^)]*?HOST\s*=\s*' + [regex]::Escape($Server.Name) + '[^)]*?(?:SERVICE_NAME\s*=\s*' + [regex]::Escape($Server.Instance) + '|SID\s*=\s*' + [regex]::Escape($Server.Instance) + ')'
-            if ($tnsContent -match $tnsPattern) {
-                $tnsToUse = $matches[1]
-            } else {
-                if ($Server.Instance -eq "db01") {
-                    $tnsToUse = "SIEMENS_PS_DB_DB01"
-                } else {
-                    $tnsToUse = "SIEMENS_PS_DB"
-                }
-            }
-        }
-    } else {
-        # Fallback based on instance
-        if ($Server.Instance -eq "db01") {
-            $tnsToUse = "SIEMENS_PS_DB_DB01"
-        } else {
-            $tnsToUse = "SIEMENS_PS_DB"
-        }
-    }
-    Write-Host "  Using TNS: $tnsToUse (Instance: $($Server.Instance))" -ForegroundColor Gray
-    
-    $schemas = Get-AvailableSchemas -TNSName $tnsToUse
-    
-    if ($schemas.Count -eq 0) {
-        Write-Host "No schemas found!" -ForegroundColor Red
-        Read-Host "Press Enter to continue"
-        return $null
-    }
-    
-    Write-Host "`nAvailable Schemas:" -ForegroundColor Yellow
-    for ($i = 0; $i -lt $schemas.Count; $i++) {
-        Write-Host "  $($i + 1). $($schemas[$i])" -ForegroundColor White
-    }
-    
-    $choice = Read-Host "`nSelect schema number"
-    $index = [int]$choice - 1
-    
-    if ($index -ge 0 -and $index -lt $schemas.Count) {
-        return $schemas[$index]
-    }
-    
-    return $null
-}
-
-=======
->>>>>>> e4ca279f2eae6f07d5177454c3edc2c039eb066e
 function Select-Project {
     <#
     .SYNOPSIS
@@ -621,74 +434,12 @@ function Select-Project {
 
     $defaultIndex = 1
     for ($i = 0; $i -lt $projects.Count; $i++) {
-<<<<<<< HEAD
-        Write-Host "  $($i + 1). $($projects[$i].Caption) (ID: $($projects[$i].ObjectId))" -ForegroundColor White
-    }
-    
-    $choice = Read-Host "`nSelect project number"
-    $index = [int]$choice - 1
-    
-    if ($index -ge 0 -and $index -lt $projects.Count) {
-        return $projects[$index]
-    }
-    
-    return $null
-}
-
-function Save-Configuration {
-    param(
-        [object]$Server,
-        [string]$Schema,
-        [object]$Project,
-        [string]$CustomIconDir
-    )
-    
-    if (-not $Server -or -not $Schema) { return }
-    
-    $config = @{
-        Server = if ($Server) { @{ Name = $Server.Name; Instance = $Server.Instance; TNSName = $Server.TNSName } } else { $null }
-        Schema = $Schema
-        Project = if ($Project) { @{ ObjectId = $Project.ObjectId; Caption = $Project.Caption; Name = $Project.Name } } else { $null }
-        CustomIconDir = if ($CustomIconDir) { $CustomIconDir } else { $null }
-        LastUpdated = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    }
-    
-    $config | ConvertTo-Json -Depth 3 | Out-File $configFile -Encoding UTF8
-}
-
-function Load-Configuration {
-    if (Test-Path $configFile) {
-        try {
-            $content = Get-Content $configFile -Raw -Encoding UTF8
-            $config = $content | ConvertFrom-Json
-            
-            if ($config.Server) {
-                $server = [PSCustomObject]@{
-                    Name = $config.Server.Name
-                    Instance = $config.Server.Instance
-                    TNSName = $config.Server.TNSName
-                }
-            } else {
-                $server = $null
-            }
-            
-            return @{
-                Server = $server
-                Schema = $config.Schema
-                Project = if ($config.Project) { [PSCustomObject]$config.Project } else { $null }
-                CustomIconDir = $config.CustomIconDir
-            }
-        } catch {
-            Write-Warning "Could not load configuration: $_"
-            return $null
-=======
         $project = $projects[$i]
         $defaultMark = if ($project.ObjectId -eq $DefaultProjectId) {
             $defaultIndex = $i + 1
             " (last used)"
         } else {
             ""
->>>>>>> e4ca279f2eae6f07d5177454c3edc2c039eb066e
         }
 
         Write-Host "  $($i + 1). $($project.Caption)$defaultMark" -ForegroundColor White
@@ -723,23 +474,6 @@ function Generate-TreeHTML {
 
         [Parameter(Mandatory=$true)]
         [string]$Schema,
-<<<<<<< HEAD
-        [object]$Project,
-        [string]$CustomIconDir
-    )
-    
-    Write-Host "`nGenerating navigation tree..." -ForegroundColor Yellow
-    Write-Host "  Server: $($Server.Name)" -ForegroundColor Cyan
-    Write-Host "  Instance: $($Server.Instance)" -ForegroundColor Cyan
-    Write-Host "  Schema: $Schema" -ForegroundColor Cyan
-    Write-Host "  Project: $($Project.Caption) (ID: $($Project.ObjectId))" -ForegroundColor Cyan
-    Write-Host "  Note: Ghost nodes (e.g., PartInstanceLibrary) use fallback names/icons." -ForegroundColor Gray
-    if ($CustomIconDir) {
-        Write-Host "  Custom Icons: $CustomIconDir" -ForegroundColor Gray
-    }
-    
-    # Generate the tree data
-=======
 
         [Parameter(Mandatory=$true)]
         $Project
@@ -755,63 +489,11 @@ function Generate-TreeHTML {
     Write-Host "  Project: $($Project.Caption) (ID: $($Project.ObjectId))" -ForegroundColor White
     Write-Host ""
 
->>>>>>> e4ca279f2eae6f07d5177454c3edc2c039eb066e
     $outputFile = "navigation-tree-${Schema}-$($Project.ObjectId).html"
 
-<<<<<<< HEAD
-    # Call the tree generation script (use full path from script's directory)
-    $scriptPath = Join-Path $PSScriptRoot "generate-tree-html.ps1"
-    & $scriptPath -TNSName $tnsToUse -Schema $Schema -ProjectId $Project.ObjectId -ProjectName $Project.Caption -OutputFile $outputFile -CustomIconDir $CustomIconDir
-    
-    if (Test-Path $outputFile) {
-        Write-Host "`nTree generated successfully!" -ForegroundColor Green
-        Write-Host "File: $outputFile" -ForegroundColor Cyan
-        Write-Host "`nOpening in browser..." -ForegroundColor Yellow
-        Start-Process $outputFile
-    } else {
-        Write-Host "`nError: Tree generation failed!" -ForegroundColor Red
-    }
-}
-
-# Main execution
-$selectedServer = $null
-$selectedSchema = if ($Schema -and $Schema -ne "True" -and $Schema -ne $true) { $Schema } else { $null }
-$selectedProject = $null
-$selectedCustomIconDir = if ($CustomIconDir) { $CustomIconDir } else { $null }
-
-# Try to load last configuration if requested or if no parameters provided
-if ($LoadLast -or (-not $Server -and -not $Instance -and -not $Schema)) {
-    $lastConfig = Load-Configuration
-    if ($lastConfig -and $lastConfig.Server -and $lastConfig.Schema) {
-        if (-not $selectedCustomIconDir -and $lastConfig.CustomIconDir) {
-            $selectedCustomIconDir = $lastConfig.CustomIconDir
-        }
-        Write-Host "`n=== Found Previous Configuration ===" -ForegroundColor Green
-        Write-Host "  Server: $($lastConfig.Server.Name)" -ForegroundColor Cyan
-        Write-Host "  Instance: $($lastConfig.Server.Instance)" -ForegroundColor Cyan
-        Write-Host "  Schema: $($lastConfig.Schema)" -ForegroundColor Cyan
-        if ($lastConfig.Project) {
-            Write-Host "  Project: $($lastConfig.Project.Caption) (ID: $($lastConfig.Project.ObjectId))" -ForegroundColor Cyan
-        }
-        Write-Host ""
-        $useLast = Read-Host "Use this configuration? (Y/N, default: Y)"
-        
-        if ($useLast -ne "N" -and $useLast -ne "n") {
-            $selectedServer = $lastConfig.Server
-            $selectedSchema = $lastConfig.Schema
-            $selectedProject = $lastConfig.Project
-            
-            if ($selectedProject) {
-                Write-Host "`nLoading tree with saved configuration..." -ForegroundColor Yellow
-                Generate-TreeHTML -Server $selectedServer -Schema $selectedSchema -Project $selectedProject -CustomIconDir $selectedCustomIconDir
-                Save-Configuration -Server $selectedServer -Schema $selectedSchema -Project $selectedProject -CustomIconDir $selectedCustomIconDir
-                exit
-            }
-        }
-=======
     $generateScript = Join-Path $PSScriptRoot "generate-tree-html.ps1"
     if (-not (Test-Path $generateScript)) {
-        Write-Host "✗ generate-tree-html.ps1 not found!" -ForegroundColor Red
+        Write-Host "X generate-tree-html.ps1 not found!" -ForegroundColor Red
         return $false
     }
 
@@ -819,7 +501,7 @@ if ($LoadLast -or (-not $Server -and -not $Instance -and -not $Schema)) {
 
     if (Test-Path $outputFile) {
         Write-Host ""
-        Write-Host "✓ Tree generated successfully!" -ForegroundColor Green
+        Write-Host "V Tree generated successfully!" -ForegroundColor Green
         Write-Host "  File: $outputFile" -ForegroundColor Cyan
         Write-Host ""
         Write-Host "Opening in browser..." -ForegroundColor Yellow
@@ -827,9 +509,8 @@ if ($LoadLast -or (-not $Server -and -not $Instance -and -not $Schema)) {
         return $true
     } else {
         Write-Host ""
-        Write-Host "✗ Tree generation failed!" -ForegroundColor Red
+        Write-Host "X Tree generation failed!" -ForegroundColor Red
         return $false
->>>>>>> e4ca279f2eae6f07d5177454c3edc2c039eb066e
     }
 }
 
@@ -837,67 +518,6 @@ if ($LoadLast -or (-not $Server -and -not $Instance -and -not $Schema)) {
 # Main Workflow
 # ============================================================================
 
-<<<<<<< HEAD
-if (-not $selectedServer -or -not $selectedSchema) {
-    # Interactive mode
-    do {
-        $choice = Show-ConfigurationMenu -CurrentServer $selectedServer -CurrentSchema $selectedSchema -CurrentCustomIconDir $selectedCustomIconDir
-        
-        switch ($choice) {
-            "1" {
-                $selectedServer = Select-Server
-                if ($selectedServer) {
-                    Save-Configuration -Server $selectedServer -Schema $selectedSchema -Project $selectedProject -CustomIconDir $selectedCustomIconDir
-                }
-            }
-            "2" {
-                $selectedSchema = Select-Schema -Server $selectedServer
-                if ($selectedSchema) {
-                    Save-Configuration -Server $selectedServer -Schema $selectedSchema -Project $selectedProject -CustomIconDir $selectedCustomIconDir
-                }
-            }
-            "3" {
-                $newDir = Read-Host "Enter custom icon directory (blank to clear, separate multiple with ';')"
-                if ([string]::IsNullOrWhiteSpace($newDir)) {
-                    $selectedCustomIconDir = $null
-                } else {
-                    $selectedCustomIconDir = $newDir.Trim()
-                }
-                Save-Configuration -Server $selectedServer -Schema $selectedSchema -Project $selectedProject -CustomIconDir $selectedCustomIconDir
-            }
-            "4" {
-                # Load Tree (Standard View)
-                if ($selectedServer -and $selectedSchema) {
-                    $project = Select-Project -Server $selectedServer -Schema $selectedSchema
-                    if ($project) {
-                        $selectedProject = $project
-                        Save-Configuration -Server $selectedServer -Schema $selectedSchema -Project $project -CustomIconDir $selectedCustomIconDir
-                        Generate-TreeHTML -Server $selectedServer -Schema $selectedSchema -Project $project -CustomIconDir $selectedCustomIconDir
-                        Read-Host "`nPress Enter to continue"
-                    }
-                } else {
-                    Write-Host "`nPlease complete all selections first!" -ForegroundColor Red
-                    Read-Host "Press Enter to continue"
-                }
-            }
-            "5" {
-                Write-Host "`nExiting..." -ForegroundColor Yellow
-                exit
-            }
-            default {
-                Write-Host "`nInvalid option!" -ForegroundColor Red
-                Start-Sleep -Seconds 1
-            }
-        }
-    } while ($true)
-} else {
-    # Non-interactive mode - use provided parameters
-    $project = Select-Project -Server $selectedServer -Schema $selectedSchema
-    if ($project) {
-        Save-Configuration -Server $selectedServer -Schema $selectedSchema -Project $project -CustomIconDir $selectedCustomIconDir
-        Generate-TreeHTML -Server $selectedServer -Schema $selectedSchema -Project $project -CustomIconDir $selectedCustomIconDir
-    }
-=======
 Show-Header
 
 # Step 1: Select PC Profile
@@ -971,7 +591,7 @@ $success = Generate-TreeHTML -TNSName $instance.tnsName -Schema $schema -Project
 if ($success) {
     Write-Host ""
     Write-Host "========================================" -ForegroundColor Cyan
-    Write-Host "  ✓ Complete!" -ForegroundColor Green
+    Write-Host "  V Complete!" -ForegroundColor Green
     Write-Host "========================================" -ForegroundColor Cyan
     Write-Host ""
 } else {
@@ -979,5 +599,4 @@ if ($success) {
     Write-Host "Please check the errors above and try again." -ForegroundColor Yellow
     Write-Host ""
     exit 1
->>>>>>> e4ca279f2eae6f07d5177454c3edc2c039eb066e
 }
