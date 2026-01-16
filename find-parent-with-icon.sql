@@ -1,0 +1,77 @@
+SET PAGESIZE 100
+SET LINESIZE 300
+SET FEEDBACK OFF
+SET HEADING ON
+
+PROMPT === TYPE_ID 164 Class Hierarchy - Finding Icon ===
+PROMPT
+
+-- Show the class hierarchy chain
+WITH class_hierarchy AS (
+    -- Start with TYPE_ID 164
+    SELECT
+        TYPE_ID,
+        NAME,
+        NICE_NAME,
+        DERIVED_FROM,
+        1 AS LEVEL
+    FROM DESIGN12.CLASS_DEFINITIONS
+    WHERE TYPE_ID = 164
+
+    UNION ALL
+
+    -- Recursively get parent classes
+    SELECT
+        cd.TYPE_ID,
+        cd.NAME,
+        cd.NICE_NAME,
+        cd.DERIVED_FROM,
+        ch.LEVEL + 1
+    FROM DESIGN12.CLASS_DEFINITIONS cd
+    INNER JOIN class_hierarchy ch ON cd.TYPE_ID = ch.DERIVED_FROM
+    WHERE ch.LEVEL < 10  -- Prevent infinite loops
+)
+SELECT
+    ch.LEVEL,
+    ch.TYPE_ID,
+    ch.NAME,
+    ch.NICE_NAME,
+    ch.DERIVED_FROM AS PARENT_TYPE_ID,
+    CASE
+        WHEN di.TYPE_ID IS NOT NULL THEN 'HAS ICON'
+        ELSE 'NO ICON'
+    END AS ICON_STATUS,
+    DBMS_LOB.GETLENGTH(di.CLASS_IMAGE) AS ICON_SIZE_BYTES
+FROM class_hierarchy ch
+LEFT JOIN DESIGN12.DF_ICONS_DATA di ON ch.TYPE_ID = di.TYPE_ID
+ORDER BY ch.LEVEL;
+
+PROMPT
+PROMPT === Find first parent TYPE_ID with icon ===
+
+SELECT
+    cd.TYPE_ID AS CHILD_TYPE_ID,
+    cd.NICE_NAME AS CHILD_NAME,
+    COALESCE(
+        (SELECT di.TYPE_ID
+         FROM DESIGN12.DF_ICONS_DATA di
+         WHERE di.TYPE_ID = cd.TYPE_ID),
+        (SELECT di.TYPE_ID
+         FROM DESIGN12.DF_ICONS_DATA di
+         WHERE di.TYPE_ID = cd.DERIVED_FROM),
+        cd.TYPE_ID
+    ) AS ICON_TYPE_ID,
+    cd.DERIVED_FROM AS PARENT_TYPE_ID,
+    cd2.NICE_NAME AS PARENT_NAME,
+    CASE
+        WHEN di1.TYPE_ID IS NOT NULL THEN 'Child has icon'
+        WHEN di2.TYPE_ID IS NOT NULL THEN 'Parent has icon'
+        ELSE 'No icon found'
+    END AS ICON_SOURCE
+FROM DESIGN12.CLASS_DEFINITIONS cd
+LEFT JOIN DESIGN12.CLASS_DEFINITIONS cd2 ON cd.DERIVED_FROM = cd2.TYPE_ID
+LEFT JOIN DESIGN12.DF_ICONS_DATA di1 ON cd.TYPE_ID = di1.TYPE_ID
+LEFT JOIN DESIGN12.DF_ICONS_DATA di2 ON cd.DERIVED_FROM = di2.TYPE_ID
+WHERE cd.TYPE_ID = 164;
+
+EXIT;

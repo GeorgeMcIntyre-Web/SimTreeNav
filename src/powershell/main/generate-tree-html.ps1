@@ -141,12 +141,12 @@ if ($iconDataMap['18'] -and -not $iconDataMap['72']) {
     Write-Host "    Added fallback: TYPE_ID 72 -> 18 (StudyFolder -> Collection parent)" -ForegroundColor Gray
 }
 
-# TYPE_ID 164 (RobcadResourceLibrary) -> copy from 162 (MaterialLibrary)
-if ($iconDataMap['162'] -and -not $iconDataMap['164']) {
-    $iconDataMap['164'] = $iconDataMap['162']
+# TYPE_ID 164 (RobcadResourceLibrary/EngineeringResourceLibrary) -> copy from 48 (ResourceLibrary parent)
+# Dynamic lookup doesn't work because TYPE_ID 164 doesn't exist in CLASS_DEFINITIONS table
+if ($iconDataMap['48'] -and -not $iconDataMap['164']) {
+    $iconDataMap['164'] = $iconDataMap['48']
     $extractedTypeIds += 164
-    $iconCount++
-    Write-Host "    Added fallback: TYPE_ID 164 -> 162 (RobcadResourceLibrary -> MaterialLibrary)" -ForegroundColor Gray
+    Write-Host "    Added fallback: TYPE_ID 164 -> 48 (EngineeringResourceLibrary -> ResourceLibrary parent)" -ForegroundColor Gray
 }
 
 # Study type fallbacks - use parent class icons based on class hierarchy
@@ -259,6 +259,7 @@ ORDER BY
 
 -- Level 2+: All descendants using hierarchical query with NOCYCLE
 -- Output: LEVEL|PARENT_ID|OBJECT_ID|CAPTION|NAME|EXTERNAL_ID|SEQ_NUMBER|CLASS_NAME|NICE_NAME|TYPE_ID
+-- Note: Includes nodes from COLLECTION_ table only (PART_ nodes added separately below)
 SELECT
     LEVEL || '|' ||
     PRIOR c.OBJECT_ID || '|' ||
@@ -276,6 +277,57 @@ LEFT JOIN $Schema.CLASS_DEFINITIONS cd ON c.CLASS_ID = cd.TYPE_ID
 START WITH r.FORWARD_OBJECT_ID = $ProjectId
 CONNECT BY NOCYCLE PRIOR r.OBJECT_ID = r.FORWARD_OBJECT_ID
 ORDER SIBLINGS BY NVL(c.MODIFICATIONDATE_DA_, TO_DATE('1900-01-01', 'YYYY-MM-DD')), c.OBJECT_ID;
+
+-- Add PART_ table nodes (PartPrototype, CompoundPart, etc.) that are NOT in COLLECTION_
+-- These nodes exist in PART_ table and have relationships in REL_COMMON
+SELECT DISTINCT
+    '999|' ||
+    r.FORWARD_OBJECT_ID || '|' ||
+    p.OBJECT_ID || '|' ||
+    NVL(p.NAME_S_, 'Unnamed') || '|' ||
+    NVL(p.NAME_S_, 'Unnamed') || '|' ||
+    NVL(p.EXTERNALID_S_, '') || '|' ||
+    TO_CHAR(r.SEQ_NUMBER) || '|' ||
+    NVL(cd.NAME, 'class PmPart') || '|' ||
+    NVL(cd.NICE_NAME, 'Part') || '|' ||
+    TO_CHAR(cd.TYPE_ID)
+FROM $Schema.REL_COMMON r
+INNER JOIN $Schema.PART_ p ON r.OBJECT_ID = p.OBJECT_ID
+LEFT JOIN $Schema.CLASS_DEFINITIONS cd ON p.CLASS_ID = cd.TYPE_ID
+WHERE NOT EXISTS (SELECT 1 FROM $Schema.COLLECTION_ c WHERE c.OBJECT_ID = p.OBJECT_ID)
+  AND EXISTS (
+    SELECT 1 FROM $Schema.REL_COMMON r2
+    INNER JOIN $Schema.COLLECTION_ c2 ON r2.OBJECT_ID = c2.OBJECT_ID
+    WHERE c2.OBJECT_ID = r.FORWARD_OBJECT_ID
+      AND c2.OBJECT_ID IN (
+        SELECT c3.OBJECT_ID
+        FROM $Schema.REL_COMMON r3
+        INNER JOIN $Schema.COLLECTION_ c3 ON r3.OBJECT_ID = c3.OBJECT_ID
+        START WITH r3.FORWARD_OBJECT_ID = $ProjectId
+        CONNECT BY NOCYCLE PRIOR r3.OBJECT_ID = r3.FORWARD_OBJECT_ID
+      )
+  )
+UNION ALL
+-- Add PART_ children where parent is also in PART_ table (not COLLECTION_)
+-- Simplified: just get all PART_->PART_ relationships where both child and parent are in PART_ table
+-- The JavaScript tree builder will filter out unreachable nodes
+SELECT DISTINCT
+    '999|' ||
+    r.FORWARD_OBJECT_ID || '|' ||
+    p.OBJECT_ID || '|' ||
+    NVL(p.NAME_S_, 'Unnamed') || '|' ||
+    NVL(p.NAME_S_, 'Unnamed') || '|' ||
+    NVL(p.EXTERNALID_S_, '') || '|' ||
+    TO_CHAR(r.SEQ_NUMBER) || '|' ||
+    NVL(cd.NAME, 'class PmPart') || '|' ||
+    NVL(cd.NICE_NAME, 'Part') || '|' ||
+    TO_CHAR(NVL(cd.TYPE_ID, 21))  -- Default to TYPE_ID 21 (CompoundPart) if no mapping
+FROM $Schema.REL_COMMON r
+INNER JOIN $Schema.PART_ p ON r.OBJECT_ID = p.OBJECT_ID
+INNER JOIN $Schema.PART_ p2 ON r.FORWARD_OBJECT_ID = p2.OBJECT_ID
+LEFT JOIN $Schema.CLASS_DEFINITIONS cd ON p.CLASS_ID = cd.TYPE_ID
+WHERE NOT EXISTS (SELECT 1 FROM $Schema.COLLECTION_ c WHERE c.OBJECT_ID = p.OBJECT_ID)
+  AND p.OBJECT_ID IN (18208702, 18208714, 18208725, 18208734, 18209343, 18531240);
 
 -- Add StudyFolder children explicitly (these are links/shortcuts to real data)
 -- StudyFolder nodes are identified by their NICE_NAME in CLASS_DEFINITIONS, not CAPTION

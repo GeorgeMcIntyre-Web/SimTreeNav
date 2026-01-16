@@ -282,7 +282,7 @@ $htmlTemplate = @'
                         'StudyFolder': 'filter_library.bmp',
                         'VariantFilterLibrary': 'filter_library.bmp',
                         'VariantSetLibrary': 'set_library.bmp',
-                        'RobcadResourceLibrary': 'filter_library.bmp',
+                        'RobcadResourceLibrary': 'set_library.bmp',
                         'Alternative': 'Alternative.bmp'
                     };
                     if (niceNameMap[niceName]) {
@@ -297,7 +297,7 @@ $htmlTemplate = @'
                 // IMPORTANT: Check non-Pm classes FIRST (like RobcadResourceLibrary)
                 // before checking Pm* classes to ensure correct mapping
                 if (cleanClass === 'RobcadResourceLibrary') {
-                    return 'filter_library.bmp';  // Resource library icon
+                    return 'set_library.bmp';  // Engineering Resource library icon (different from ResourceLibrary)
                 }
                 if (cleanClass === 'Alternative') {
                     return 'Alternative.bmp';
@@ -491,8 +491,10 @@ $htmlTemplate = @'
                 if (!nodes[objectId]) {
                     // PREFER icon from database (extracted as icon_TYPEID.bmp) if available, otherwise use NICE_NAME mapping
                     let iconFile = '';
-                    // Special handling for nodes with poor/missing DB icons
-                    if (typeId === 164 || typeId === 72 || typeId === 177) {
+                    // Note: TYPE_ID 164 special handling removed - now handled by SQL dynamic parent class lookup
+                    // SQL query now automatically uses DERIVED_FROM (parent class) when child has no icon
+                    // Special handling kept only for TYPE_IDs 72, 177 (StudyFolder, RobcadStudy)
+                    if (typeId === 72 || typeId === 177) {
                         // These TYPE_IDs have length 0 in DF_ICONS_DATA (missing or generic icons)
                         // Prefer class-specific icon instead of generic DB icon
                         iconFile = getIconForClass(className, caption, niceName);

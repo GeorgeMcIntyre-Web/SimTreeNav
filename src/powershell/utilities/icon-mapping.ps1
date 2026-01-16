@@ -87,6 +87,7 @@ function Get-IconForClass {
             'LocationalStudy' = 'Task.bmp'
             'MfgLibrary' = 'filter_library.bmp'
             'ResourceLibrary' = 'filter_library.bmp'
+            'RobcadResourceLibrary' = 'set_library.bmp'
             'PartLibrary' = 'filter_library.bmp'
             'OperationLibrary' = 'filter_library.bmp'
         }

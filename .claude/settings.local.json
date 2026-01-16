@@ -16,7 +16,9 @@
       "Bash(then echo \"=== File exists ===\")",
       "Bash(else echo \"File not created yet\")",
       "Bash(fi)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(powershell -NoProfile -ExecutionPolicy Bypass -File .srcpowershellmaintree-viewer-launcher.ps1 -LoadLast)",
+      "Bash(Select-String -Pattern \"TNS|Profile|Connection\")"
     ]
   }
 }
