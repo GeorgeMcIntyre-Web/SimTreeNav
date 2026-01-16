@@ -1,6 +1,6 @@
 # SimTreeNav Demo Talk Track
 
-## DeterminismTest
+## Manufacturing Evolution Story
 
 Generated: 2025-01-01 09:00
 
@@ -16,14 +16,14 @@ This demo shows how SimTreeNav tracks changes across a manufacturing plant's dig
 
 | Step | Event | Changes | Node Count |
 |------|-------|---------|------------|
-| Baseline | baseline | 0 | 40 |
-| Bulk Paste | bulk_paste | 0 | 40 |
-| Rename Pass | standardization | 4 | 40 |
-| Retouch | transform_adjust | 6 | 40 |
-| Restructure | reorganization | 2 | 40 |
-| Prototype Swap | prototype_change | 1 | 40 |
-| Anomaly | mass_delete | 3 | 37 |
-| Recovery | recovery | 1 | 38 |
+| Baseline | baseline | 0 | 100 |
+| Bulk Paste | bulk_paste | 0 | 100 |
+| Rename Pass | standardization | 10 | 100 |
+| Retouch | transform_adjust | 15 | 100 |
+| Restructure | reorganization | 5 | 100 |
+| Prototype Swap | prototype_change | 2 | 100 |
+| Anomaly | mass_delete | 10 | 90 |
+| Recovery | recovery | 3 | 93 |
 
 ---
 
@@ -32,7 +32,7 @@ This demo shows how SimTreeNav tracks changes across a manufacturing plant's dig
 ### Scene 1: Baseline (Clean State)
 **[CLICK: Timeline -> Baseline]**
 
-> "Here's our starting point - a clean snapshot of Plant Alpha with 40 nodes. 
+> "Here's our starting point - a clean snapshot of Plant Alpha with 100 nodes. 
 > Notice the hierarchical structure: Stations contain Resource Groups, which contain Robots with their Tools."
 
 **Key points:**
@@ -134,8 +134,8 @@ This demo shows how SimTreeNav tracks changes across a manufacturing plant's dig
 | Metric | Value |
 |--------|-------|
 | Total Snapshots | 8 |
-| Final Node Count | 38 |
-| Total Changes Tracked | 6 |
+| Final Node Count | 93 |
+| Total Changes Tracked | 16 |
 | Anomalies Detected | 0 |
 | Compliance Score | 100% |
 

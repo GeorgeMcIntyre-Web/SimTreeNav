@@ -3,7 +3,8 @@
 [![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-blue)](https://github.com/PowerShell/PowerShell)
 [![Oracle](https://img.shields.io/badge/Oracle-12c-red)](https://www.oracle.com/database/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.5.0-brightgreen)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.5.1-brightgreen)](CHANGELOG.md)
+[![Tests](https://img.shields.io/badge/tests-296%20passing-brightgreen)](tests/)
 
 A PowerShell-based tree navigation and **intelligent change analysis** system for Siemens Process Simulation databases. Extracts, visualizes, snapshots, and tracks changes in hierarchical project structures with **identity-aware matching**, **intent detection**, **impact analysis**, and **offline viewer bundles**.
 
@@ -54,6 +55,29 @@ A PowerShell-based tree navigation and **intelligent change analysis** system fo
 - 📏 **DriftEngine v1** - Quality/divergence with tolerance classification (Info/Warn/Critical)
 - 📈 **Drift Trend** - drift_trend.json tracking across timeline steps
 - 🎯 **Deterministic Outputs** - Stable JSON ordering for impact.json and drift.json
+- 🧪 **DeterminismGate Tests** - Byte-for-byte identical output verification
+- 🌱 **Seeded Demo Generation** - `-Seed` parameter for reproducible demos
+
+## One-Liner Quickstart
+
+```powershell
+# Generate full demo with all features (no database required)
+.\DemoStory.ps1 -NodeCount 200 -OutDir ./bundles/demo -NoOpen
+
+# Generate anonymized demo for external sharing
+.\DemoStory.ps1 -NodeCount 200 -OutDir ./bundles/external -Anonymize -CreateZip
+
+# Run all tests (296 passing)
+Invoke-Pester -Path ./tests -Output Normal
+
+# Open the generated viewer
+Start-Process ./bundles/demo/index.html
+```
+
+**Documentation:**
+- [docs/FEATURES.md](docs/FEATURES.md) - Complete feature documentation
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) - Pipeline, folder structure, extension points
+- [docs/SECURITY-NONINTRUSIVE.md](docs/SECURITY-NONINTRUSIVE.md) - Read-only guarantees, probe metrics
 
 ## Quick Start
 
@@ -529,26 +553,37 @@ SimTreeNav/
 
 ## Testing
 
-Run the Pester tests for the diff engine:
+Run the Pester tests:
 
 ```powershell
 # Install Pester if not available
 Install-Module -Name Pester -Force -SkipPublisherCheck
 
-# Run all tests
-Invoke-Pester -Path .\tests\
+# Run all tests (296 tests)
+Invoke-Pester -Path ./tests -Output Normal
 
 # Run specific test file with verbose output
-Invoke-Pester -Path .\tests\DiffEngine.Tests.ps1 -Output Detailed
+Invoke-Pester -Path ./tests/DiffEngine.Tests.ps1 -Output Detailed
+
+# Run determinism verification
+Invoke-Pester -Path ./tests/DeterminismGate.Tests.ps1 -Output Detailed
 ```
 
-**Test Coverage:**
-- Node contract creation and validation
-- Content/attribute/transform hash stability
-- Pipe-delimited parsing
-- Node type classification
-- Path computation
-- Diff detection (add, remove, rename, move)
+**Test Suites (296 total):**
+
+| Suite | Tests | Purpose |
+|-------|-------|---------|
+| DeterminismGate.Tests.ps1 | 19 | Byte-for-byte output verification |
+| DiffEngine.Tests.ps1 | 35 | Node contract, diff detection |
+| IdentityResolver.Tests.ps1 | 28 | Identity matching, confidence |
+| ImpactEngine.Tests.ps1 | 18 | Blast radius, risk scores |
+| ImpactGraph.Tests.ps1 | 25 | v0.5 enhanced impact |
+| DriftEngine.Tests.ps1 | 15 | Position/rotation drift |
+| DriftEngineV2.Tests.ps1 | 31 | v0.5 tolerance classification |
+| ComplianceEngine.Tests.ps1 | 12 | Golden template validation |
+| Anonymizer.Tests.ps1 | 44 | Pseudonym generation |
+| ExportBundle.Tests.ps1 | 35 | Offline bundle creation |
+| WorkSession.Tests.ps1 | 34 | Session clustering |
 
 ## Key Features Explained
 
