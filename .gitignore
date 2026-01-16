@@ -36,5 +36,8 @@ add-fallback-icons.ps1
 # Data directories
 data/
 config/
-tests/
 tnsnames.ora
+
+# Test output (but not test files)
+tests/test-data/
+tests/test-results.xml
