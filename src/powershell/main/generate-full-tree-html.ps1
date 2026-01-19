@@ -795,10 +795,28 @@ $htmlTemplate = @'
             const toggle = document.createElement('span');
             toggle.className = 'tree-toggle';
             if (hasRenderableChildren) {
+                let childrenRendered = false;
                 toggle.onclick = (e) => {
                     e.stopPropagation();
                     e.preventDefault();
+
+                    const isExpanding = !nodeDiv.classList.contains('expanded');
                     nodeDiv.classList.toggle('expanded');
+
+                    // Lazy load children on first expand
+                    if (isExpanding && !childrenRendered) {
+                        const childrenDiv = nodeDiv.querySelector('.tree-children');
+                        if (childrenDiv && childrenDiv.children.length === 0) {
+                            // Render children now
+                            const fragment = document.createDocumentFragment();
+                            node.children.forEach(child => {
+                                renderTree(child, fragment, level + 1, newAncestorIds);
+                            });
+                            childrenDiv.appendChild(fragment);
+                            childrenRendered = true;
+                        }
+                    }
+
                     updateStats();
                 };
             } else {
@@ -821,9 +839,7 @@ $htmlTemplate = @'
                     iconFileName = fileName;
                     iconPath = `embedded:${fileName}`;
                     icon.src = fallbackIconDataMap[fileName];
-                    if (level <= 1) {
-                        console.log(`[ICON RENDER] Node: "${node.name}" | Using EMBEDDED icon: ${fileName} | Reason: ${reason}`);
-                    }
+                    // Console logging disabled for performance
                     return true;
                 }
                 return false;
@@ -831,12 +847,10 @@ $htmlTemplate = @'
 
             const setFileIcon = (fileName, reason) => {
                 iconFileName = fileName;
-                cacheBuster = '?v=' + Date.now() + '&r=' + Math.random();
-                iconPath = `icons/${fileName}${cacheBuster}`;
+                // Removed cache buster for performance - icons are stable
+                iconPath = `icons/${fileName}`;
                 icon.src = iconPath;
-                if (level <= 1) {
-                    console.log(`[ICON RENDER] Node: "${node.name}" | Icon Path: "${iconPath}" | IconFile: "${fileName}" | Reason: ${reason}`);
-                }
+                // Console logging disabled for performance
             };
 
             const applyMappedFallback = (reason) => {
@@ -863,14 +877,12 @@ $htmlTemplate = @'
                 iconFileName = `icon_${node.typeId}.bmp`;
                 iconPath = `embedded:${iconFileName}`;
                 icon.src = iconDataMap[node.typeId];
-                if (level <= 1) {
-                    console.log(`[ICON RENDER] Node: "${node.name}" | Using DATABASE icon (Base64): TYPE_ID ${node.typeId}`);
-                }
+                // Console logging disabled for performance
                 icon.onerror = function() {
                     if (this.src.startsWith('data:image/svg')) {
                         return;
                     }
-                    console.warn(`[ICON WARN] Database icon data URI failed for TYPE_ID ${node.typeId}, falling back to mapped icon for node: ${node.name}`);
+                    // Silently fallback to mapped icon for performance
                     applyMappedFallback('db icon failed');
                 };
             } else {
@@ -972,20 +984,20 @@ $htmlTemplate = @'
                 const childrenDiv = document.createElement('div');
                 childrenDiv.className = 'tree-children';
 
-                // Use the already-computed newAncestorIds from above
-                node.children.forEach(child => {
-                    renderTree(child, childrenDiv, level + 1, newAncestorIds);
-                });
-
-                // Only append childrenDiv if it has actual children
-                if (childrenDiv.children.length > 0) {
-                    nodeDiv.appendChild(childrenDiv);
-
-                    // Auto-expand root and level 1 (matching Siemens app)
-                    if (level < 1) {
-                        nodeDiv.classList.add('expanded');
-                    }
+                // Lazy loading: Only render children for root and level 1 (auto-expanded)
+                // All other levels render on demand when user expands the node
+                if (level < 1) {
+                    // Render immediately for auto-expanded levels using DocumentFragment for performance
+                    const fragment = document.createDocumentFragment();
+                    node.children.forEach(child => {
+                        renderTree(child, fragment, level + 1, newAncestorIds);
+                    });
+                    childrenDiv.appendChild(fragment);
+                    nodeDiv.classList.add('expanded');
                 }
+                // For deeper levels, children div is empty and will be populated on first expand
+
+                nodeDiv.appendChild(childrenDiv);
             }
             
             container.appendChild(nodeDiv);
