@@ -112,6 +112,30 @@ function Convert-PipeDelimitedToObjects {
     return $objects
 }
 
+function Test-FileLocked {
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$Path
+    )
+
+    if (-not (Test-Path $Path)) {
+        return $false
+    }
+
+    try {
+        $stream = [System.IO.File]::Open(
+            $Path,
+            [System.IO.FileMode]::Open,
+            [System.IO.FileAccess]::ReadWrite,
+            [System.IO.FileShare]::None
+        )
+        $stream.Close()
+        return $false
+    } catch {
+        return $true
+    }
+}
+
 # Helper function to execute SQL query
 function Execute-Query {
     param(
@@ -449,8 +473,39 @@ Write-Host "`n========================================" -ForegroundColor Cyan
 Write-Host "  Saving Results" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 
-$results | ConvertTo-Json -Depth 10 | Out-File $OutputFile -Encoding UTF8
-Write-Host "  ??? Results saved to: $OutputFile" -ForegroundColor Green
+$outputPath = [System.IO.Path]::GetFullPath($OutputFile)
+$outputDir = [System.IO.Path]::GetDirectoryName($outputPath)
+if ([string]::IsNullOrWhiteSpace($outputDir)) {
+    $outputDir = (Get-Location).Path
+}
+if (-not (Test-Path $outputDir)) {
+    New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
+}
+
+$outputName = [System.IO.Path]::GetFileNameWithoutExtension($outputPath)
+$outputExt = [System.IO.Path]::GetExtension($outputPath)
+$timestamp = (Get-Date).ToString('yyyyMMdd-HHmmss')
+$tempFile = Join-Path $outputDir ("$outputName.tmp-$timestamp$outputExt")
+$targetPath = $outputPath
+if (Test-FileLocked -Path $outputPath) {
+    $targetPath = Join-Path $outputDir ("$outputName.$timestamp$outputExt")
+}
+
+$results | ConvertTo-Json -Depth 10 | Out-File $tempFile -Encoding UTF8 -Force
+
+$finalOutput = $tempFile
+try {
+    if (Test-Path $targetPath) {
+        Remove-Item -Path $targetPath -Force -ErrorAction Stop
+    }
+
+    Move-Item -Path $tempFile -Destination $targetPath -ErrorAction Stop
+    $finalOutput = $targetPath
+} catch {
+    Write-Warning "    Output file could not be replaced; keeping temp file instead."
+}
+
+Write-Host "  ??? Results saved to: $finalOutput" -ForegroundColor Green
 
 $scriptTimer.Stop()
 Write-Host "`n  Total time: $([math]::Round($scriptTimer.Elapsed.TotalSeconds, 2))s" -ForegroundColor Cyan
