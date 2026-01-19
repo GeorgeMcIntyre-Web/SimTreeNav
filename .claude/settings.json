@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(xxd:*)",
-      "Bash(git init:*)"
+      "Bash(git init:*)",
+      "Bash(pwsh.exe -NoProfile -File \"quick-test.ps1\")"
     ]
   }
 }

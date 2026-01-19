@@ -40,6 +40,10 @@ if (Test-Path $credManagerPath) {
     Write-Warning "Credential manager not found. Falling back to default password."
 }
 
+# Define UTF-8 encoding objects (used throughout for file I/O)
+$utf8NoBom = New-Object System.Text.UTF8Encoding $false
+$utf8WithBom = New-Object System.Text.UTF8Encoding $true
+
 Write-Host "Generating tree for:" -ForegroundColor Yellow
 Write-Host "  TNS Name: $TNSName" -ForegroundColor Cyan
 Write-Host "  Schema: $Schema" -ForegroundColor Cyan
@@ -157,7 +161,6 @@ EXIT;
 "@
 
 # Create SQL file
-$utf8NoBom = New-Object System.Text.UTF8Encoding $false
 [System.IO.File]::WriteAllText("$PWD\$extractIconsFile", $extractIconsQuery, $utf8NoBom)
 
 # Set environment for Oracle
@@ -1072,7 +1075,6 @@ EXIT;
 "@
 
 # Write SQL file without BOM to avoid "SP2-0734: unknown command" error
-$utf8NoBom = New-Object System.Text.UTF8Encoding $false
 [System.IO.File]::WriteAllText("$PWD\$sqlFile", $sqlQuery, $utf8NoBom)
 
 # Execute query with proper encoding handling
@@ -1130,7 +1132,6 @@ $utf8Bytes = [System.Text.Encoding]::Convert($windows1252, [System.Text.Encoding
 $utf8Text = [System.Text.Encoding]::UTF8.GetString($utf8Bytes)
 
 # Write cleaned data as UTF-8 with BOM
-$utf8WithBom = New-Object System.Text.UTF8Encoding $true
 [System.IO.File]::WriteAllText("$PWD\$cleanFile", $utf8Text, $utf8WithBom)
 
 # Cleanup
