@@ -64,6 +64,54 @@ $results = @{
     userActivity = @()
 }
 
+# Parse SQL*Plus pipe-delimited output into objects for JSON conversion.
+function Convert-PipeDelimitedToObjects {
+    param(
+        [string[]]$Lines
+    )
+
+    $lineList = @($Lines)
+
+    if (-not $lineList -or $lineList.Count -lt 2) {
+        return @()
+    }
+
+    $filtered = $lineList | Where-Object {
+        $_ -match '\|' -and ($_ -notmatch '^[\s\-\|]+$')
+    }
+    $filtered = @($filtered)
+
+    if ($filtered.Count -lt 2) {
+        return @()
+    }
+
+    $headers = $filtered[0] -split '\|'
+    $headers = $headers | ForEach-Object { $_.Trim() }
+
+    $objects = foreach ($line in $filtered[1..($filtered.Count - 1)]) {
+        if ([string]::IsNullOrWhiteSpace($line)) {
+            continue
+        }
+
+        $values = $line -split '\|', $headers.Count
+        $obj = [ordered]@{}
+
+        for ($i = 0; $i -lt $headers.Count; $i++) {
+            $header = $headers[$i]
+            if ([string]::IsNullOrWhiteSpace($header)) {
+                $header = "Column$($i + 1)"
+            }
+
+            $value = if ($i -lt $values.Count) { $values[$i].Trim() } else { "" }
+            $obj[$header] = $value
+        }
+
+        [PSCustomObject]$obj
+    }
+
+    return $objects
+}
+
 # Helper function to execute SQL query
 function Execute-Query {
     param(
@@ -105,13 +153,14 @@ EXIT;
 
             # Parse results
             $data = Get-Content $outputFile -Encoding UTF8 | Where-Object { $_ -match '\|' }
+            $objects = Convert-PipeDelimitedToObjects -Lines $data
 
             # Cleanup
             Remove-Item $tempSqlFile -ErrorAction SilentlyContinue
             Remove-Item $outputFile -ErrorAction SilentlyContinue
 
-            Write-Host "    ??? Retrieved $($data.Count) rows" -ForegroundColor Green
-            return $data
+            Write-Host "    ??? Retrieved $($objects.Count) rows" -ForegroundColor Green
+            return $objects
         } else {
             Write-Warning "    Failed to get connection string"
             return @()
