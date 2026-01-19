@@ -420,8 +420,7 @@ WHERE NOT EXISTS (SELECT 1 FROM $Schema.COLLECTION_ c WHERE c.OBJECT_ID = p.OBJE
 UNION ALL
 -- Add PART_ children where parent is also in PART_ table (grandchildren)
 -- Get children of P702/P736 and other PART_ nodes
--- IMPORTANT: Filter out ALL reverse/bidirectional relationships in REL_COMMON
--- REL_COMMON contains bidirectional entries (A->B AND B->A), we need only parent->child direction
+-- NOTE: Output all relationships, JavaScript will handle bidirectional deduplication
 SELECT DISTINCT
     '999|' ||
     r.FORWARD_OBJECT_ID || '|' ||
@@ -438,13 +437,7 @@ INNER JOIN $Schema.PART_ p ON r.OBJECT_ID = p.OBJECT_ID
 INNER JOIN $Schema.PART_ p2 ON r.FORWARD_OBJECT_ID = p2.OBJECT_ID
 LEFT JOIN $Schema.CLASS_DEFINITIONS cd ON p.CLASS_ID = cd.TYPE_ID
 LEFT JOIN $Schema.CLASS_DEFINITIONS cd_parent ON p2.CLASS_ID = cd_parent.TYPE_ID
-WHERE NOT EXISTS (SELECT 1 FROM $Schema.COLLECTION_ c WHERE c.OBJECT_ID = p.OBJECT_ID)
-  -- Exclude ALL reverse/bidirectional relationships
-  -- PartInstance can NEVER be a parent
-  AND NVL(cd_parent.TYPE_ID, 0) NOT IN (55, 56, 57, 58, 59, 60)
-  -- For bidirectional pairs (A->B and B->A both exist), keep only where parent has LOWER ID
-  -- This assumes parents are generally created before children in the database
-  AND r.FORWARD_OBJECT_ID < r.OBJECT_ID;
+WHERE NOT EXISTS (SELECT 1 FROM $Schema.COLLECTION_ c WHERE c.OBJECT_ID = p.OBJECT_ID);
 
 -- Add StudyFolder children explicitly (these are links/shortcuts to real data)
 -- StudyFolder nodes are identified by their NICE_NAME in CLASS_DEFINITIONS, not CAPTION
@@ -862,6 +855,55 @@ WHERE NOT EXISTS (SELECT 1 FROM $Schema.COLLECTION_ c WHERE c.OBJECT_ID = p.OBJE
     18143953,  -- PartInstanceLibrary (ghost node)
     18208744   -- COWL_SILL_SIDE
   );
+
+-- Add PartPrototype nodes (from PARTPROTOTYPE_ table)
+-- These are design prototypes for parts, children of COLLECTION_ nodes (like PartLibrary, COWL_SILL_SIDE)
+-- PARTPROTOTYPE_ table contains 167,769 nodes that were previously missing!
+-- Output: LEVEL|PARENT_ID|OBJECT_ID|CAPTION|NAME|EXTERNAL_ID|SEQ_NUMBER|CLASS_NAME|NICE_NAME|TYPE_ID
+SELECT
+    '999|' ||
+    r.FORWARD_OBJECT_ID || '|' ||
+    pp.OBJECT_ID || '|' ||
+    NVL(pp.NAME_S_, 'Unnamed PartPrototype') || '|' ||
+    NVL(pp.NAME_S_, 'Unnamed') || '|' ||
+    NVL(pp.EXTERNALID_S_, '') || '|' ||
+    TO_CHAR(r.SEQ_NUMBER) || '|' ||
+    NVL(cd.NAME, 'class PmPartPrototype') || '|' ||
+    NVL(cd.NICE_NAME, 'PartPrototype') || '|' ||
+    TO_CHAR(cd.TYPE_ID)
+FROM $Schema.PARTPROTOTYPE_ pp
+INNER JOIN $Schema.REL_COMMON r ON pp.OBJECT_ID = r.OBJECT_ID
+LEFT JOIN $Schema.CLASS_DEFINITIONS cd ON pp.CLASS_ID = cd.TYPE_ID
+WHERE EXISTS (
+    SELECT 1 FROM $Schema.COLLECTION_ c2
+    WHERE c2.OBJECT_ID = r.FORWARD_OBJECT_ID
+      AND c2.OBJECT_ID IN (
+        SELECT c3.OBJECT_ID
+        FROM $Schema.REL_COMMON r3
+        INNER JOIN $Schema.COLLECTION_ c3 ON r3.OBJECT_ID = c3.OBJECT_ID
+        START WITH r3.FORWARD_OBJECT_ID = $ProjectId
+        CONNECT BY NOCYCLE PRIOR r3.OBJECT_ID = r3.FORWARD_OBJECT_ID
+      )
+  );
+
+-- Add PartPrototype children of PART_ nodes
+-- Some PartPrototypes have PART_ parents (not COLLECTION_)
+-- Output: LEVEL|PARENT_ID|OBJECT_ID|CAPTION|NAME|EXTERNAL_ID|SEQ_NUMBER|CLASS_NAME|NICE_NAME|TYPE_ID
+SELECT DISTINCT
+    '999|' ||
+    r.FORWARD_OBJECT_ID || '|' ||
+    pp.OBJECT_ID || '|' ||
+    NVL(pp.NAME_S_, 'Unnamed PartPrototype') || '|' ||
+    NVL(pp.NAME_S_, 'Unnamed') || '|' ||
+    NVL(pp.EXTERNALID_S_, '') || '|' ||
+    TO_CHAR(r.SEQ_NUMBER) || '|' ||
+    NVL(cd.NAME, 'class PmPartPrototype') || '|' ||
+    NVL(cd.NICE_NAME, 'PartPrototype') || '|' ||
+    TO_CHAR(cd.TYPE_ID)
+FROM $Schema.PARTPROTOTYPE_ pp
+INNER JOIN $Schema.REL_COMMON r ON pp.OBJECT_ID = r.OBJECT_ID
+INNER JOIN $Schema.PART_ p ON r.FORWARD_OBJECT_ID = p.OBJECT_ID
+LEFT JOIN $Schema.CLASS_DEFINITIONS cd ON pp.CLASS_ID = cd.TYPE_ID;
 
 -- NOTE: RobcadStudyInfo nodes are HIDDEN (internal metadata not shown in Siemens Navigation Tree)
 -- RobcadStudyInfo contains layout configuration (LAYOUT_SR_) and study metadata for loading modes

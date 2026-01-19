@@ -683,8 +683,9 @@ $htmlTemplate = @'
                             parent.children.push(node);
                         }
                     } else {
-                        // Regular relationships: only add if we haven't added this relationship or its reverse
-                        if (!childMap.has(key) && !childMap.has(reverseKey)) {
+                        // Regular relationships: allow same child under multiple parents
+                        // Only prevent exact duplicate: same parent + same child
+                        if (!childMap.has(key)) {
                             if (!parent.children.find(c => c.id === node.id)) {
                                 parent.children.push(node);
                                 childMap.set(key, true);
@@ -748,14 +749,20 @@ $htmlTemplate = @'
         
         // Collect all unique class names and their icon mappings for verification
         const classIconMap = new Map();
-        function collectClassIcons(node) {
+        function collectClassIcons(node, visited = new Set()) {
+            // Prevent infinite recursion due to circular references
+            if (visited.has(node.id)) {
+                return;
+            }
+            visited.add(node.id);
+
             if (node.className && node.iconFile) {
                 if (!classIconMap.has(node.className)) {
                     classIconMap.set(node.className, node.iconFile);
                 }
             }
             if (node.children) {
-                node.children.forEach(child => collectClassIcons(child));
+                node.children.forEach(child => collectClassIcons(child, visited));
             }
         }
         collectClassIcons(rootNode);
@@ -765,7 +772,13 @@ $htmlTemplate = @'
         });
         
         // Render tree
-        function renderTree(node, container, level = 0) {
+        function renderTree(node, container, level = 0, ancestorIds = new Set()) {
+            // Prevent infinite recursion due to circular references
+            if (ancestorIds.has(node.id)) {
+                console.warn(`[RENDER] Circular reference detected: node ${node.id} (${node.name}) is its own ancestor`);
+                return;
+            }
+
             const nodeDiv = document.createElement('div');
             nodeDiv.className = `tree-node level-${level} ${node.children.length > 0 ? '' : 'leaf'}`;
             nodeDiv.dataset.nodeId = node.id;
@@ -951,11 +964,15 @@ $htmlTemplate = @'
             if (node.children.length > 0) {
                 const childrenDiv = document.createElement('div');
                 childrenDiv.className = 'tree-children';
-                
+
+                // Add current node to ancestor set before recursing
+                const newAncestorIds = new Set(ancestorIds);
+                newAncestorIds.add(node.id);
+
                 node.children.forEach(child => {
-                    renderTree(child, childrenDiv, level + 1);
+                    renderTree(child, childrenDiv, level + 1, newAncestorIds);
                 });
-                
+
                 nodeDiv.appendChild(childrenDiv);
                 
                 // Auto-expand root and level 1 (matching Siemens app)
