@@ -62,15 +62,33 @@ FROM $Schema.DF_ICONS_DATA di
 WHERE di.CLASS_IMAGE IS NOT NULL
 UNION ALL
 -- Add parent class icons for TYPE_IDs that don't have their own icon
--- Uses DERIVED_FROM to find parent class and inherit their icon
-SELECT
-    cd.TYPE_ID || '|' ||
-    DBMS_LOB.GETLENGTH(parent_icon.CLASS_IMAGE) || '|' ||
-    RAWTOHEX(DBMS_LOB.SUBSTR(parent_icon.CLASS_IMAGE, DBMS_LOB.GETLENGTH(parent_icon.CLASS_IMAGE), 1))
-FROM $Schema.CLASS_DEFINITIONS cd
-INNER JOIN $Schema.DF_ICONS_DATA parent_icon ON cd.DERIVED_FROM = parent_icon.TYPE_ID
-WHERE cd.TYPE_ID NOT IN (SELECT TYPE_ID FROM $Schema.DF_ICONS_DATA WHERE CLASS_IMAGE IS NOT NULL)
-  AND parent_icon.CLASS_IMAGE IS NOT NULL
+-- Uses CONNECT BY to traverse full inheritance chain and find first ancestor with icon
+-- Example: RobcadStudy(177) -> LocationalStudy(108) -> Study(70) -> ShortcutFolder(69) [HAS ICON]
+SELECT DISTINCT
+    child_type || '|' ||
+    icon_size || '|' ||
+    icon_hex
+FROM (
+    SELECT
+        child_type,
+        icon_size,
+        icon_hex,
+        ROW_NUMBER() OVER (PARTITION BY child_type ORDER BY path_level) AS rn
+    FROM (
+        SELECT
+            CONNECT_BY_ROOT cd.TYPE_ID AS child_type,
+            cd.TYPE_ID AS ancestor_type,
+            LEVEL AS path_level,
+            DBMS_LOB.GETLENGTH(di.CLASS_IMAGE) AS icon_size,
+            RAWTOHEX(DBMS_LOB.SUBSTR(di.CLASS_IMAGE, DBMS_LOB.GETLENGTH(di.CLASS_IMAGE), 1)) AS icon_hex
+        FROM $Schema.CLASS_DEFINITIONS cd
+        LEFT JOIN $Schema.DF_ICONS_DATA di ON cd.TYPE_ID = di.TYPE_ID
+        WHERE di.CLASS_IMAGE IS NOT NULL
+        START WITH cd.TYPE_ID NOT IN (SELECT TYPE_ID FROM $Schema.DF_ICONS_DATA WHERE CLASS_IMAGE IS NOT NULL)
+        CONNECT BY PRIOR cd.DERIVED_FROM = cd.TYPE_ID
+    )
+)
+WHERE rn = 1
 ORDER BY 1;
 
 EXIT;
