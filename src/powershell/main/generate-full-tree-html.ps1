@@ -575,23 +575,22 @@ $htmlTemplate = @'
                         const dbIconFile = `icon_${typeId}.bmp`;
                         // Note: We can't check file existence in JavaScript, so we'll try it and fallback on error
                         iconFile = dbIconFile;
-                        if (level <= 1) {
-                            console.log(`[ICON DEBUG] Node: "${caption}" | TYPE_ID: ${typeId} | Trying database icon: ${dbIconFile}`);
-                        }
+                        // Verbose logging disabled for performance
+                        // if (level <= 1) {
+                        //     console.log(`[ICON DEBUG] Node: "${caption}" | TYPE_ID: ${typeId} | Trying database icon: ${dbIconFile}`);
+                        // }
                     } else {
                         // Fallback to NICE_NAME mapping
                         iconFile = getIconForClass(className, caption, niceName);
-                        if (level <= 1 && typeId > 0) {
-                            const reason = preferClassIcon ? 'class-specific icon available' : (missingDbTypeIdSet.has(typeIdKey) ? 'DB icon missing' : 'DB icon not found');
-                            console.log(`[ICON DEBUG] Node: "${caption}" | TYPE_ID: ${typeId} | No DB icon, using mapped icon (${reason}): ${iconFile}`);
-                        }
+                        // Verbose logging disabled for performance
+                        // if (level <= 1 && typeId > 0) {
+                        //     const reason = preferClassIcon ? 'class-specific icon available' : (missingDbTypeIdSet.has(typeIdKey) ? 'DB icon missing' : 'DB icon not found');
+                        //     console.log(`[ICON DEBUG] Node: "${caption}" | TYPE_ID: ${typeId} | No DB icon, using mapped icon (${reason}): ${iconFile}`);
+                        // }
                     }
-                    // Debug: log all first-level nodes to console
-                    if (level <= 1) {
-                        console.log(`[ICON DEBUG] Node: "${caption}" | Class: "${className}" | NiceName: "${niceName}" | TYPE_ID: ${typeId} | Icon: "${iconFile}" | ID: ${objectId} | Parts length: ${parts.length}`);
-                        if (parts.length < 9) {
-                            console.error(`[ICON ERROR] Node "${caption}" has ${parts.length} parts, expected at least 9! Line: ${line.substring(0, 100)}`);
-                        }
+                    // Verbose logging disabled for performance - only log errors
+                    if (level <= 1 && parts.length < 9) {
+                        console.error(`[ICON ERROR] Node "${caption}" has ${parts.length} parts, expected at least 9! Line: ${line.substring(0, 100)}`);
                     }
                     nodes[objectId] = {
                         id: objectId,
@@ -621,12 +620,14 @@ $htmlTemplate = @'
                         const hasDbIcon = typeId > 0 && iconDataMap[typeId] && !missingDbTypeIdSet.has(typeIdKey) && !preferClassIcon;
                         if (hasDbIcon) {
                             nodes[objectId].iconFile = `icon_${typeId}.bmp`;
-                            console.log(`[ICON DEBUG] Root node updated: TYPE_ID ${typeId} | Icon: icon_${typeId}.bmp`);
+                            // Verbose logging disabled for performance
+                            // console.log(`[ICON DEBUG] Root node updated: TYPE_ID ${typeId} | Icon: icon_${typeId}.bmp`);
                         } else if (!nodes[objectId].iconFile) {
                             nodes[objectId].iconFile = getIconForClass(className, caption, niceName);
                         }
                     } else if (level <= 1) {
-                        console.warn(`[ICON WARN] Node "${caption}" (ID: ${objectId}) already exists! Current iconFile: ${nodes[objectId].iconFile}`);
+                        // Verbose logging disabled for performance
+                        // console.warn(`[ICON WARN] Node "${caption}" (ID: ${objectId}) already exists! Current iconFile: ${nodes[objectId].iconFile}`);
                     }
                 }
                 
@@ -730,22 +731,24 @@ $htmlTemplate = @'
         // Split by newline and filter empty/invalid lines
         const lines = rawData.split('\n').filter(line => line.trim() && line.includes('|'));
         console.log(`[DATA PARSE] Total lines: ${lines.length}`);
-        if (lines.length > 0) {
-            const firstLineParts = lines[0].split('|');
-            console.log(`[DATA PARSE] First line has ${firstLineParts.length} parts`);
-            if (firstLineParts.length >= 8) {
-                console.log(`[DATA PARSE] First line class: ${firstLineParts[7]}`);
-            }
-        }
-        
+        // Verbose logging disabled for performance
+        // if (lines.length > 0) {
+        //     const firstLineParts = lines[0].split('|');
+        //     console.log(`[DATA PARSE] First line has ${firstLineParts.length} parts`);
+        //     if (firstLineParts.length >= 8) {
+        //         console.log(`[DATA PARSE] First line class: ${firstLineParts[7]}`);
+        //     }
+        // }
+
         // Verify icon mappings before building tree
-        verifyIconMappings();
-        
+        // verifyIconMappings(); // Disabled for performance - icon mappings are validated during generation
+
         const rootNode = buildTree(lines);
-        console.log(`[BUILD TREE] Root node iconFile: ${rootNode.iconFile}`);
-        if (rootNode.children && rootNode.children.length > 0) {
-            console.log(`[BUILD TREE] First child: "${rootNode.children[0].name}" iconFile: ${rootNode.children[0].iconFile}`);
-        }
+        // Verbose logging disabled for performance
+        // console.log(`[BUILD TREE] Root node iconFile: ${rootNode.iconFile}`);
+        // if (rootNode.children && rootNode.children.length > 0) {
+        //     console.log(`[BUILD TREE] First child: "${rootNode.children[0].name}" iconFile: ${rootNode.children[0].iconFile}`);
+        // }
         
         // Collect all unique class names and their icon mappings for verification
         const classIconMap = new Map();
