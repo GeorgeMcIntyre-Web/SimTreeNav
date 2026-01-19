@@ -16,6 +16,22 @@ param(
     [string]$CustomIconDir = ""
 )
 
+# Start overall timing
+$scriptTimer = [System.Diagnostics.Stopwatch]::StartNew()
+$phaseTimer = [System.Diagnostics.Stopwatch]::new()
+
+function Start-Phase {
+    param([string]$Name)
+    $phaseTimer.Restart()
+    $script:currentPhase = $Name
+}
+
+function End-Phase {
+    $phaseTimer.Stop()
+    $elapsed = [math]::Round($phaseTimer.Elapsed.TotalSeconds, 2)
+    Write-Host "  ⏱ Phase completed in ${elapsed}s" -ForegroundColor DarkGray
+}
+
 # Import credential manager
 $credManagerPath = Join-Path $PSScriptRoot "..\utilities\CredentialManager.ps1"
 if (Test-Path $credManagerPath) {
@@ -33,13 +49,59 @@ if ($CustomIconDir) {
 }
 
 # Extract icons from database using RAWTOHEX (works better than base64)
-Write-Host "`nExtracting icons from database using RAWTOHEX..." -ForegroundColor Yellow
+Write-Host "`nExtracting icons from database..." -ForegroundColor Yellow
+Start-Phase "Icon Extraction"
 
 # Create icons directory
 $iconsDir = "icons"
 if (-not (Test-Path $iconsDir)) {
     New-Item -ItemType Directory -Path $iconsDir | Out-Null
 }
+
+# Check for icon cache (saves 15-20 seconds!)
+$iconCacheFile = "icon-cache-${Schema}.json"
+$iconCacheAge = if (Test-Path $iconCacheFile) {
+    (Get-Date) - (Get-Item $iconCacheFile).LastWriteTime
+} else {
+    [TimeSpan]::MaxValue
+}
+
+$iconDataMap = @{}
+$iconCount = 0
+$extractedTypeIds = @()
+
+# Use cache if less than 7 days old
+if ($iconCacheAge.TotalDays -lt 7) {
+    Write-Host "  Using cached icons (age: $([math]::Round($iconCacheAge.TotalDays, 1)) days) - FAST!" -ForegroundColor Green
+    try {
+        $cacheData = Get-Content $iconCacheFile -Raw | ConvertFrom-Json
+        foreach ($prop in $cacheData.PSObject.Properties) {
+            $iconDataMap[$prop.Name] = $prop.Value
+            $extractedTypeIds += [int]$prop.Name
+            $iconCount++
+        }
+        Write-Host "  Loaded $iconCount icons from cache" -ForegroundColor Green
+        $usingCache = $true
+    } catch {
+        Write-Warning "Failed to load icon cache: $_"
+        Write-Host "  Falling back to database extraction..." -ForegroundColor Yellow
+        $usingCache = $false
+    }
+} else {
+    Write-Host "  Cache not found or expired (>7 days) - extracting from database..." -ForegroundColor Yellow
+    $usingCache = $false
+}
+
+# Define file names (needed for cleanup later)
+$extractIconsFile = "extract-icons-${Schema}.sql"
+$iconsOutputFile = "icons-data-${Schema}.txt"
+
+# Initialize variables needed later
+$invalidIconEntries = @()
+$fallbackAddedTypeIds = @()
+
+# Only extract from database if not using cache
+if (-not $usingCache) {
 
 # Query to extract all icons as hex
 # INCLUDES automatic parent class icon lookup using DERIVED_FROM
@@ -94,11 +156,11 @@ ORDER BY 1;
 EXIT;
 "@
 
-$extractIconsFile = "extract-icons-${Schema}.sql"
+# Create SQL file
 $utf8NoBom = New-Object System.Text.UTF8Encoding $false
 [System.IO.File]::WriteAllText("$PWD\$extractIconsFile", $extractIconsQuery, $utf8NoBom)
 
-$iconsOutputFile = "icons-data-${Schema}.txt"
+# Set environment for Oracle
 $env:NLS_LANG = "AMERICAN_AMERICA.UTF8"
 
 # Run the query
@@ -118,10 +180,10 @@ $allLines = $allOutput -split "`r?`n" | Where-Object { $_ -match '\|' }
 
 Write-Host "  Found $($allLines.Count) icon entries" -ForegroundColor Gray
 
+# Reset counters for database extraction
 $iconCount = 0
 $extractedTypeIds = @()
 $iconDataMap = @{}  # Store TYPE_ID -> Base64 data URI mapping
-$invalidIconEntries = @()
 
 foreach ($line in $allLines) {
     $line = $line.Trim()
@@ -179,11 +241,7 @@ foreach ($line in $allLines) {
 }
 
 Write-Host "  Successfully extracted: $iconCount icons" -ForegroundColor Green
-$dbIconTypeIds = @{}
-foreach ($key in $iconDataMap.Keys) {
-    $dbIconTypeIds[$key] = $true
-}
-$fallbackAddedTypeIds = @()
+
 # Add fallback icons for TYPE_IDs that don't exist in database
 Write-Host "  Adding fallback icons for missing TYPE_IDs..." -ForegroundColor Yellow
 
@@ -269,6 +327,23 @@ if ($invalidIconEntries.Count -gt 0) {
     Write-Host "  Skipped $($invalidIconEntries.Count) icons due to invalid header or size mismatch" -ForegroundColor Yellow
 }
 
+    # Save to cache for next time (if we just extracted from database)
+    Write-Host "  Saving icons to cache for next run..." -ForegroundColor Gray
+    try {
+        $iconDataMap | ConvertTo-Json -Compress | Out-File $iconCacheFile -Encoding UTF8
+        Write-Host "  Icon cache saved: $iconCacheFile" -ForegroundColor Green
+    } catch {
+        Write-Warning "Failed to save icon cache: $_"
+    }
+
+} # End of if (-not $usingCache)
+
+# Build icon type ID lookup (needed for missing icon check later)
+$dbIconTypeIds = @{}
+foreach ($key in $iconDataMap.Keys) {
+    $dbIconTypeIds[$key] = $true
+}
+
 # Convert icon data map to JSON for passing to HTML generator
 $iconDataJson = ($iconDataMap.GetEnumerator() | ForEach-Object {
     "`"$($_.Key)`": `"$($_.Value)`""
@@ -289,9 +364,46 @@ Write-Host "  Extracted TYPE_IDs: $extractedTypeIdsJson" -ForegroundColor Gray
 # Cleanup
 Remove-Item $extractIconsFile -ErrorAction SilentlyContinue
 Remove-Item $iconsOutputFile -ErrorAction SilentlyContinue
+End-Phase
 
 # Generate SQL query to get full tree
+Start-Phase "Database Query"
+
+# Check for tree data cache (saves ~44 seconds!)
+$treeCacheFile = "tree-cache-${Schema}-${ProjectId}.txt"
+$treeCacheAge = if (Test-Path $treeCacheFile) {
+    (Get-Date) - (Get-Item $treeCacheFile).LastWriteTime
+} else {
+    [TimeSpan]::MaxValue
+}
+
+$cleanFile = "tree-data-${Schema}-${ProjectId}-clean.txt"
+$usingTreeCache = $false
+
+# Use tree cache if less than 1 day old
+if ($treeCacheAge.TotalHours -lt 24) {
+    Write-Host "  Using cached tree data (age: $([math]::Round($treeCacheAge.TotalHours, 1)) hours) - FAST!" -ForegroundColor Green
+    try {
+        Copy-Item $treeCacheFile $cleanFile -Force
+        Write-Host "  Loaded tree data from cache" -ForegroundColor Green
+        $usingTreeCache = $true
+    } catch {
+        Write-Warning "Failed to load tree cache: $_"
+        Write-Host "  Falling back to database query..." -ForegroundColor Yellow
+        $usingTreeCache = $false
+    }
+} else {
+    Write-Host "  Cache not found or expired (>24 hours) - querying database..." -ForegroundColor Yellow
+    $usingTreeCache = $false
+}
+
+# Define file names (needed for cleanup later)
 $sqlFile = "get-tree-${Schema}-${ProjectId}.sql"
+$dataFile = "tree-data-${Schema}-${ProjectId}.txt"
+
+# Only query database if not using cache
+if (-not $usingTreeCache) {
+
 $sqlQuery = @"
 SET PAGESIZE 50000
 SET LINESIZE 500
@@ -965,7 +1077,6 @@ $utf8NoBom = New-Object System.Text.UTF8Encoding $false
 
 # Execute query with proper encoding handling
 Write-Host "`nQuerying database..." -ForegroundColor Yellow
-$dataFile = "tree-data-${Schema}-${ProjectId}.txt"
 
 # Set SQL*Plus to use UTF-8 encoding
 $env:NLS_LANG = "AMERICAN_AMERICA.UTF8"
@@ -986,8 +1097,9 @@ $result = sqlplus -S $connectionString "@$sqlFile" 2>&1
 $result | Out-File $tempOutputFile -Encoding UTF8
 
 # Clean the data and convert to UTF-8
+End-Phase
 Write-Host "Cleaning data and fixing encoding..." -ForegroundColor Yellow
-$cleanFile = "tree-data-${Schema}-${ProjectId}-clean.txt"
+Start-Phase "Data Processing"
 
 # Read the output file as Windows-1252 (the standard Windows code page)
 # SQL*Plus outputs in the console code page, which is typically Windows-1252
@@ -1023,6 +1135,17 @@ $utf8WithBom = New-Object System.Text.UTF8Encoding $true
 
 # Cleanup
 if (Test-Path $tempOutputFile) { Remove-Item $tempOutputFile -Force }
+
+    # Save to tree cache for next time
+    Write-Host "  Saving tree data to cache for next run..." -ForegroundColor Gray
+    try {
+        Copy-Item $cleanFile $treeCacheFile -Force
+        Write-Host "  Tree cache saved: $treeCacheFile" -ForegroundColor Green
+    } catch {
+        Write-Warning "Failed to save tree cache: $_"
+    }
+
+} # End of if (-not $usingTreeCache)
 
 # Report missing icons for TYPE_IDs used in the tree
 Write-Host "Checking for missing icons in tree data..." -ForegroundColor Yellow
@@ -1140,6 +1263,40 @@ EXIT;
 
 # Extract user activity for checkout status
 Write-Host "Extracting user activity..." -ForegroundColor Yellow
+
+# Check for user activity cache (saves ~8-10 seconds!)
+$userActivityCacheFile = "user-activity-cache-${Schema}-${ProjectId}.js"
+$userActivityCacheAge = if (Test-Path $userActivityCacheFile) {
+    (Get-Date) - (Get-Item $userActivityCacheFile).LastWriteTime
+} else {
+    [TimeSpan]::MaxValue
+}
+
+$usingUserActivityCache = $false
+
+# Define file name (needed for cleanup later)
+$userActivityFile = Join-Path $env:TEMP "get-user-activity-${Schema}-${ProjectId}.sql"
+
+# Use cache if less than 1 hour old
+if ($userActivityCacheAge.TotalMinutes -lt 60) {
+    Write-Host "  Using cached user activity (age: $([math]::Round($userActivityCacheAge.TotalMinutes, 1)) minutes) - FAST!" -ForegroundColor Green
+    try {
+        $userActivityJs = Get-Content $userActivityCacheFile -Raw
+        Write-Host "  Loaded user activity from cache" -ForegroundColor Green
+        $usingUserActivityCache = $true
+    } catch {
+        Write-Warning "Failed to load user activity cache: $_"
+        Write-Host "  Falling back to database query..." -ForegroundColor Yellow
+        $usingUserActivityCache = $false
+    }
+} else {
+    Write-Host "  Cache not found or expired (>1 hour) - querying database..." -ForegroundColor Yellow
+    $usingUserActivityCache = $false
+}
+
+# Only query database if not using cache
+if (-not $usingUserActivityCache) {
+
 $userActivitySql = @"
 SET PAGESIZE 0
 SET LINESIZE 32767
@@ -1158,7 +1315,6 @@ ORDER BY p.OBJECT_ID;
 EXIT;
 "@
 
-$userActivityFile = Join-Path $env:TEMP "get-user-activity-${Schema}-${ProjectId}.sql"
 [System.IO.File]::WriteAllText($userActivityFile, $userActivitySql, $utf8NoBom)
 
 try {
@@ -1182,15 +1338,35 @@ foreach ($line in $userActivityResult -split "`n") {
 }
 $userActivityJs += "`n};"
 
+    # Save to user activity cache for next time
+    Write-Host "  Saving user activity to cache for next run..." -ForegroundColor Gray
+    try {
+        $userActivityJs | Out-File $userActivityCacheFile -Encoding UTF8
+        Write-Host "  User activity cache saved: $userActivityCacheFile" -ForegroundColor Green
+    } catch {
+        Write-Warning "Failed to save user activity cache: $_"
+    }
+
+} # End of if (-not $usingUserActivityCache)
+
 Remove-Item $userActivityFile -ErrorAction SilentlyContinue
 
 # Generate HTML with in-memory icon data
+End-Phase
 Write-Host "Generating HTML with database icons..." -ForegroundColor Yellow
+Start-Phase "HTML Generation"
 $fullTreeScriptPath = Join-Path $PSScriptRoot "generate-full-tree-html.ps1"
 & $fullTreeScriptPath -DataFile $cleanFile -ProjectName $ProjectName -ProjectId $ProjectId -Schema $Schema -OutputFile $OutputFile -ExtractedTypeIds $extractedTypeIdsJson -IconDataJson $iconDataJson -MissingDbTypeIds $missingDbTypeIdsJson -UserActivityJs $userActivityJs -CustomIconDir $CustomIconDir
 
 # Cleanup
 Remove-Item $sqlFile -ErrorAction SilentlyContinue
 Remove-Item $dataFile -ErrorAction SilentlyContinue
+End-Phase
+
+# Show timing summary
+$scriptTimer.Stop()
+Write-Host "`n=== Performance Summary ===" -ForegroundColor Cyan
+Write-Host "Total generation time: $([math]::Round($scriptTimer.Elapsed.TotalSeconds, 2))s" -ForegroundColor White
+Write-Host ""
 
 Write-Host "`nDone! Tree saved to: $OutputFile" -ForegroundColor Green

@@ -13,6 +13,13 @@ tree-data-*.txt
 navigation-tree-*.html
 missing-icons-*.txt
 
+# Performance caches
+icon-cache-*.json
+icons-data-*.txt
+extract-icons-*.sql
+tree-cache-*.txt
+user-activity-cache-*.js
+
 # Config
 tree-viewer-config.json
 extracted-type-ids.json
