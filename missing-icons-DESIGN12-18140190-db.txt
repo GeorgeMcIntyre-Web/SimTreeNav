@@ -1,3 +1,1 @@
-72|0|StudyFolder|class PmStudyFolder
-164|0|RobcadResourceLibrary|class RobcadResourceLibrary
-177|0|RobcadStudy|class RobcadStudy
+﻿177|0|RobcadStudy|class RobcadStudy
