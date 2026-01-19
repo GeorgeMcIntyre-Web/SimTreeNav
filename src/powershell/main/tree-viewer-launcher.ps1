@@ -8,6 +8,9 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# Start overall timer
+$overallTimer = [System.Diagnostics.Stopwatch]::StartNew()
+
 # Import required modules
 $credManagerPath = Join-Path $PSScriptRoot "..\utilities\CredentialManager.ps1"
 $profileManagerPath = Join-Path $PSScriptRoot "..\utilities\PCProfileManager.ps1"
@@ -489,6 +492,8 @@ function Generate-TreeHTML {
     Write-Host "  Project: $($Project.Caption) (ID: $($Project.ObjectId))" -ForegroundColor White
     Write-Host ""
 
+    $generationTimer = [System.Diagnostics.Stopwatch]::StartNew()
+
     $outputFile = "navigation-tree-${Schema}-$($Project.ObjectId).html"
 
     $generateScript = Join-Path $PSScriptRoot "generate-tree-html.ps1"
@@ -499,10 +504,13 @@ function Generate-TreeHTML {
 
     & $generateScript -TNSName $TNSName -Schema $Schema -ProjectId $Project.ObjectId -ProjectName $Project.Caption -OutputFile $outputFile
 
+    $generationTimer.Stop()
+
     if (Test-Path $outputFile) {
         Write-Host ""
         Write-Host "V Tree generated successfully!" -ForegroundColor Green
         Write-Host "  File: $outputFile" -ForegroundColor Cyan
+        Write-Host "  Generation time: $([math]::Round($generationTimer.Elapsed.TotalSeconds, 2))s" -ForegroundColor Cyan
         Write-Host ""
         Write-Host "Opening in browser..." -ForegroundColor Yellow
         Start-Process $outputFile
@@ -588,11 +596,16 @@ Update-LastUsedSettings -ProfileName $profile.name -Server $server.name -Instanc
 # Step 7: Generate tree
 $success = Generate-TreeHTML -TNSName $instance.tnsName -Schema $schema -Project $project
 
+# Stop overall timer
+$overallTimer.Stop()
+
 if ($success) {
     Write-Host ""
     Write-Host "========================================" -ForegroundColor Cyan
     Write-Host "  V Complete!" -ForegroundColor Green
     Write-Host "========================================" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "Total time: $([math]::Round($overallTimer.Elapsed.TotalSeconds, 2))s ($([math]::Round($overallTimer.Elapsed.TotalMinutes, 2)) minutes)" -ForegroundColor Cyan
     Write-Host ""
 } else {
     Write-Host ""
