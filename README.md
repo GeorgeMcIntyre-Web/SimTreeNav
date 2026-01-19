@@ -10,13 +10,17 @@ A PowerShell-based tree navigation viewer for Siemens Process Simulation databas
 
 ## Features
 
-- 🌳 **Full Tree Navigation** - Complete hierarchical visualization of Process Simulation projects
-- 🎨 **Icon Extraction** - Automatic extraction and display of 95+ custom icons from database BLOB fields
-- 🔍 **Search Functionality** - Real-time search across all nodes
-- 📊 **Multi-Project Support** - Works with DESIGN1-5 schemas
-- ⚡ **Interactive HTML** - Expand/collapse nodes, search, and navigate efficiently
-- 🔧 **Custom Ordering** - Matches Siemens application node ordering
-- 🚀 **Easy Setup** - Automated Oracle client installation and configuration
+- 🌳 **Full Tree Navigation** - Complete hierarchical visualization with 632K+ nodes, 310K+ unique nodes
+- 🎨 **Icon Extraction** - Automatic extraction and display of 221 custom icons with inheritance support
+- 🔍 **Search Functionality** - Real-time search across all nodes with highlighting
+- 📊 **Multi-Project Support** - Works with DESIGN1-12 schemas
+- ⚡ **Interactive HTML** - Lazy loading for instant display (2-5s load time)
+- 🔧 **SEQ_NUMBER Ordering** - Matches Siemens application node ordering exactly
+- 🚀 **Three-Tier Caching** - Icon (7d), tree (24h), and user activity (1h) caching for 87% faster generation
+- ⏱️ **Performance** - Script generation: 8-10s (cached) / 62s (first run)
+- 👥 **User Activity** - Shows checked-out items and owners
+- 🔄 **Multi-Parent Support** - Handles nodes with multiple parents correctly
+- 🧪 **Testing** - Automated validation scripts included
 
 ## Quick Start
 
@@ -119,14 +123,56 @@ PsSchemaBug/
 └── tests/                     # Test files and outputs
 ```
 
+## Cache Management
+
+The tool uses three-tier caching for optimal performance:
+
+```powershell
+# Check cache status
+.\cache-status.ps1
+
+# Clear all caches (force full refresh)
+Remove-Item *-cache-*
+
+# Clear specific caches
+Remove-Item icon-cache-*.json        # Icons (7-day lifetime)
+Remove-Item tree-cache-*.txt         # Tree data (24-hour lifetime)
+Remove-Item user-activity-cache-*.js # User activity (1-hour lifetime)
+```
+
+**Cache lifetimes:**
+- Icons: 7 days (rarely change)
+- Tree data: 24 hours (daily updates)
+- User activity: 1 hour (frequent changes)
+
+All caches auto-refresh when expired. See [CACHE-OPTIMIZATION-COMPLETE.md](CACHE-OPTIMIZATION-COMPLETE.md) for details.
+
 ## Documentation
 
+### Getting Started
 - **[Quick Start Guide](docs/QUICK-START-GUIDE.md)** - Comprehensive getting started guide
 - **[Oracle Setup](docs/README-ORACLE-SETUP.md)** - Oracle Instant Client installation and configuration
+
+### Performance & Optimization
+- **[Cache Optimization](CACHE-OPTIMIZATION-COMPLETE.md)** - Three-tier caching system (87% faster!)
+- **[Browser Performance](BROWSER-PERF-FIX.md)** - Lazy loading and optimization
+- **[Performance Metrics](PERFORMANCE.md)** - Detailed performance documentation
+
+### Testing & Validation
+- **[Search Test Plan](SEARCH-TEST-PLAN.md)** - Comprehensive search testing guide
+- **[UAT Plan](UAT-PLAN.md)** - User acceptance testing procedures
+- **[Testing Guide](TESTING.md)** - Automated validation scripts
+
+### Technical Reference
 - **[Database Structure](docs/DATABASE-STRUCTURE-SUMMARY.md)** - Schema and table reference
 - **[Icon Extraction](docs/investigation/ICON-EXTRACTION-SUCCESS.md)** - How icon extraction works
 - **[Custom Ordering](docs/investigation/CUSTOM-ORDERING-SOLUTION.md)** - Node ordering implementation
 - **[Query Examples](docs/api/QUERY-EXAMPLES.md)** - SQL query reference
+
+### Bug Fixes & Changelog
+- **[Icon Cache Bug Fix](BUGFIX-CACHE-NULL-PATH.md)** - Icon caching null path fix
+- **[Tree Cache Bug Fix](BUGFIX-TREE-CACHE-NULL-PATH.md)** - Tree caching null path fix
+- **[Status](STATUS.md)** - Project status and completed items
 
 ## Key Features Explained
 
@@ -197,11 +243,27 @@ $env:PATH  # Should include Oracle Instant Client
 
 ## Performance
 
-- **Icon Extraction**: ~5-10 seconds for 95 icons
-- **Tree Generation**: ~10-30 seconds depending on project size
-- **Tree Display**: Instant (client-side JavaScript)
-- **Database Size**: Works with multi-GB databases
-- **Tested With**: 20,000+ nodes, 8.6M+ relationships
+### Script Generation (with Three-Tier Caching)
+- **First run**: ~62 seconds (creates all caches)
+- **Subsequent runs**: **8-10 seconds** (87% faster!)
+- **Icon extraction**: 0.06s (cached) vs 15-20s (first run)
+- **Database query**: instant (cached) vs 44s (first run)
+- **User activity**: instant (cached) vs 8-10s (first run)
+
+### Browser Performance (with Lazy Loading)
+- **Initial load**: 2-5 seconds (was 30-60s before optimization)
+- **Memory usage**: 50-100MB (was 500MB+ before)
+- **Initial render**: ~50-100 nodes (was 310K+ nodes before)
+- **Expand/collapse**: Instant
+- **Search**: <3 seconds even with thousands of results
+
+### Scalability
+- **Tested with**: 632,669 tree lines, 310,203 unique nodes
+- **Database size**: Multi-GB databases
+- **HTML output**: ~90MB per tree
+- **Cache management**: Automatic, zero configuration
+
+See [CACHE-OPTIMIZATION-COMPLETE.md](CACHE-OPTIMIZATION-COMPLETE.md) and [PERFORMANCE.md](PERFORMANCE.md) for detailed metrics.
 
 ## Contributing
 
@@ -226,19 +288,26 @@ See [DATABASE-STRUCTURE-SUMMARY.md](docs/DATABASE-STRUCTURE-SUMMARY.md) for deta
 
 ## Known Limitations
 
-- Hard-coded node ordering for specific project (FORD_DEARBORN)
-- Requires READ access to system schemas (DESIGN1-5)
-- Windows-only (PowerShell, Oracle Instant Client)
-- Large trees (>10MB HTML) may be slow to load in browser
+- Requires READ access to system schemas (DESIGN1-12)
+- Windows-only (PowerShell 5.1+, Oracle Instant Client)
+- Search only finds rendered nodes (lazy loading limits deep search)
+- Cache files not synchronized across machines (local only)
 
 ## Roadmap
 
-- [ ] Configuration-based node ordering
+- [x] Three-tier caching system ✅ (Complete - 87% faster!)
+- [x] Lazy loading for browser performance ✅ (Complete - 2-5s load time)
+- [x] Icon inheritance support ✅ (Complete - 221 icons)
+- [x] Multi-parent node support ✅ (Complete)
+- [x] User activity tracking ✅ (Complete - shows checked-out items)
+- [x] Automated testing ✅ (Complete - validation scripts)
+- [ ] Search result counter and navigation
 - [ ] Export to JSON/XML formats
 - [ ] Node diff/comparison between projects
 - [ ] Real-time database sync
 - [ ] Cross-platform support (PowerShell Core)
 - [ ] Web-based interface
+- [ ] Shared cache server for teams
 
 ## License
 
