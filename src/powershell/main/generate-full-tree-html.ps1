@@ -779,16 +779,22 @@ $htmlTemplate = @'
                 return;
             }
 
+            // Count renderable children (exclude circular references)
+            const newAncestorIds = new Set(ancestorIds);
+            newAncestorIds.add(node.id);
+            const renderableChildren = node.children.filter(child => !newAncestorIds.has(child.id));
+            const hasRenderableChildren = renderableChildren.length > 0;
+
             const nodeDiv = document.createElement('div');
-            nodeDiv.className = `tree-node level-${level} ${node.children.length > 0 ? '' : 'leaf'}`;
+            nodeDiv.className = `tree-node level-${level} ${hasRenderableChildren ? '' : 'leaf'}`;
             nodeDiv.dataset.nodeId = node.id;
-            
+
             const content = document.createElement('div');
             content.className = 'tree-node-content';
-            
+
             const toggle = document.createElement('span');
             toggle.className = 'tree-toggle';
-            if (node.children.length > 0) {
+            if (hasRenderableChildren) {
                 toggle.onclick = (e) => {
                     e.stopPropagation();
                     e.preventDefault();
@@ -960,24 +966,25 @@ $htmlTemplate = @'
             };
             
             nodeDiv.appendChild(content);
-            
-            if (node.children.length > 0) {
+
+            // Only render children section if there are renderable children
+            if (hasRenderableChildren) {
                 const childrenDiv = document.createElement('div');
                 childrenDiv.className = 'tree-children';
 
-                // Add current node to ancestor set before recursing
-                const newAncestorIds = new Set(ancestorIds);
-                newAncestorIds.add(node.id);
-
+                // Use the already-computed newAncestorIds from above
                 node.children.forEach(child => {
                     renderTree(child, childrenDiv, level + 1, newAncestorIds);
                 });
 
-                nodeDiv.appendChild(childrenDiv);
-                
-                // Auto-expand root and level 1 (matching Siemens app)
-                if (level < 1) {
-                    nodeDiv.classList.add('expanded');
+                // Only append childrenDiv if it has actual children
+                if (childrenDiv.children.length > 0) {
+                    nodeDiv.appendChild(childrenDiv);
+
+                    // Auto-expand root and level 1 (matching Siemens app)
+                    if (level < 1) {
+                        nodeDiv.classList.add('expanded');
+                    }
                 }
             }
             
