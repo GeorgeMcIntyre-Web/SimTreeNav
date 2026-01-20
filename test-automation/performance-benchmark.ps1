@@ -36,9 +36,15 @@ if ($GenerateTree) {
         throw "GenerateTree requires TNSName, Schema, ProjectId, and ProjectName."
     }
     Write-Host "Generating tree HTML..."
-    $gen = Measure-Command {
-        & "$PSScriptRoot\..\src\powershell\main\generate-tree-html.ps1" `
-            -TNSName $TNSName -Schema $Schema -ProjectId $ProjectId -ProjectName $ProjectName
+    $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
+    Push-Location $repoRoot
+    try {
+        $gen = Measure-Command {
+            & ".\src\powershell\main\generate-tree-html.ps1" `
+                -TNSName $TNSName -Schema $Schema -ProjectId $ProjectId -ProjectName $ProjectName
+        }
+    } finally {
+        Pop-Location
     }
     $results.metrics.generationSeconds = [math]::Round($gen.TotalSeconds, 2)
     if ($results.metrics.generationSeconds -gt $MaxGenerationSeconds) {

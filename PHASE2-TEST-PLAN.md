@@ -73,6 +73,26 @@ Phase 2 validates the management dashboard including timelines, health scores, w
 - Export JSON reports from scripts to test-automation/results
 - Record manual findings in the test execution report
 
+## Example Test Data
+Health score expectations CSV example:
+```
+studyId,expectedScore
+STUDY-1001,82
+STUDY-1002,74
+```
+
+## Sample Script Output
+Example JSON output from health-score-validator.ps1:
+```json
+{
+  "test": "health-score-validator",
+  "status": "pass",
+  "results": [
+    { "studyId": "STUDY-1001", "expectedScore": 82, "actualScore": 82, "delta": 0, "status": "pass" }
+  ]
+}
+```
+
 ## Troubleshooting Tips
 - If health scores differ, verify source fields and weightings.
 - If timelines are out of order, confirm timestamp field and time zone handling.

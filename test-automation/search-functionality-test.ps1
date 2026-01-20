@@ -21,6 +21,14 @@ if (-not (Test-Path $HtmlPath)) {
     throw "HTML file not found: $HtmlPath"
 }
 
+$results = [ordered]@{
+    test = "search-functionality-test"
+    startedAt = (Get-Date).ToString("s")
+    status = "pass"
+    issues = @()
+    results = @()
+}
+
 $defaultTerms = @(
     @{ term = "PartLibrary"; expectedMin = 1 },
     @{ term = "PartInstanceLibrary"; expectedMin = 1 },
@@ -84,14 +92,6 @@ Get-Content $HtmlPath -ReadCount 5000 | ForEach-Object {
             }
         }
     }
-}
-
-$results = [ordered]@{
-    test = "search-functionality-test"
-    startedAt = (Get-Date).ToString("s")
-    status = "pass"
-    issues = @()
-    results = @()
 }
 
 foreach ($key in $termMap.Keys) {

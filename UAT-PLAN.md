@@ -58,6 +58,36 @@ User Acceptance Testing validates that SimTreeNav meets real-world expectations 
 | UAT-P2A-02 | Notifications | Receive alerts | Alerts relevant and timely | < 5 percent false positives |
 | UAT-P2A-03 | Heat map | Review activity heat map | Hotspots reflect activity | Correlates to activity counts |
 
+## Phase 1 Detailed Checklist (Expanded)
+
+### Structural Completeness
+- [ ] Root level children match Siemens Process Simulate
+- [ ] Critical paths pass (verify-critical-paths.ps1)
+- [ ] Deep node path matches Siemens app (5+ levels)
+
+### Icon Verification
+- [ ] Icon map count equals 221
+- [ ] Representative icons match Siemens app (8 to 12 samples)
+- [ ] No broken icons in tree view
+
+### Data Accuracy
+- [ ] Node names match Siemens app for 20 samples
+- [ ] SEQ_NUMBER ordering matches Siemens app for 3 parents
+- [ ] External IDs present when expected
+
+### User Activity
+- [ ] Checked-out items highlighted correctly
+- [ ] User names displayed when available
+
+### Usability and Performance
+- [ ] Expand/collapse smooth for large branches
+- [ ] Search results are accurate and fast
+- [ ] No lag or freeze during 10-minute session
+
+### Missing Node Investigation
+- [ ] 10 random nodes found in HTML tree
+- [ ] Any missing node logged with expected path
+
 ## Feedback Survey (Sample)
 1) How satisfied are you with the tree viewer? (1 to 5)
 2) Did the search results match your expectations? (1 to 5)

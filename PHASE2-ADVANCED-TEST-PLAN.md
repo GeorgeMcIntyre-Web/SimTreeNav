@@ -8,6 +8,11 @@ Phase 2 Advanced validates time-travel debugging, dependency graphs, smart notif
 - Dependency graph data available or generated
 - Notification service configured (email, Slack, or webhook)
 
+## Dependencies
+- P2-FUNC-03 (Timeline view) must pass before time-travel debugging tests
+- Valid dependency graph data required for P2A-DEP-01 through P2A-DEP-03
+- Notification delivery infrastructure required for P2A-NOTIF-01 through P2A-NOTIF-04
+
 ## Estimated Execution Time
 | Suite | Estimated Time |
 | --- | --- |
@@ -61,3 +66,28 @@ Phase 2 Advanced validates time-travel debugging, dependency graphs, smart notif
 - If root cause selection is wrong, verify parent-child edges in timeline data.
 - If notifications are late, check queue backlog and retry policy.
 - If heat map is delayed, verify event stream frequency and cache TTL.
+
+## Example Test Data
+Dependency edges CSV example:
+```
+parentId,childId
+DEP-01,DEP-02
+DEP-02,DEP-03
+```
+
+Expected chains JSON example:
+```json
+[
+  ["DEP-01", "DEP-02", "DEP-03"]
+]
+```
+
+## Sample Script Output
+Example JSON output from dependency-graph-test.ps1:
+```json
+{
+  "test": "dependency-graph-test",
+  "status": "pass",
+  "metrics": { "cycleCount": 0, "orphanCount": 0 }
+}
+```

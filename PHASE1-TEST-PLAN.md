@@ -119,6 +119,31 @@ Use at least 20 terms across libraries, parts, resources, and studies. Example l
 - search-functionality-test.ps1: Search term coverage
 - performance-benchmark.ps1: Load time and memory proxy checks
 
+## Example Test Data
+Search term CSV example (optional):
+```
+term,expectedMin
+PartLibrary,1
+MfgLibrary,1
+RobcadStudy,1
+INVALID_TERM_123,0
+```
+
+## Sample Script Output
+Example JSON output from validate-tree-data.ps1:
+```json
+{
+  "test": "validate-tree-data",
+  "status": "pass",
+  "metrics": {
+    "xmlNodeCount": 631318,
+    "htmlNodeCount": 631290,
+    "iconMapCount": 221,
+    "missingNodeCount": 0
+  }
+}
+```
+
 ## Reporting
 - Store JSON reports under test-automation/results
 - Record manual findings in a test execution report
