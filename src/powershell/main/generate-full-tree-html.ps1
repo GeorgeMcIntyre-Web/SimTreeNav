@@ -544,6 +544,18 @@ $htmlTemplate = @'
             // Create root node with defaults (will be updated from data if TYPE_ID is available)
             const root = { id: rootId, name: rootName, level: 0, parent: null, children: [], externalId: '', seqNumber: 0, className: 'class PmProject', niceName: 'Project', typeId: 0, iconFile: 'LogProject.bmp' };
             nodes[rootId] = root;
+
+            function isPlaceholderName(value) {
+                return !value || value === 'Unnamed';
+            }
+
+            function isPlaceholderClass(value) {
+                return !value || value === 'class PmNode';
+            }
+
+            function isPlaceholderNice(value) {
+                return !value || value === 'Unknown';
+            }
             
             // First pass: create all nodes
             const nodeData = [];
@@ -625,9 +637,52 @@ $htmlTemplate = @'
                         } else if (!nodes[objectId].iconFile) {
                             nodes[objectId].iconFile = getIconForClass(className, caption, niceName);
                         }
-                    } else if (level <= 1) {
-                        // Verbose logging disabled for performance
-                        // console.warn(`[ICON WARN] Node "${caption}" (ID: ${objectId}) already exists! Current iconFile: ${nodes[objectId].iconFile}`);
+                    } else {
+                        const existing = nodes[objectId];
+                        let updated = false;
+
+                        if (isPlaceholderName(existing.name) && !isPlaceholderName(caption)) {
+                            existing.name = caption;
+                            updated = true;
+                        }
+
+                        if (isPlaceholderClass(existing.className) && !isPlaceholderClass(className)) {
+                            existing.className = className;
+                            updated = true;
+                        }
+
+                        if (isPlaceholderNice(existing.niceName) && !isPlaceholderNice(niceName)) {
+                            existing.niceName = niceName;
+                            updated = true;
+                        }
+
+                        if ((!existing.typeId || existing.typeId === 0) && typeId > 0) {
+                            existing.typeId = typeId;
+                            updated = true;
+                        }
+
+                        if ((!existing.externalId || existing.externalId === '') && externalId) {
+                            existing.externalId = externalId;
+                            updated = true;
+                        }
+
+                        if (updated) {
+                            const effectiveTypeId = existing.typeId || typeId || 0;
+                            const effectiveClassName = existing.className || className || 'class PmNode';
+                            const effectiveNiceName = existing.niceName || niceName || 'Unknown';
+                            const effectiveCaption = existing.name || caption || 'Unnamed';
+                            const typeIdKey = effectiveTypeId ? effectiveTypeId.toString() : '';
+                            const preferClassIcon = hasClassSpecificIcon(effectiveClassName);
+                            const hasDbIcon = effectiveTypeId > 0 && iconDataMap[effectiveTypeId] && !missingDbTypeIdSet.has(typeIdKey) && !preferClassIcon;
+                            if (hasDbIcon) {
+                                existing.iconFile = `icon_${effectiveTypeId}.bmp`;
+                            } else {
+                                const placeholderIcon = getIconForClass('class PmNode', '', 'Unknown');
+                                if (!existing.iconFile || existing.iconFile === placeholderIcon) {
+                                    existing.iconFile = getIconForClass(effectiveClassName, effectiveCaption, effectiveNiceName);
+                                }
+                            }
+                        }
                     }
                 }
                 

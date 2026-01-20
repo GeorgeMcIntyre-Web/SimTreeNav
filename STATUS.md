@@ -51,19 +51,34 @@
    - **User Activity Caching**: Checkout status cached (1-hour lifetime)
      - First run: 8-10s query
      - Cached: instant (100% faster!)
-   - **Performance**: 61.89s → 8-10s (87% improvement!)
+   - **Performance**: 63.5s \x1A 9.5s (~84.9% improvement)
    - Zero configuration, automatic refresh
    - Documented in CACHE-OPTIMIZATION-COMPLETE.md
 
+8. **Phase 1 Pre-Flight Verification**
+   - Cache performance validated: 63.5s first run \x1A 9.5s cached
+   - Critical paths verified (4/4 COWL_SILL_SIDE children)
+   - Icons verified (221 extracted, mappings present)
+
+9. **Resolved Unknown Root Nodes (DESIGN1)**
+   - Fixed placeholder nodes by merging later metadata for the same OBJECT_ID
+   - Expanded operation discovery to include non-collection root children
+   - DPA_SPEC root '?' nodes now show correct class/name/icon
+
+10. **MfgLibrary Weld Points Included**
+   - Added MFGFEATURE_ extraction (WeldPoint and related features)
+   - Verified weld points present in DESIGN12 tree data (e.g., 90007-01-L_T2)
+
 ### Current Metrics
-- **Total data lines**: 632,669
+- **Total data lines**: 633,688
 - **Expected baseline**: 631,318
-- **Coverage**: ~100.2% ✓
+- **Coverage**: ~100.4% ✓
 - **Icons extracted**: 221 (100% coverage)
 - **Missing TYPE_IDs**: 0
 - **Critical path tests**: ALL PASS
-- **Browser load time**: 2-5 seconds ✓
-- **Script generation time**: 8-10 seconds (all caches) / 61.89 seconds (first run) ✓
+- **Browser load time**: 2-5 seconds �
+- **Script generation time**: ~9.5 seconds (cached) / ~63.5 seconds (first run) �
+- **Total run time**: ~20 seconds (cached, including browser open)
 
 ## 🎯 Remaining Items
 
@@ -82,20 +97,22 @@
     - Initial render: ~50-100 nodes (was 310K+ nodes)
     - Memory: 50-100MB (was 500MB+)
   - **Script Generation Performance** (three-tier caching):
-    - With caches: 8-10 seconds (87% faster!)
-    - First run: 61.89 seconds (creates all caches)
+    - With caches: ~9.5 seconds (~84.9% faster)
+    - First run: ~63.5 seconds (creates all caches)
     - Individual cache lifetimes: 7 days (icons), 24 hours (tree), 1 hour (user activity)
   - Documented in PERFORMANCE.md, GENERATION-PERFORMANCE.md, CACHE-OPTIMIZATION-COMPLETE.md
 
-- [ ] **Search functionality verification**
+- [ ] **Search functionality verification (deferred)**
   - Verify search works with 632K nodes
   - Test search performance
   - Test search with special characters
+  - Deferred by request; validate later if needed
 
-- [ ] **User acceptance testing**
+- [ ] **User acceptance testing (WIP)**
   - Compare with Siemens Process Simulate app
   - Verify all expected paths exist
   - Check for any other missing nodes
+  - UAT WIP: icon verification complete; data accuracy/order/missing-node sampling deferred
 
 ### Low Priority
 - [ ] **Documentation**
@@ -145,7 +162,7 @@ All original requirements met:
 
 | Metric | Before | After | Change |
 |--------|--------|-------|--------|
-| Total nodes | ~23,509 | 632,669 | +609,160 (+2589%) |
+| Total nodes | ~23,509 | 633,688 | +610,179 (+2596%) |
 | Icons extracted | ~140 | 221 | +81 (+58%) |
 | Missing icons | 4-7 | 0 | -100% |
 | PartInstance nodes | Missing | Present | ✅ Fixed |
@@ -155,14 +172,16 @@ All original requirements met:
 | Browser load time | 30-60s | 2-5s | -90% (10-20x faster) |
 | Initial DOM nodes | 310K | ~50-100 | -99.97% |
 | Memory usage | 500MB+ | 50-100MB | -80-90% |
-| Script generation | 56-60s | 35-40s (cached) | -35% (icon caching) |
+| Script generation | 56-60s | ~9.5s (cached) | -84% (all caches) |
 
 ## 🚀 Next Steps
 
 1. ✅ ~~Wait for XML validation to complete~~ - DONE (227% coverage)
 2. ✅ ~~Performance testing~~ - DONE (2-5s browser load)
-3. **User acceptance testing** - compare with Siemens app to verify completeness
-4. **Documentation** - update README with complete setup instructions
+3. **User acceptance testing (WIP)** - icon verification complete; sampling deferred
+4. **Documentation** - update README with complete setup instructions
+5. **UAT sampling (deferred)** - node names/order/missing-node checks pending
+6. **Search verification (deferred)** - validate if/when needed
 
 ## 📞 Contact
 
@@ -173,5 +192,5 @@ If you find any issues or missing nodes:
 4. Create GitHub issue with test output
 
 ---
-Last updated: 2026-01-19
-Status: ✅ All major issues resolved, 100% complete and optimized
+Last updated: 2026-01-20
+Status: ? All major issues resolved, Phase 1 pre-flight validated; search verification deferred

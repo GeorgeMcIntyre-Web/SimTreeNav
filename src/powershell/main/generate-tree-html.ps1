@@ -850,13 +850,12 @@ CREATE GLOBAL TEMPORARY TABLE temp_project_objects (
 INSERT INTO temp_project_objects (OBJECT_ID, PASS_NUMBER)
 VALUES ($ProjectId, 0);
 
--- Pass 1: Get all COLLECTION_ nodes under project
+-- Pass 1: Get all direct children under project (any object type)
 INSERT INTO temp_project_objects (OBJECT_ID, PASS_NUMBER)
-SELECT DISTINCT c.OBJECT_ID, 1
-FROM $Schema.COLLECTION_ c
-INNER JOIN $Schema.REL_COMMON rc ON c.OBJECT_ID = rc.OBJECT_ID
+SELECT DISTINCT rc.OBJECT_ID, 1
+FROM $Schema.REL_COMMON rc
 WHERE rc.FORWARD_OBJECT_ID IN (SELECT OBJECT_ID FROM temp_project_objects)
-  AND NOT EXISTS (SELECT 1 FROM temp_project_objects WHERE OBJECT_ID = c.OBJECT_ID);
+  AND NOT EXISTS (SELECT 1 FROM temp_project_objects WHERE OBJECT_ID = rc.OBJECT_ID);
 
 COMMIT;
 
@@ -897,6 +896,24 @@ FROM $Schema.OPERATION_ op
 INNER JOIN $Schema.REL_COMMON r ON op.OBJECT_ID = r.OBJECT_ID
 LEFT JOIN $Schema.CLASS_DEFINITIONS cd ON op.CLASS_ID = cd.TYPE_ID
 WHERE op.OBJECT_ID IN (SELECT OBJECT_ID FROM temp_project_objects);
+
+-- Add MFGFEATURE_ nodes (weld points, fixtures, etc.) linked to project tree
+SELECT DISTINCT
+    '999|' ||
+    r.FORWARD_OBJECT_ID || '|' ||
+    mf.OBJECT_ID || '|' ||
+    NVL(mf.NAME_S_, 'Unnamed') || '|' ||
+    NVL(mf.NAME_S_, 'Unnamed') || '|' ||
+    NVL(mf.EXTERNALID_S_, '') || '|' ||
+    TO_CHAR(r.SEQ_NUMBER) || '|' ||
+    NVL(cd.NAME, 'class MfgFeature') || '|' ||
+    NVL(cd.NICE_NAME, 'MfgFeature') || '|' ||
+    TO_CHAR(cd.TYPE_ID)
+FROM $Schema.REL_COMMON r
+INNER JOIN $Schema.MFGFEATURE_ mf ON r.OBJECT_ID = mf.OBJECT_ID
+LEFT JOIN $Schema.CLASS_DEFINITIONS cd ON mf.CLASS_ID = cd.TYPE_ID
+WHERE r.FORWARD_OBJECT_ID IN (SELECT OBJECT_ID FROM temp_project_objects)
+  AND NOT EXISTS (SELECT 1 FROM $Schema.COLLECTION_ c WHERE c.OBJECT_ID = mf.OBJECT_ID);
 
 -- Clean up temp table
 DROP TABLE temp_project_objects;
