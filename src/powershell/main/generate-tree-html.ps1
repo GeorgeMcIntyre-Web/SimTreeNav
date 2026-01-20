@@ -13,12 +13,14 @@ param(
     [string]$ProjectName,
     
     [string]$OutputFile = "navigation-tree.html",
-    [string]$CustomIconDir = ""
+    [string]$CustomIconDir = "",
+    [switch]$AllowIconFallback
 )
 
 # Start overall timing
 $scriptTimer = [System.Diagnostics.Stopwatch]::StartNew()
 $phaseTimer = [System.Diagnostics.Stopwatch]::new()
+$tnsSlug = ($TNSName -replace '[^A-Za-z0-9._-]', '_')
 
 function Start-Phase {
     param([string]$Name)
@@ -51,6 +53,11 @@ Write-Host "  Project: $ProjectName (ID: $ProjectId)" -ForegroundColor Cyan
 if ($CustomIconDir) {
     Write-Host "  Custom Icons: $CustomIconDir" -ForegroundColor Cyan
 }
+if ($AllowIconFallback) {
+    Write-Host "  Icon Fallback: ENABLED" -ForegroundColor Cyan
+} else {
+    Write-Host "  Icon Fallback: DISABLED (DB-only)" -ForegroundColor Cyan
+}
 
 # Extract icons from database using RAWTOHEX (works better than base64)
 Write-Host "`nExtracting icons from database..." -ForegroundColor Yellow
@@ -63,7 +70,7 @@ if (-not (Test-Path $iconsDir)) {
 }
 
 # Check for icon cache (saves 15-20 seconds!)
-$iconCacheFile = "icon-cache-${Schema}.json"
+$iconCacheFile = "icon-cache-${Schema}-${tnsSlug}.json"
 $iconCacheAge = if (Test-Path $iconCacheFile) {
     (Get-Date) - (Get-Item $iconCacheFile).LastWriteTime
 } else {
@@ -245,87 +252,91 @@ foreach ($line in $allLines) {
 
 Write-Host "  Successfully extracted: $iconCount icons" -ForegroundColor Green
 
-# Add fallback icons for TYPE_IDs that don't exist in database
-Write-Host "  Adding fallback icons for missing TYPE_IDs..." -ForegroundColor Yellow
+if ($AllowIconFallback) {
+    # Add fallback icons for TYPE_IDs that don't exist in database
+    Write-Host "  Adding fallback icons for missing TYPE_IDs..." -ForegroundColor Yellow
 
-# TYPE_ID 72 (PmStudyFolder) -> copy from 18 (Collection - parent class)
-# StudyFolder derives from Collection, use parent class icon
-if ($iconDataMap['18'] -and -not $iconDataMap['72']) {
-    $iconDataMap['72'] = $iconDataMap['18']
-    $extractedTypeIds += 72
-    $fallbackAddedTypeIds += '72'
-    $iconCount++
-    Write-Host "    Added fallback: TYPE_ID 72 -> 18 (StudyFolder -> Collection parent)" -ForegroundColor Gray
-}
-
-# TYPE_ID 164 (RobcadResourceLibrary) -> copy from 162 (MaterialLibrary)
-if ($iconDataMap['162'] -and -not $iconDataMap['164']) {
-    $iconDataMap['164'] = $iconDataMap['162']
-    $extractedTypeIds += 164
-    $fallbackAddedTypeIds += '164'
-    $iconCount++
-    Write-Host "    Added fallback: TYPE_ID 164 -> 162 (RobcadResourceLibrary -> MaterialLibrary)" -ForegroundColor Gray
-}
-
-# Study type fallbacks - use parent class icons based on class hierarchy
-# RobcadStudy (177) -> ShortcutFolder (69) -> Study (70) hierarchy
-# LocationalStudy (108) -> Study (70) -> ShortcutFolder (69)
-# All Study types should use ShortcutFolder icon (TYPE_ID 69)
-$studyFallbacks = @{
-    '177' = 'RobcadStudy'
-    '178' = 'LineSimulationStudy'
-    '183' = 'GanttStudy'
-    '181' = 'SimpleDetailedStudy'
-    '108' = 'LocationalStudy'
-    '70'  = 'Study'  # Base Study class also needs icon
-}
-
-foreach ($typeId in $studyFallbacks.Keys) {
-    if ($iconDataMap['69'] -and -not $iconDataMap[$typeId]) {
-        $iconDataMap[$typeId] = $iconDataMap['69']
-        $extractedTypeIds += [int]$typeId
-        $fallbackAddedTypeIds += $typeId
+    # TYPE_ID 72 (PmStudyFolder) -> copy from 18 (Collection - parent class)
+    # StudyFolder derives from Collection, use parent class icon
+    if ($iconDataMap['18'] -and -not $iconDataMap['72']) {
+        $iconDataMap['72'] = $iconDataMap['18']
+        $extractedTypeIds += 72
+        $fallbackAddedTypeIds += '72'
         $iconCount++
-        Write-Host "    Added fallback: TYPE_ID $typeId -> 69 ($($studyFallbacks[$typeId]) -> ShortcutFolder parent)" -ForegroundColor Gray
+        Write-Host "    Added fallback: TYPE_ID 72 -> 18 (StudyFolder -> Collection parent)" -ForegroundColor Gray
     }
-}
 
-# Add fallbacks for Part-related types that might be missing
-# PmPartInstance (55) -> use PmPartPrototype icon (54) or CompoundPart (21)
-if ($iconDataMap['54'] -and -not $iconDataMap['55']) {
-    $iconDataMap['55'] = $iconDataMap['54']
-    $extractedTypeIds += 55
-    $iconCount++
-    Write-Host "    Added fallback: TYPE_ID 55 -> 54 (PartInstance -> PartPrototype parent)" -ForegroundColor Gray
-} elseif ($iconDataMap['21'] -and -not $iconDataMap['55']) {
-    $iconDataMap['55'] = $iconDataMap['21']
-    $extractedTypeIds += 55
-    $iconCount++
-    Write-Host "    Added fallback: TYPE_ID 55 -> 21 (PartInstance -> CompoundPart)" -ForegroundColor Gray
-}
+    # TYPE_ID 164 (RobcadResourceLibrary) -> copy from 162 (MaterialLibrary)
+    if ($iconDataMap['162'] -and -not $iconDataMap['164']) {
+        $iconDataMap['164'] = $iconDataMap['162']
+        $extractedTypeIds += 164
+        $fallbackAddedTypeIds += '164'
+        $iconCount++
+        Write-Host "    Added fallback: TYPE_ID 164 -> 162 (RobcadResourceLibrary -> MaterialLibrary)" -ForegroundColor Gray
+    }
 
-# PmToolInstance (74) -> use PmToolPrototype icon (76)
-if ($iconDataMap['76'] -and -not $iconDataMap['74']) {
-    $iconDataMap['74'] = $iconDataMap['76']
-    $extractedTypeIds += 74
-    $iconCount++
-    Write-Host "    Added fallback: TYPE_ID 74 -> 76 (ToolInstance -> ToolPrototype parent)" -ForegroundColor Gray
-}
+    # Study type fallbacks - use parent class icons based on class hierarchy
+    # RobcadStudy (177) -> ShortcutFolder (69) -> Study (70) hierarchy
+    # LocationalStudy (108) -> Study (70) -> ShortcutFolder (69)
+    # All Study types should use ShortcutFolder icon (TYPE_ID 69)
+    $studyFallbacks = @{
+        '177' = 'RobcadStudy'
+        '178' = 'LineSimulationStudy'
+        '183' = 'GanttStudy'
+        '181' = 'SimpleDetailedStudy'
+        '108' = 'LocationalStudy'
+        '70'  = 'Study'  # Base Study class also needs icon
+    }
 
-# PmGenericRoboticOperation (101) -> use CompoundOperation icon (19) or Process (62)
-if ($iconDataMap['19'] -and -not $iconDataMap['101']) {
-    $iconDataMap['101'] = $iconDataMap['19']
-    $extractedTypeIds += 101
-    $iconCount++
-    Write-Host "    Added fallback: TYPE_ID 101 -> 19 (GenericRoboticOperation -> CompoundOperation)" -ForegroundColor Gray
-} elseif ($iconDataMap['62'] -and -not $iconDataMap['101']) {
-    $iconDataMap['101'] = $iconDataMap['62']
-    $extractedTypeIds += 101
-    $iconCount++
-    Write-Host "    Added fallback: TYPE_ID 101 -> 62 (GenericRoboticOperation -> Process)" -ForegroundColor Gray
-}
+    foreach ($typeId in $studyFallbacks.Keys) {
+        if ($iconDataMap['69'] -and -not $iconDataMap[$typeId]) {
+            $iconDataMap[$typeId] = $iconDataMap['69']
+            $extractedTypeIds += [int]$typeId
+            $fallbackAddedTypeIds += $typeId
+            $iconCount++
+            Write-Host "    Added fallback: TYPE_ID $typeId -> 69 ($($studyFallbacks[$typeId]) -> ShortcutFolder parent)" -ForegroundColor Gray
+        }
+    }
 
-Write-Host "  Total icons (with fallbacks): $iconCount" -ForegroundColor Green
+    # Add fallbacks for Part-related types that might be missing
+    # PmPartInstance (55) -> use PmPartPrototype icon (54) or CompoundPart (21)
+    if ($iconDataMap['54'] -and -not $iconDataMap['55']) {
+        $iconDataMap['55'] = $iconDataMap['54']
+        $extractedTypeIds += 55
+        $iconCount++
+        Write-Host "    Added fallback: TYPE_ID 55 -> 54 (PartInstance -> PartPrototype parent)" -ForegroundColor Gray
+    } elseif ($iconDataMap['21'] -and -not $iconDataMap['55']) {
+        $iconDataMap['55'] = $iconDataMap['21']
+        $extractedTypeIds += 55
+        $iconCount++
+        Write-Host "    Added fallback: TYPE_ID 55 -> 21 (PartInstance -> CompoundPart)" -ForegroundColor Gray
+    }
+
+    # PmToolInstance (74) -> use PmToolPrototype icon (76)
+    if ($iconDataMap['76'] -and -not $iconDataMap['74']) {
+        $iconDataMap['74'] = $iconDataMap['76']
+        $extractedTypeIds += 74
+        $iconCount++
+        Write-Host "    Added fallback: TYPE_ID 74 -> 76 (ToolInstance -> ToolPrototype parent)" -ForegroundColor Gray
+    }
+
+    # PmGenericRoboticOperation (101) -> use CompoundOperation icon (19) or Process (62)
+    if ($iconDataMap['19'] -and -not $iconDataMap['101']) {
+        $iconDataMap['101'] = $iconDataMap['19']
+        $extractedTypeIds += 101
+        $iconCount++
+        Write-Host "    Added fallback: TYPE_ID 101 -> 19 (GenericRoboticOperation -> CompoundOperation)" -ForegroundColor Gray
+    } elseif ($iconDataMap['62'] -and -not $iconDataMap['101']) {
+        $iconDataMap['101'] = $iconDataMap['62']
+        $extractedTypeIds += 101
+        $iconCount++
+        Write-Host "    Added fallback: TYPE_ID 101 -> 62 (GenericRoboticOperation -> Process)" -ForegroundColor Gray
+    }
+
+    Write-Host "  Total icons (with fallbacks): $iconCount" -ForegroundColor Green
+} else {
+    Write-Host "  Icon fallback disabled - using DB icons only" -ForegroundColor Yellow
+}
 if ($invalidIconEntries.Count -gt 0) {
     Write-Host "  Skipped $($invalidIconEntries.Count) icons due to invalid header or size mismatch" -ForegroundColor Yellow
 }
@@ -373,7 +384,7 @@ End-Phase
 Start-Phase "Database Query"
 
 # Check for tree data cache (saves ~44 seconds!)
-$treeCacheFile = "tree-cache-${Schema}-${ProjectId}.txt"
+$treeCacheFile = "tree-cache-${Schema}-${ProjectId}-${tnsSlug}.txt"
 $treeCacheAge = if (Test-Path $treeCacheFile) {
     (Get-Date) - (Get-Item $treeCacheFile).LastWriteTime
 } else {
@@ -501,8 +512,8 @@ CONNECT BY NOCYCLE PRIOR r.OBJECT_ID = r.FORWARD_OBJECT_ID
 ORDER SIBLINGS BY NVL(c.MODIFICATIONDATE_DA_, TO_DATE('1900-01-01', 'YYYY-MM-DD')), c.OBJECT_ID;
 
 -- Add PART_ table nodes (PartPrototype, CompoundPart, etc.) that are NOT in COLLECTION_
--- SIMPLIFIED: Removed slow hierarchical EXISTS query, using direct parent check instead
--- This query finds PART_ nodes whose parent is in the main tree (from Level 2+ query above)
+-- PART_ nodes whose parent is in COLLECTION_ table (already fetched in Level 2+ query)
+-- This includes parts under libraries, collections, and other container nodes
 SELECT DISTINCT
     '999|' ||
     r.FORWARD_OBJECT_ID || '|' ||
@@ -518,7 +529,7 @@ FROM $Schema.REL_COMMON r
 INNER JOIN $Schema.PART_ p ON r.OBJECT_ID = p.OBJECT_ID
 LEFT JOIN $Schema.CLASS_DEFINITIONS cd ON p.CLASS_ID = cd.TYPE_ID
 WHERE NOT EXISTS (SELECT 1 FROM $Schema.COLLECTION_ c WHERE c.OBJECT_ID = p.OBJECT_ID)
-  -- Direct parent check - parent must be in COLLECTION_ table (already fetched above)
+  -- Parent must be in COLLECTION_ table (standard hierarchy)
   AND EXISTS (
     SELECT 1 FROM $Schema.COLLECTION_ c2
     WHERE c2.OBJECT_ID = r.FORWARD_OBJECT_ID
@@ -898,12 +909,13 @@ LEFT JOIN $Schema.CLASS_DEFINITIONS cd ON op.CLASS_ID = cd.TYPE_ID
 WHERE op.OBJECT_ID IN (SELECT OBJECT_ID FROM temp_project_objects);
 
 -- Add MFGFEATURE_ nodes (weld points, fixtures, etc.) linked to project tree
+-- MFGFEATURE_ table uses NAME1_S_ column (not NAME_S_)
 SELECT DISTINCT
     '999|' ||
     r.FORWARD_OBJECT_ID || '|' ||
     mf.OBJECT_ID || '|' ||
-    NVL(mf.NAME_S_, 'Unnamed') || '|' ||
-    NVL(mf.NAME_S_, 'Unnamed') || '|' ||
+    COALESCE(mf.CAPTION_S_, mf.NAME1_S_, 'Unnamed') || '|' ||
+    COALESCE(mf.CAPTION_S_, mf.NAME1_S_, 'Unnamed') || '|' ||
     NVL(mf.EXTERNALID_S_, '') || '|' ||
     TO_CHAR(r.SEQ_NUMBER) || '|' ||
     NVL(cd.NAME, 'class MfgFeature') || '|' ||
@@ -913,7 +925,47 @@ FROM $Schema.REL_COMMON r
 INNER JOIN $Schema.MFGFEATURE_ mf ON r.OBJECT_ID = mf.OBJECT_ID
 LEFT JOIN $Schema.CLASS_DEFINITIONS cd ON mf.CLASS_ID = cd.TYPE_ID
 WHERE r.FORWARD_OBJECT_ID IN (SELECT OBJECT_ID FROM temp_project_objects)
-  AND NOT EXISTS (SELECT 1 FROM $Schema.COLLECTION_ c WHERE c.OBJECT_ID = mf.OBJECT_ID);
+  AND NOT EXISTS (SELECT 1 FROM $Schema.COLLECTION_ c WHERE c.OBJECT_ID = mf.OBJECT_ID)
+UNION ALL
+-- Add TxProcessAssembly nodes that are in project tree (using temp table for parent validation)
+-- TxProcessAssembly (CLASS_ID 133) nodes may have PART_ or COLLECTION_ parents
+-- This query includes ALL TxProcessAssembly nodes whose parents were found during iteration
+SELECT
+    '999|' ||
+    r.FORWARD_OBJECT_ID || '|' ||
+    p.OBJECT_ID || '|' ||
+    NVL(p.NAME_S_, 'Unnamed') || '|' ||
+    NVL(p.NAME_S_, 'Unnamed') || '|' ||
+    NVL(p.EXTERNALID_S_, '') || '|' ||
+    TO_CHAR(r.SEQ_NUMBER) || '|' ||
+    NVL(cd.NAME, 'class PmTxProcessAssembly') || '|' ||
+    NVL(cd.NICE_NAME, 'TxProcessAssembly') || '|' ||
+    TO_CHAR(cd.TYPE_ID)
+FROM $Schema.REL_COMMON r
+INNER JOIN $Schema.PART_ p ON r.OBJECT_ID = p.OBJECT_ID
+LEFT JOIN $Schema.CLASS_DEFINITIONS cd ON p.CLASS_ID = cd.TYPE_ID
+WHERE p.CLASS_ID = 133  -- TxProcessAssembly TYPE_ID
+  AND r.FORWARD_OBJECT_ID IN (SELECT OBJECT_ID FROM temp_project_objects)
+  AND NOT EXISTS (SELECT 1 FROM $Schema.COLLECTION_ c WHERE c.OBJECT_ID = p.OBJECT_ID)
+UNION ALL
+-- Add MODULE_ nodes (modules/subassemblies in the tree structure)
+-- Module nodes are stored in MODULE_ table and use NAME1_S_ column (not NAME_S_)
+SELECT
+    '999|' ||
+    r.FORWARD_OBJECT_ID || '|' ||
+    m.OBJECT_ID || '|' ||
+    COALESCE(m.CAPTION_S_, m.NAME1_S_, 'Unnamed Module') || '|' ||
+    COALESCE(m.CAPTION_S_, m.NAME1_S_, 'Unnamed Module') || '|' ||
+    NVL(m.EXTERNALID_S_, '') || '|' ||
+    TO_CHAR(r.SEQ_NUMBER) || '|' ||
+    NVL(cd.NAME, 'class PmModule') || '|' ||
+    NVL(cd.NICE_NAME, 'Module') || '|' ||
+    TO_CHAR(cd.TYPE_ID)
+FROM $Schema.REL_COMMON r
+INNER JOIN $Schema.MODULE_ m ON r.OBJECT_ID = m.OBJECT_ID
+LEFT JOIN $Schema.CLASS_DEFINITIONS cd ON m.CLASS_ID = cd.TYPE_ID
+WHERE r.FORWARD_OBJECT_ID IN (SELECT OBJECT_ID FROM temp_project_objects)
+  AND NOT EXISTS (SELECT 1 FROM $Schema.COLLECTION_ c WHERE c.OBJECT_ID = m.OBJECT_ID);
 
 -- Clean up temp table
 DROP TABLE temp_project_objects;
@@ -950,38 +1002,37 @@ WHERE EXISTS (
       )
   );
 
--- Add TxProcessAssembly nodes (from PART_ table, CLASS_ID 133)
--- TxProcessAssembly nodes are stored in PART_ table, not COLLECTION_
--- These are assembly/process nodes that appear in the tree structure
--- Output: LEVEL|PARENT_ID|OBJECT_ID|CAPTION|NAME|EXTERNAL_ID|SEQ_NUMBER|CLASS_NAME|NICE_NAME|TYPE_ID
-SELECT
-    '999|' ||
-    r.FORWARD_OBJECT_ID || '|' ||
-    r.OBJECT_ID || '|' ||
-    NVL(p.NAME_S_, 'Unnamed') || '|' ||
-    NVL(p.NAME_S_, 'Unnamed') || '|' ||
-    NVL(p.EXTERNALID_S_, '') || '|' ||
-    TO_CHAR(r.SEQ_NUMBER) || '|' ||
-    NVL(cd.NAME, 'class PmTxProcessAssembly') || '|' ||
-    NVL(cd.NICE_NAME, 'TxProcessAssembly') || '|' ||
-    TO_CHAR(cd.TYPE_ID)
-FROM $Schema.REL_COMMON r
-INNER JOIN $Schema.PART_ p ON r.OBJECT_ID = p.OBJECT_ID
-LEFT JOIN $Schema.CLASS_DEFINITIONS cd ON p.CLASS_ID = cd.TYPE_ID
-WHERE p.CLASS_ID = 133  -- TxProcessAssembly TYPE_ID
-  AND EXISTS (
-    SELECT 1 FROM $Schema.REL_COMMON r2
-    INNER JOIN $Schema.COLLECTION_ c2 ON r2.OBJECT_ID = c2.OBJECT_ID
-    WHERE c2.OBJECT_ID = r.FORWARD_OBJECT_ID
-      AND c2.OBJECT_ID IN (
-        SELECT c3.OBJECT_ID
-        FROM $Schema.REL_COMMON r3
-        INNER JOIN $Schema.COLLECTION_ c3 ON r3.OBJECT_ID = c3.OBJECT_ID
-        START WITH r3.FORWARD_OBJECT_ID = $ProjectId
-        CONNECT BY NOCYCLE PRIOR r3.OBJECT_ID = r3.FORWARD_OBJECT_ID
-      )
-  );
-
+-- NOTE: TxProcessAssembly query moved earlier (before DROP temp_project_objects)
+-- This allows using temp_project_objects for parent validation, which includes both COLLECTION_ and PART_ parents
+-- OLD QUERY (commented out to avoid duplicates):
+-- SELECT
+--     '999|' ||
+--     r.FORWARD_OBJECT_ID || '|' ||
+--     r.OBJECT_ID || '|' ||
+--     NVL(p.NAME_S_, 'Unnamed') || '|' ||
+--     NVL(p.NAME_S_, 'Unnamed') || '|' ||
+--     NVL(p.EXTERNALID_S_, '') || '|' ||
+--     TO_CHAR(r.SEQ_NUMBER) || '|' ||
+--     NVL(cd.NAME, 'class PmTxProcessAssembly') || '|' ||
+--     NVL(cd.NICE_NAME, 'TxProcessAssembly') || '|' ||
+--     TO_CHAR(cd.TYPE_ID)
+-- FROM $Schema.REL_COMMON r
+-- INNER JOIN $Schema.PART_ p ON r.OBJECT_ID = p.OBJECT_ID
+-- LEFT JOIN $Schema.CLASS_DEFINITIONS cd ON p.CLASS_ID = cd.TYPE_ID
+-- WHERE p.CLASS_ID = 133  -- TxProcessAssembly TYPE_ID
+--   AND EXISTS (
+--     SELECT 1 FROM $Schema.REL_COMMON r2
+--     INNER JOIN $Schema.COLLECTION_ c2 ON r2.OBJECT_ID = c2.OBJECT_ID
+--     WHERE c2.OBJECT_ID = r.FORWARD_OBJECT_ID
+--       AND c2.OBJECT_ID IN (
+--         SELECT c3.OBJECT_ID
+--         FROM $Schema.REL_COMMON r3
+--         INNER JOIN $Schema.COLLECTION_ c3 ON r3.OBJECT_ID = c3.OBJECT_ID
+--         START WITH r3.FORWARD_OBJECT_ID = $ProjectId
+--         CONNECT BY NOCYCLE PRIOR r3.OBJECT_ID = r3.FORWARD_OBJECT_ID
+--       )
+--   )
+UNION ALL
 -- Add PART_ children of PartInstanceLibrary and COWL_SILL_SIDE
 -- These nodes exist in PART_ table but not COLLECTION_, need explicit extraction
 -- PartInstanceLibrary (18143953) is a ghost node, COWL_SILL_SIDE (18208744) is a COLLECTION_ node with PART_ children
@@ -1196,7 +1247,7 @@ Get-Content $cleanFile | ForEach-Object {
 
 $missingDbTypeIds = $treeTypeInfo.Keys | Where-Object { -not $dbIconTypeIds.ContainsKey($_) }
 $missingTypeIds = $treeTypeInfo.Keys | Where-Object { -not $iconDataMap.ContainsKey($_) }
-$missingIconReport = "missing-icons-${Schema}-${ProjectId}.txt"
+$missingIconReport = "missing-icons-${Schema}-${ProjectId}-${tnsSlug}.txt"
 $reportLines = @()
 $missingDbTypeIdsJson = "[]"
 if ($missingDbTypeIds.Count -gt 0) {
@@ -1205,8 +1256,13 @@ if ($missingDbTypeIds.Count -gt 0) {
 
 if ($missingDbTypeIds.Count -gt 0) {
     $missingTypeSummary = ($missingDbTypeIds | Sort-Object) -join ', '
-    Write-Warning "Missing DB icon data for TYPE_IDs: $missingTypeSummary (fallback will be used where possible)"
-    $reportLines += "Missing TYPE_ID icons in DB extraction (fallback will be used where possible):"
+    if ($AllowIconFallback) {
+        Write-Warning "Missing DB icon data for TYPE_IDs: $missingTypeSummary (fallback will be used where possible)"
+        $reportLines += "Missing TYPE_ID icons in DB extraction (fallback will be used where possible):"
+    } else {
+        Write-Warning "Missing DB icon data for TYPE_IDs: $missingTypeSummary (DB-only mode)"
+        $reportLines += "Missing TYPE_ID icons in DB extraction (DB-only mode):"
+    }
     foreach ($typeId in ($missingDbTypeIds | Sort-Object)) {
         $info = $treeTypeInfo[$typeId]
         $reportLines += "$typeId|$($info.NiceName)|$($info.ClassName)|$($info.Count)"
@@ -1215,7 +1271,7 @@ if ($missingDbTypeIds.Count -gt 0) {
     Write-Host "  All TYPE_IDs in tree have DB icon data." -ForegroundColor Green
 }
 
-if ($missingTypeIds.Count -gt 0) {
+if ($AllowIconFallback -and $missingTypeIds.Count -gt 0) {
     $missingFallbackSummary = ($missingTypeIds | Sort-Object) -join ', '
     Write-Warning "Missing icon data after fallbacks for TYPE_IDs: $missingFallbackSummary"
     $reportLines += ""
@@ -1270,9 +1326,9 @@ ORDER BY cd.TYPE_ID;
 EXIT;
 "@
 
-    $checkMissingIconsFile = "check-missing-icons-${Schema}-${ProjectId}.sql"
+    $checkMissingIconsFile = "check-missing-icons-${Schema}-${ProjectId}-${tnsSlug}.sql"
     [System.IO.File]::WriteAllText("$PWD\$checkMissingIconsFile", $checkMissingIconsSql, $utf8NoBom)
-    $missingIconsDbFile = "missing-icons-${Schema}-${ProjectId}-db.txt"
+    $missingIconsDbFile = "missing-icons-${Schema}-${ProjectId}-${tnsSlug}-db.txt"
     $dbCheckResult = sqlplus -S sys/change_on_install@$TNSName AS SYSDBA "@$checkMissingIconsFile" 2>&1
     $dbCheckResult | Out-File $missingIconsDbFile -Encoding UTF8
     Remove-Item $checkMissingIconsFile -ErrorAction SilentlyContinue
@@ -1283,7 +1339,7 @@ EXIT;
 Write-Host "Extracting user activity..." -ForegroundColor Yellow
 
 # Check for user activity cache (saves ~8-10 seconds!)
-$userActivityCacheFile = "user-activity-cache-${Schema}-${ProjectId}.js"
+$userActivityCacheFile = "user-activity-cache-${Schema}-${ProjectId}-${tnsSlug}.js"
 $userActivityCacheAge = if (Test-Path $userActivityCacheFile) {
     (Get-Date) - (Get-Item $userActivityCacheFile).LastWriteTime
 } else {
@@ -1374,7 +1430,7 @@ End-Phase
 Write-Host "Generating HTML with database icons..." -ForegroundColor Yellow
 Start-Phase "HTML Generation"
 $fullTreeScriptPath = Join-Path $PSScriptRoot "generate-full-tree-html.ps1"
-& $fullTreeScriptPath -DataFile $cleanFile -ProjectName $ProjectName -ProjectId $ProjectId -Schema $Schema -OutputFile $OutputFile -ExtractedTypeIds $extractedTypeIdsJson -IconDataJson $iconDataJson -MissingDbTypeIds $missingDbTypeIdsJson -UserActivityJs $userActivityJs -CustomIconDir $CustomIconDir
+& $fullTreeScriptPath -DataFile $cleanFile -ProjectName $ProjectName -ProjectId $ProjectId -Schema $Schema -OutputFile $OutputFile -ExtractedTypeIds $extractedTypeIdsJson -IconDataJson $iconDataJson -MissingDbTypeIds $missingDbTypeIdsJson -UserActivityJs $userActivityJs -CustomIconDir $CustomIconDir -AllowIconFallback:$AllowIconFallback
 
 # Cleanup
 Remove-Item $sqlFile -ErrorAction SilentlyContinue

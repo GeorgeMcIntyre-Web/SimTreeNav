@@ -9,7 +9,8 @@ param(
     [string]$IconDataJson = "{}",    # JSON object mapping TYPE_ID to Base64 data URI
     [string]$MissingDbTypeIds = "[]", # JSON array of TYPE_IDs missing in DB icon extraction
     [string]$UserActivityJs = "",     # JavaScript object with user activity data
-    [string]$CustomIconDir = ""       # Optional directory with custom BMP icons
+    [string]$CustomIconDir = "",      # Optional directory with custom BMP icons
+    [switch]$AllowIconFallback
 )
 
 # Read data file - it should already be UTF-8 with BOM
@@ -306,6 +307,7 @@ $htmlTemplate = @'
         // TYPE_IDs that were missing in DB icon extraction (fallback applied)
         const missingDbTypeIds = MISSING_DB_TYPE_IDS_PLACEHOLDER;
         const missingDbTypeIdSet = new Set((missingDbTypeIds || []).map(id => id.toString()));
+        const allowIconFallback = ICON_FALLBACK_ENABLED_PLACEHOLDER;
 
         // Debug: Check if TYPE_ID 64 is in the map
         console.log('[ICON MAP DEBUG] iconDataMap keys:', Object.keys(iconDataMap).sort((a, b) => parseInt(a) - parseInt(b)).join(', '));
@@ -319,6 +321,7 @@ $htmlTemplate = @'
         const rawData = `TREE_DATA_PLACEHOLDER`;
         
         function hasClassSpecificIcon(className) {
+                if (!allowIconFallback) return false;
                 if (!className) return false;
                 const cleanClass = className.replace(/^class\s+/, '');
                 if (!cleanClass || cleanClass.match(/^Pm/)) return false;
@@ -330,6 +333,9 @@ $htmlTemplate = @'
         // Uses NICE_NAME from database when available (more reliable)
         // Defined OUTSIDE buildTree so it can be used by verifyIconMappings
         function getIconForClass(className, caption, niceName) {
+                if (!allowIconFallback) {
+                    return '';
+                }
                 if (!className) className = 'class PmNode';
 
                 // Remove "class " prefix if present
@@ -580,8 +586,7 @@ $htmlTemplate = @'
                     // PREFER icon from database (extracted as icon_TYPEID.bmp) if available, otherwise use NICE_NAME mapping
                     let iconFile = '';
                     const typeIdKey = typeId ? typeId.toString() : '';
-                    const preferClassIcon = hasClassSpecificIcon(className);
-                    const hasDbIcon = typeId > 0 && iconDataMap[typeId] && !missingDbTypeIdSet.has(typeIdKey) && !preferClassIcon;
+                    const hasDbIcon = typeId > 0 && iconDataMap[typeId] && !missingDbTypeIdSet.has(typeIdKey);
                     // Check if we have an extracted icon for this TYPE_ID
                     if (hasDbIcon) {
                         const dbIconFile = `icon_${typeId}.bmp`;
@@ -591,7 +596,7 @@ $htmlTemplate = @'
                         // if (level <= 1) {
                         //     console.log(`[ICON DEBUG] Node: "${caption}" | TYPE_ID: ${typeId} | Trying database icon: ${dbIconFile}`);
                         // }
-                    } else {
+                    } else if (allowIconFallback) {
                         // Fallback to NICE_NAME mapping
                         iconFile = getIconForClass(className, caption, niceName);
                         // Verbose logging disabled for performance
@@ -599,6 +604,8 @@ $htmlTemplate = @'
                         //     const reason = preferClassIcon ? 'class-specific icon available' : (missingDbTypeIdSet.has(typeIdKey) ? 'DB icon missing' : 'DB icon not found');
                         //     console.log(`[ICON DEBUG] Node: "${caption}" | TYPE_ID: ${typeId} | No DB icon, using mapped icon (${reason}): ${iconFile}`);
                         // }
+                    } else {
+                        iconFile = '';
                     }
                     // Verbose logging disabled for performance - only log errors
                     if (level <= 1 && parts.length < 9) {
@@ -628,14 +635,15 @@ $htmlTemplate = @'
                         nodes[objectId].externalId = externalId;
                         // Update iconFile if we have a TYPE_ID
                         const typeIdKey = typeId ? typeId.toString() : '';
-                        const preferClassIcon = hasClassSpecificIcon(className);
-                        const hasDbIcon = typeId > 0 && iconDataMap[typeId] && !missingDbTypeIdSet.has(typeIdKey) && !preferClassIcon;
+                        const hasDbIcon = typeId > 0 && iconDataMap[typeId] && !missingDbTypeIdSet.has(typeIdKey);
                         if (hasDbIcon) {
                             nodes[objectId].iconFile = `icon_${typeId}.bmp`;
                             // Verbose logging disabled for performance
                             // console.log(`[ICON DEBUG] Root node updated: TYPE_ID ${typeId} | Icon: icon_${typeId}.bmp`);
-                        } else if (!nodes[objectId].iconFile) {
+                        } else if (!nodes[objectId].iconFile && allowIconFallback) {
                             nodes[objectId].iconFile = getIconForClass(className, caption, niceName);
+                        } else if (!allowIconFallback) {
+                            nodes[objectId].iconFile = '';
                         }
                     } else {
                         const existing = nodes[objectId];
@@ -672,15 +680,16 @@ $htmlTemplate = @'
                             const effectiveNiceName = existing.niceName || niceName || 'Unknown';
                             const effectiveCaption = existing.name || caption || 'Unnamed';
                             const typeIdKey = effectiveTypeId ? effectiveTypeId.toString() : '';
-                            const preferClassIcon = hasClassSpecificIcon(effectiveClassName);
-                            const hasDbIcon = effectiveTypeId > 0 && iconDataMap[effectiveTypeId] && !missingDbTypeIdSet.has(typeIdKey) && !preferClassIcon;
+                            const hasDbIcon = effectiveTypeId > 0 && iconDataMap[effectiveTypeId] && !missingDbTypeIdSet.has(typeIdKey);
                             if (hasDbIcon) {
                                 existing.iconFile = `icon_${effectiveTypeId}.bmp`;
-                            } else {
+                            } else if (allowIconFallback) {
                                 const placeholderIcon = getIconForClass('class PmNode', '', 'Unknown');
                                 if (!existing.iconFile || existing.iconFile === placeholderIcon) {
                                     existing.iconFile = getIconForClass(effectiveClassName, effectiveCaption, effectiveNiceName);
                                 }
+                            } else {
+                                existing.iconFile = '';
                             }
                         }
                     }
@@ -883,7 +892,7 @@ $htmlTemplate = @'
             
             const icon = document.createElement('img');
             icon.className = 'tree-icon';
-            let iconFileName = node.iconFile || 'Device.bmp';
+            let iconFileName = node.iconFile || '';
             let iconPath = '';
             let cacheBuster = '';
 
@@ -893,6 +902,9 @@ $htmlTemplate = @'
             };
 
             const setEmbeddedIcon = (fileName, reason) => {
+                if (!allowIconFallback) {
+                    return false;
+                }
                 if (fallbackIconDataMap[fileName]) {
                     iconFileName = fileName;
                     iconPath = `embedded:${fileName}`;
@@ -912,6 +924,10 @@ $htmlTemplate = @'
             };
 
             const applyMappedFallback = (reason) => {
+                if (!allowIconFallback) {
+                    setMissingIconIndicator();
+                    return;
+                }
                 const fallbackIcon = getIconForClass(node.className, node.name, node.niceName);
                 if (!setEmbeddedIcon(fallbackIcon, reason)) {
                     setFileIcon(fallbackIcon, reason);
@@ -928,8 +944,7 @@ $htmlTemplate = @'
             };
 
             const typeIdKey = node.typeId ? node.typeId.toString() : '';
-            const preferClassIcon = hasClassSpecificIcon(node.className);
-            const useDbIcon = node.typeId && node.typeId > 0 && iconDataMap[node.typeId] && !missingDbTypeIdSet.has(typeIdKey) && !preferClassIcon;
+            const useDbIcon = node.typeId && node.typeId > 0 && iconDataMap[node.typeId] && !missingDbTypeIdSet.has(typeIdKey);
             // PREFER icon from database (embedded as Base64 data URI) if TYPE_ID is available
             if (useDbIcon) {
                 iconFileName = `icon_${node.typeId}.bmp`;
@@ -941,10 +956,10 @@ $htmlTemplate = @'
                         return;
                     }
                     // Silently fallback to mapped icon for performance
-                    applyMappedFallback('db icon failed');
+                    setMissingIconIndicator();
                 };
-            } else {
-                const reason = !node.typeId ? "no TYPE_ID" : (missingDbTypeIdSet.has(typeIdKey) ? "DB icon missing" : (preferClassIcon ? "class-specific icon available" : (!iconDataMap[node.typeId] ? "icon not in data map" : "using mapped icon")));
+            } else if (allowIconFallback && iconFileName) {
+                const reason = !node.typeId ? "no TYPE_ID" : (missingDbTypeIdSet.has(typeIdKey) ? "DB icon missing" : (!iconDataMap[node.typeId] ? "icon not in data map" : "using mapped icon"));
                 if (!setEmbeddedIcon(iconFileName, reason)) {
                     setFileIcon(iconFileName, reason);
                     icon.onerror = function() {
@@ -955,10 +970,12 @@ $htmlTemplate = @'
                         applyMappedFallback('file missing');
                     };
                 }
+            } else {
+                setMissingIconIndicator();
             }
             
             icon.alt = node.name;
-            icon.title = `${node.className || ''} | NiceName: ${node.niceName || ''} | Icon: ${iconFileName}`;
+            icon.title = `${node.className || ''} | NiceName: ${node.niceName || ''} | Icon: ${iconFileName || 'missing-db-icon'}`;
             icon.style.width = '16px';
             icon.style.height = '16px';
             icon.style.objectFit = 'contain';
@@ -1140,6 +1157,8 @@ $html = $htmlTemplate.Replace('EXTRACTED_TYPE_IDS_PLACEHOLDER', $extractedIdsJs)
 $html = $html.Replace('FALLBACK_ICON_DATA_JSON_PLACEHOLDER', $fallbackIconDataJson)
 $html = $html.Replace('ICON_DATA_JSON_PLACEHOLDER', $IconDataJson)
 $html = $html.Replace('MISSING_DB_TYPE_IDS_PLACEHOLDER', $MissingDbTypeIds)
+$iconFallbackFlag = if ($AllowIconFallback) { "true" } else { "false" }
+$html = $html.Replace('ICON_FALLBACK_ENABLED_PLACEHOLDER', $iconFallbackFlag)
 
 # Inject user activity data before tree data
 if ($UserActivityJs) {
