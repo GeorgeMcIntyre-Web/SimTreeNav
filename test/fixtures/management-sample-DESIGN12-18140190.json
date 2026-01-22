@@ -1,0 +1,337 @@
+{
+  "metadata": {
+    "schema": "DESIGN12",
+    "projectId": "18140190",
+    "startDate": "2026-01-15",
+    "endDate": "2026-01-22",
+    "generatedAt": "2026-01-22 15:30:00"
+  },
+  "projectDatabase": [
+    {
+      "work_type": "PROJECT_DATABASE",
+      "object_id": "18140190",
+      "object_name": "FORD_DEARBORN",
+      "object_type": "Project",
+      "created_by": "admin",
+      "last_modified": "2026-01-15 10:00:00",
+      "modified_by": "admin",
+      "checked_out_by_user_id": "0",
+      "checked_out_by_user_name": "",
+      "status": "Available"
+    }
+  ],
+  "resourceLibrary": [
+    {
+      "work_type": "RESOURCE_LIBRARY",
+      "object_id": "18195357",
+      "object_name": "8J-027",
+      "object_type": "PrStation",
+      "created_by": "admin",
+      "last_modified": "2026-01-22 14:32:00",
+      "modified_by": "John Smith",
+      "checked_out_by_user_id": "12345",
+      "checked_out_by_user_name": "John Smith",
+      "status": "Checked Out"
+    },
+    {
+      "work_type": "RESOURCE_LIBRARY",
+      "object_id": "18195358",
+      "object_name": "8J-010",
+      "object_type": "PrStation",
+      "created_by": "admin",
+      "last_modified": "2026-01-21 11:15:00",
+      "modified_by": "Jane Doe",
+      "checked_out_by_user_id": "12346",
+      "checked_out_by_user_name": "Jane Doe",
+      "status": "Checked Out"
+    },
+    {
+      "work_type": "RESOURCE_LIBRARY",
+      "object_id": "18195359",
+      "object_name": "LAYOUT",
+      "object_type": "CompoundResource",
+      "created_by": "admin",
+      "last_modified": "2026-01-20 09:45:00",
+      "modified_by": "Bob Lee",
+      "checked_out_by_user_id": "0",
+      "checked_out_by_user_name": "",
+      "status": "Available"
+    }
+  ],
+  "partLibrary": [
+    {
+      "work_type": "PART_LIBRARY",
+      "object_id": "18195360",
+      "object_name": "COWL_SILL_SIDE",
+      "object_type": "Part",
+      "category": "Panel/Part",
+      "created_by": "admin",
+      "last_modified": "2026-01-19 13:45:00",
+      "modified_by": "Jane Doe",
+      "checked_out_by_user_id": "12346",
+      "checked_out_by_user_name": "Jane Doe",
+      "status": "Checked Out"
+    },
+    {
+      "work_type": "PART_LIBRARY",
+      "object_id": "18195361",
+      "object_name": "CC",
+      "object_type": "Part",
+      "category": "Cell Coat",
+      "created_by": "admin",
+      "last_modified": "2026-01-18 16:20:00",
+      "modified_by": "John Smith",
+      "checked_out_by_user_id": "0",
+      "checked_out_by_user_name": "",
+      "status": "Available"
+    },
+    {
+      "work_type": "PART_LIBRARY",
+      "object_id": "18195362",
+      "object_name": "RC",
+      "object_type": "Part",
+      "category": "Robot Coat",
+      "created_by": "admin",
+      "last_modified": "2026-01-17 10:30:00",
+      "modified_by": "Alice Wong",
+      "checked_out_by_user_id": "12348",
+      "checked_out_by_user_name": "Alice Wong",
+      "status": "Checked Out"
+    }
+  ],
+  "ipaAssembly": [
+    {
+      "work_type": "IPA_ASSEMBLY",
+      "object_id": "18200000",
+      "object_name": "IPA_8J_010_020",
+      "object_type": "TxProcessAssembly",
+      "created_by": "admin",
+      "last_modified": "2026-01-20 11:00:00",
+      "modified_by": "John Smith",
+      "checked_out_by_user_id": "12345",
+      "checked_out_by_user_name": "John Smith",
+      "status": "Checked Out"
+    },
+    {
+      "work_type": "IPA_ASSEMBLY",
+      "object_id": "18200001",
+      "object_name": "IPA_8J_060_090",
+      "object_type": "TxProcessAssembly",
+      "created_by": "admin",
+      "last_modified": "2026-01-19 14:30:00",
+      "modified_by": "Jane Doe",
+      "checked_out_by_user_id": "0",
+      "checked_out_by_user_name": "",
+      "status": "Available"
+    }
+  ],
+  "studySummary": [
+    {
+      "work_type": "STUDY_SUMMARY",
+      "study_id": "18210000",
+      "study_name": "DDMP P702_8J_010_8J_060",
+      "study_type": "RobcadStudy",
+      "created_by": "admin",
+      "last_modified": "2026-01-22 14:32:00",
+      "modified_by": "John Smith",
+      "checked_out_by_user_id": "12345",
+      "checked_out_by_user_name": "John Smith",
+      "status": "Active"
+    },
+    {
+      "work_type": "STUDY_SUMMARY",
+      "study_id": "18210001",
+      "study_name": "DDMP P736_8J_020_8J_040",
+      "study_type": "RobcadStudy",
+      "created_by": "admin",
+      "last_modified": "2026-01-21 09:15:00",
+      "modified_by": "Jane Doe",
+      "checked_out_by_user_id": "12346",
+      "checked_out_by_user_name": "Jane Doe",
+      "status": "Active"
+    },
+    {
+      "work_type": "STUDY_SUMMARY",
+      "study_id": "18210002",
+      "study_name": "DDMP P702_8J_070_8J_100",
+      "study_type": "RobcadStudy",
+      "created_by": "admin",
+      "last_modified": "2026-01-20 16:45:00",
+      "modified_by": "Bob Lee",
+      "checked_out_by_user_id": "0",
+      "checked_out_by_user_name": "",
+      "status": "Idle"
+    }
+  ],
+  "studyResources": [
+    {
+      "work_type": "STUDY_RESOURCES",
+      "study_id": "18210000",
+      "study_name": "DDMP P702_8J_010_8J_060",
+      "shortcut_name": "8J-010",
+      "resource_name": "8J-010",
+      "resource_type": "PrStation",
+      "allocation_type": "Station Reference"
+    },
+    {
+      "work_type": "STUDY_RESOURCES",
+      "study_id": "18210000",
+      "study_name": "DDMP P702_8J_010_8J_060",
+      "shortcut_name": "LAYOUT",
+      "resource_name": "LAYOUT",
+      "resource_type": "CompoundResource",
+      "allocation_type": "Layout Configuration"
+    },
+    {
+      "work_type": "STUDY_RESOURCES",
+      "study_id": "18210000",
+      "study_name": "DDMP P702_8J_010_8J_060",
+      "shortcut_name": "8J-027_SC",
+      "resource_name": "",
+      "resource_type": "",
+      "allocation_type": "Spot Coat Operations"
+    },
+    {
+      "work_type": "STUDY_RESOURCES",
+      "study_id": "18210001",
+      "study_name": "DDMP P736_8J_020_8J_040",
+      "shortcut_name": "8J-020",
+      "resource_name": "8J-020",
+      "resource_type": "PrStation",
+      "allocation_type": "Station Reference"
+    }
+  ],
+  "studyPanels": [
+    {
+      "work_type": "STUDY_PANELS",
+      "study_id": "18210000",
+      "study_name": "DDMP P702_8J_010_8J_060",
+      "shortcut_name": "8J-027_SC",
+      "panel_code": "SC (Spot Coat)",
+      "station": "8J-027"
+    },
+    {
+      "work_type": "STUDY_PANELS",
+      "study_id": "18210000",
+      "study_name": "DDMP P702_8J_010_8J_060",
+      "shortcut_name": "8J-010_RC",
+      "panel_code": "RC (Robot Coat)",
+      "station": "8J-010"
+    },
+    {
+      "work_type": "STUDY_PANELS",
+      "study_id": "18210001",
+      "study_name": "DDMP P736_8J_020_8J_040",
+      "shortcut_name": "8J-020_CC",
+      "panel_code": "CC (Cell Coat)",
+      "station": "8J-020"
+    }
+  ],
+  "studyOperations": [
+    {
+      "work_type": "STUDY_OPERATIONS",
+      "operation_id": "18220000",
+      "operation_name": "PG21",
+      "operation_class": "WeldOperation",
+      "operation_type": "Weld Point Group",
+      "last_modified": "2026-01-22 14:15:00",
+      "modified_by": "John Smith",
+      "operation_category": "Weld Point Group"
+    },
+    {
+      "work_type": "STUDY_OPERATIONS",
+      "operation_id": "18220001",
+      "operation_name": "MOV_HOME",
+      "operation_class": "TransferOperation",
+      "operation_type": "Movement",
+      "last_modified": "2026-01-22 13:30:00",
+      "modified_by": "John Smith",
+      "operation_category": "Movement Operation"
+    },
+    {
+      "work_type": "STUDY_OPERATIONS",
+      "operation_id": "18220002",
+      "operation_name": "PG22",
+      "operation_class": "WeldOperation",
+      "operation_type": "Weld Point Group",
+      "last_modified": "2026-01-21 10:45:00",
+      "modified_by": "Jane Doe",
+      "operation_category": "Weld Point Group"
+    }
+  ],
+  "studyMovements": [
+    {
+      "work_type": "STUDY_MOVEMENTS",
+      "studylayout_id": "18230000",
+      "studyinfo_id": "18210000",
+      "last_modified": "2026-01-22 14:32:00",
+      "modified_by": "John Smith",
+      "location_vector_id": "18240000",
+      "rotation_vector_id": "18240001"
+    },
+    {
+      "work_type": "STUDY_MOVEMENTS",
+      "studylayout_id": "18230001",
+      "studyinfo_id": "18210000",
+      "last_modified": "2026-01-22 13:15:00",
+      "modified_by": "John Smith",
+      "location_vector_id": "18240002",
+      "rotation_vector_id": ""
+    },
+    {
+      "work_type": "STUDY_MOVEMENTS",
+      "studylayout_id": "18230002",
+      "studyinfo_id": "18210001",
+      "last_modified": "2026-01-21 09:30:00",
+      "modified_by": "Jane Doe",
+      "location_vector_id": "",
+      "rotation_vector_id": "18240003"
+    }
+  ],
+  "studyWelds": [
+    {
+      "work_type": "STUDY_WELDS",
+      "operation_id": "18220000",
+      "operation_name": "PG21",
+      "last_modified": "2026-01-22 14:15:00",
+      "modified_by": "John Smith"
+    },
+    {
+      "work_type": "STUDY_WELDS",
+      "operation_id": "18220002",
+      "operation_name": "PG22",
+      "last_modified": "2026-01-21 10:45:00",
+      "modified_by": "Jane Doe"
+    }
+  ],
+  "userActivity": [
+    {
+      "user_id": "12345",
+      "user_name": "John Smith",
+      "username": "jsmith",
+      "objects_total": "42",
+      "active_checkouts": "5"
+    },
+    {
+      "user_id": "12346",
+      "user_name": "Jane Doe",
+      "username": "jdoe",
+      "objects_total": "28",
+      "active_checkouts": "3"
+    },
+    {
+      "user_id": "12347",
+      "user_name": "Bob Lee",
+      "username": "blee",
+      "objects_total": "15",
+      "active_checkouts": "0"
+    },
+    {
+      "user_id": "12348",
+      "user_name": "Alice Wong",
+      "username": "awong",
+      "objects_total": "22",
+      "active_checkouts": "2"
+    }
+  ]
+}
