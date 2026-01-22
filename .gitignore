@@ -64,6 +64,7 @@ tests/
 tnsnames.ora
 !config/
 !config/robcad-study-health-rules.json
+config/pc-profiles.json
 
 # Investigation files
 investigate-*.sql
