@@ -3,7 +3,8 @@
 
 param(
     [string]$ProfileName,
-    [switch]$LoadLast = $false
+    [switch]$LoadLast = $false,
+    [switch]$NoCache = $false  # Force fresh data from database
 )
 
 $ErrorActionPreference = "Stop"
@@ -502,7 +503,12 @@ function Generate-TreeHTML {
         return $false
     }
 
-    & $generateScript -TNSName $TNSName -Schema $Schema -ProjectId $Project.ObjectId -ProjectName $Project.Caption -OutputFile $outputFile
+    # Pass -NoCache flag if specified
+    if ($NoCache) {
+        & $generateScript -TNSName $TNSName -Schema $Schema -ProjectId $Project.ObjectId -ProjectName $Project.Caption -OutputFile $outputFile -NoCache
+    } else {
+        & $generateScript -TNSName $TNSName -Schema $Schema -ProjectId $Project.ObjectId -ProjectName $Project.Caption -OutputFile $outputFile
+    }
 
     $generationTimer.Stop()
 

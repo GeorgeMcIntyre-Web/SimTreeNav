@@ -11,10 +11,11 @@ param(
 
     [Parameter(Mandatory=$true)]
     [string]$ProjectName,
-    
+
     [string]$OutputFile = "navigation-tree.html",
     [string]$CustomIconDir = "",
-    [switch]$AllowIconFallback
+    [switch]$AllowIconFallback,
+    [switch]$NoCache  # Force fresh data from database (bypass tree cache)
 )
 
 # Start overall timing
@@ -394,8 +395,11 @@ $treeCacheAge = if (Test-Path $treeCacheFile) {
 $cleanFile = "tree-data-${Schema}-${ProjectId}-clean.txt"
 $usingTreeCache = $false
 
-# Use tree cache if less than 1 day old
-if ($treeCacheAge.TotalHours -lt 24) {
+# Use tree cache if less than 1 day old (unless -NoCache specified)
+if ($NoCache) {
+    Write-Host "  -NoCache specified - forcing fresh data from database..." -ForegroundColor Yellow
+    $usingTreeCache = $false
+} elseif ($treeCacheAge.TotalHours -lt 24) {
     Write-Host "  Using cached tree data (age: $([math]::Round($treeCacheAge.TotalHours, 1)) hours) - FAST!" -ForegroundColor Green
     try {
         Copy-Item $treeCacheFile $cleanFile -Force
@@ -475,9 +479,15 @@ LEFT JOIN $Schema.COLLECTION_ c ON r.OBJECT_ID = c.OBJECT_ID
 LEFT JOIN $Schema.CLASS_DEFINITIONS cd ON c.CLASS_ID = cd.TYPE_ID
 LEFT JOIN $Schema.PART_ p ON r.OBJECT_ID = p.OBJECT_ID
 LEFT JOIN $Schema.CLASS_DEFINITIONS cd_part ON p.CLASS_ID = cd_part.TYPE_ID
+-- Join to reverse REL_COMMON relationship to get correct ordering (SEQ_NUMBER from parent->child)
+LEFT JOIN $Schema.REL_COMMON r_order ON r_order.OBJECT_ID = r.FORWARD_OBJECT_ID
+    AND r_order.FORWARD_OBJECT_ID = r.OBJECT_ID
+    AND r_order.FIELD_NAME = 'children'
 WHERE r.FORWARD_OBJECT_ID = $ProjectId
 ORDER BY
-    -- Custom ordering to match Siemens Navigation Tree
+    -- First: Use SEQ_NUMBER from reverse relationship (user-defined order in Process Simulate)
+    NVL(r_order.SEQ_NUMBER, 999),
+    -- Second: Custom ordering for known nodes (FORD_DEARBORN project specific)
     CASE r.OBJECT_ID
         WHEN 18195357 THEN 1  -- P702
         WHEN 18195358 THEN 2  -- P736
@@ -489,7 +499,9 @@ ORDER BY
         WHEN 18144070 THEN 8  -- DES_Studies
         WHEN 18144071 THEN 9  -- Working Folders
         ELSE 999  -- Unknown nodes go last
-    END;
+    END,
+    -- Third: Fallback to OBJECT_ID for stable ordering
+    r.OBJECT_ID;
 
 -- Level 2+: All descendants using hierarchical query with NOCYCLE
 -- Output: LEVEL|PARENT_ID|OBJECT_ID|CAPTION|NAME|EXTERNAL_ID|SEQ_NUMBER|CLASS_NAME|NICE_NAME|TYPE_ID
@@ -507,9 +519,13 @@ SELECT
 FROM $Schema.REL_COMMON r
 INNER JOIN $Schema.COLLECTION_ c ON r.OBJECT_ID = c.OBJECT_ID
 LEFT JOIN $Schema.CLASS_DEFINITIONS cd ON c.CLASS_ID = cd.TYPE_ID
+-- Join to reverse REL_COMMON relationship to get correct ordering (SEQ_NUMBER from parent->child)
+LEFT JOIN $Schema.REL_COMMON r_order ON r_order.OBJECT_ID = r.FORWARD_OBJECT_ID
+    AND r_order.FORWARD_OBJECT_ID = r.OBJECT_ID
+    AND r_order.FIELD_NAME = 'children'
 START WITH r.FORWARD_OBJECT_ID = $ProjectId
 CONNECT BY NOCYCLE PRIOR r.OBJECT_ID = r.FORWARD_OBJECT_ID
-ORDER SIBLINGS BY NVL(c.MODIFICATIONDATE_DA_, TO_DATE('1900-01-01', 'YYYY-MM-DD')), c.OBJECT_ID;
+ORDER SIBLINGS BY NVL(r_order.SEQ_NUMBER, 999999), c.OBJECT_ID;
 
 -- Add PART_ table nodes (PartPrototype, CompoundPart, etc.) that are NOT in COLLECTION_
 -- PART_ nodes whose parent is in COLLECTION_ table (already fetched in Level 2+ query)
