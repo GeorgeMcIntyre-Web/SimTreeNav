@@ -1,0 +1,2 @@
+work_type,operation_id,operation_name,operation_caption,operation_class,operation_type,last_modified,modified_by,created_by,allocated_time,calculated_time,value_added_time,operation_category,checked_out_by_user_id,checked_out_by_user_name,status,version_id
+STUDY_OPERATIONS,10099869,PG10,PG10,WeldOperation,SPOT,2026-01-19 13:05:00,jdoe,jdoe,12.5,13.2,11.0,Weld Point Group,0,,Available,0

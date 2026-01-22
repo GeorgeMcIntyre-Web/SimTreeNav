@@ -1,0 +1,2 @@
+work_type,object_id,object_name,object_type,category,created_by,last_modified,modified_by,checked_out_by_user_id,checked_out_by_user_name,status,version_id
+PART_LIBRARY,18209400,RC,CompoundPart,Robot Coat,asmith,2026-01-17 09:30:00,asmith,0,,Available,0
