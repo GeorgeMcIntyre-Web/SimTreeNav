@@ -76,13 +76,59 @@
 - **Icons extracted**: 221 (100% coverage)
 - **Missing TYPE_IDs**: 0
 - **Critical path tests**: ALL PASS
-- **Browser load time**: 2-5 seconds �
-- **Script generation time**: ~9.5 seconds (cached) / ~63.5 seconds (first run) �
+- **Browser load time**: 2-5 seconds �
+- **Script generation time**: ~9.5 seconds (cached) / ~63.5 seconds (first run) �
 - **Total run time**: ~20 seconds (cached, including browser open)
 
-## 🎯 Remaining Items
+## 🎯 Phase 2: Management Dashboard (In Progress)
 
-### High Priority
+### Completed
+- [x] **RobcadStudy Health Report Merged** ✅ COMPLETE (2026-01-22)
+  - Merged PR #7: scripts/robcad-study-health.ps1
+  - Opt-in lint report for RobcadStudy names
+  - Flags cross-study anomalies
+  - Outputs: health report (MD), issues (CSV), suspicious names (CSV)
+  - Documented in docs/ROBCAD_STUDY_HEALTH.md
+  - Commit: `f0d6aa4`
+
+- [x] **Phase 2 Specification Locked** ✅ COMPLETE (2026-01-22)
+  - Created docs/PHASE2_DASHBOARD_SPEC.md
+  - Created docs/PHASE2_ACCEPTANCE.md
+  - Data contract: management.json schema defined
+  - 5 work types: Project DB, Resource Library, Part/MFG Library, IPA Assembly, Study Nodes
+  - Movement tracking: Simple moves vs. world location changes (≥1000mm threshold)
+  - Error handling: Graceful degradation, no hard crashes
+  - Performance gates: <60s first run, <15s cached
+  - Reproducibility: One-command execution
+
+### In Progress (Agent Assignments Below)
+- [ ] **SQL Queries** (Agent 02: Database Specialist)
+  - Extract data for all 5 work types
+  - Movement/location change detection (VEC_LOCATION_)
+  - User activity attribution (PROXY/USER_ tables)
+  - See: docs/PHASE2_DASHBOARD_SPEC.md Section "Data Contract"
+
+- [ ] **PowerShell Data Extraction** (Agent 03: PowerShell Backend)
+  - get-management-data.ps1 (runs queries, outputs JSON)
+  - Cache management (15-minute TTL)
+  - Error handling and retry logic
+  - See: docs/PHASE2_ACCEPTANCE.md Gate 2 (Reliability)
+
+- [ ] **HTML Dashboard Generation** (Agent 04: Frontend)
+  - generate-management-dashboard.ps1 (JSON → HTML)
+  - 6 dashboard views (Work Type Summary, Active Studies, Movement Activity, User Breakdown, Timeline, Activity Log)
+  - Interactive expand/collapse, search, filters
+  - See: docs/PHASE2_DASHBOARD_SPEC.md Section "Views and UX Requirements"
+
+- [ ] **Wrapper Script & Testing** (Agent 05: Integration)
+  - management-dashboard-launcher.ps1 (one-command execution)
+  - verify-management-dashboard.ps1 (acceptance tests)
+  - Sample test data (test/fixtures/)
+  - See: docs/PHASE2_ACCEPTANCE.md Gate 3 (Reproducibility)
+
+### Phase 1 Remaining Items (Low Priority)
+
+#### High Priority
 - [x] **Validate against XML export** ✅ COMPLETE
   - Fast validation script created (completes in <60 seconds)
   - XML export: 136,266 nodes (partial export)
@@ -138,6 +184,8 @@ None currently reported! All tests passing.
 ## 📝 Recent Commits
 
 ```
+14ad751 - docs: add ordering fix summary and ignore user-specific config (2026-01-22)
+f0d6aa4 - Add RobcadStudy health report scripts and docs (2026-01-22)
 8f1552b - fix: Hide expand toggle for leaf nodes with only circular children
 e9f4760 - fix: Add full inheritance chain traversal for icon extraction
 f601329 - docs: Add quick testing guide
@@ -192,5 +240,5 @@ If you find any issues or missing nodes:
 4. Create GitHub issue with test output
 
 ---
-Last updated: 2026-01-20
-Status: ? All major issues resolved, Phase 1 pre-flight validated; search verification deferred
+Last updated: 2026-01-22
+Status: Phase 1 complete; Phase 2 (Management Dashboard) in progress - specs locked, agent assignments defined

@@ -86,6 +86,30 @@ This will:
     -ProjectName "FORD_DEARBORN"
 ```
 
+#### Generate Management Dashboard (Phase 2)
+
+Track work activity across 5 core work types: Project DB, Resource Library, Part/MFG Library, IPA Assembly, and Study Nodes (including operations, movements, and welds).
+
+```powershell
+# One-command execution
+.\management-dashboard-launcher.ps1 `
+    -TNSName "SIEMENS_PS_DB_DB01" `
+    -Schema "DESIGN12" `
+    -ProjectId 18140190 `
+    -DaysBack 7
+```
+
+This will:
+- Query database for work activity in the last 7 days
+- Track simple moves vs. world location changes (≥1000mm threshold)
+- Attribute activity to users via PROXY/USER_ tables
+- Generate interactive HTML dashboard
+- Open the result in your default browser
+
+**Output:** `data\output\management-dashboard-DESIGN12-18140190.html`
+
+See [docs/PHASE2_DASHBOARD_SPEC.md](docs/PHASE2_DASHBOARD_SPEC.md) for full specification.
+
 #### Extract Icons Only
 ```powershell
 .\src\powershell\main\extract-icons-hex.ps1 `
@@ -298,12 +322,24 @@ See [DATABASE-STRUCTURE-SUMMARY.md](docs/DATABASE-STRUCTURE-SUMMARY.md) for deta
 
 ## Roadmap
 
+### Phase 1: Tree Viewer (Complete)
 - [x] Three-tier caching system ✅ (Complete - 87% faster!)
 - [x] Lazy loading for browser performance ✅ (Complete - 2-5s load time)
 - [x] Icon inheritance support ✅ (Complete - 221 icons)
 - [x] Multi-parent node support ✅ (Complete)
 - [x] User activity tracking ✅ (Complete - shows checked-out items)
 - [x] Automated testing ✅ (Complete - validation scripts)
+- [x] RobcadStudy health report ✅ (Complete - lint report for study names)
+
+### Phase 2: Management Dashboard (In Progress)
+- [x] Dashboard specification ✅ (Complete - [docs/PHASE2_DASHBOARD_SPEC.md](docs/PHASE2_DASHBOARD_SPEC.md))
+- [x] Acceptance criteria ✅ (Complete - [docs/PHASE2_ACCEPTANCE.md](docs/PHASE2_ACCEPTANCE.md))
+- [ ] SQL queries for 5 work types (Agent 02)
+- [ ] PowerShell data extraction script (Agent 03)
+- [ ] HTML dashboard generator (Agent 04)
+- [ ] Wrapper script + verification tests (Agent 05)
+
+### Future Enhancements
 - [ ] Search result counter and navigation
 - [ ] Export to JSON/XML formats
 - [ ] Node diff/comparison between projects
