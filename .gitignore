@@ -7,6 +7,7 @@ find-*.ps1
 # Output files
 *-output.txt
 *.html.backup
+out/
 
 # Generated data
 tree-data-*.txt
@@ -50,6 +51,7 @@ debug-*.sql
 find-*.sql
 test-*.sql
 run-*.ps1
+!scripts/run-study-health-smoke.ps1
 
 # Documentation files (investigation notes)
 *-SOLUTION.md
@@ -60,6 +62,8 @@ data/
 config/
 tests/
 tnsnames.ora
+!config/
+!config/robcad-study-health-rules.json
 
 # Investigation files
 investigate-*.sql
