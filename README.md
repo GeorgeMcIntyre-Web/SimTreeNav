@@ -162,6 +162,8 @@ All caches auto-refresh when expired. See [CACHE-OPTIMIZATION-COMPLETE.md](CACHE
 - **[Search Test Plan](SEARCH-TEST-PLAN.md)** - Comprehensive search testing guide
 - **[UAT Plan](UAT-PLAN.md)** - User acceptance testing procedures
 - **[Testing Guide](TESTING.md)** - Automated validation scripts
+- **[Node Extraction Regression Test](test-node-extraction-regression.ps1)** - Validates MFGFEATURE_/MODULE_/TxProcessAssembly extraction
+- **[Coverage Check](RUN-COVERAGE-CHECK.ps1)** - Displays node type counts in generated tree
 
 ### Technical Reference
 - **[Database Structure](docs/DATABASE-STRUCTURE-SUMMARY.md)** - Schema and table reference
@@ -171,6 +173,7 @@ All caches auto-refresh when expired. See [CACHE-OPTIMIZATION-COMPLETE.md](CACHE
 
 ### Bug Fixes & Changelog
 - **[Icon Cache Bug Fix](BUGFIX-CACHE-NULL-PATH.md)** - Icon caching null path fix
+- **[MFGFEATURE_/MODULE_ Missing Nodes Fix](BUGFIX-MFGFEATURE-MODULE-MISSING.md)** - Fixed incorrect WHERE clauses causing missing nodes
 - **[Tree Cache Bug Fix](BUGFIX-TREE-CACHE-NULL-PATH.md)** - Tree caching null path fix
 - **[Status](STATUS.md)** - Project status and completed items
 

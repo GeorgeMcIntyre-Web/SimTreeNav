@@ -910,6 +910,10 @@ WHERE op.OBJECT_ID IN (SELECT OBJECT_ID FROM temp_project_objects);
 
 -- Add MFGFEATURE_ nodes (weld points, fixtures, etc.) linked to project tree
 -- MFGFEATURE_ table uses NAME1_S_ column (not NAME_S_)
+-- CRITICAL: Filter on mf.OBJECT_ID (not r.FORWARD_OBJECT_ID) because temp_project_objects
+-- contains the MFGFEATURE objects themselves (discovered during iterative population).
+-- This matches the OPERATION_ pattern (line 909) which is the reference implementation.
+-- Using r.FORWARD_OBJECT_ID would check the parent instead, missing objects already discovered.
 SELECT DISTINCT
     '999|' ||
     r.FORWARD_OBJECT_ID || '|' ||
@@ -924,12 +928,14 @@ SELECT DISTINCT
 FROM $Schema.REL_COMMON r
 INNER JOIN $Schema.MFGFEATURE_ mf ON r.OBJECT_ID = mf.OBJECT_ID
 LEFT JOIN $Schema.CLASS_DEFINITIONS cd ON mf.CLASS_ID = cd.TYPE_ID
-WHERE r.FORWARD_OBJECT_ID IN (SELECT OBJECT_ID FROM temp_project_objects)
+WHERE mf.OBJECT_ID IN (SELECT OBJECT_ID FROM temp_project_objects)
   AND NOT EXISTS (SELECT 1 FROM $Schema.COLLECTION_ c WHERE c.OBJECT_ID = mf.OBJECT_ID)
 UNION ALL
--- Add TxProcessAssembly nodes that are in project tree (using temp table for parent validation)
--- TxProcessAssembly (CLASS_ID 133) nodes may have PART_ or COLLECTION_ parents
--- This query includes ALL TxProcessAssembly nodes whose parents were found during iteration
+-- Add TxProcessAssembly nodes that are in project tree (using temp table for object validation)
+-- TxProcessAssembly (CLASS_ID 133) nodes are stored in PART_ table and may have PART_ or COLLECTION_ parents
+-- CRITICAL: Filter on p.OBJECT_ID (not r.FORWARD_OBJECT_ID) because temp_project_objects
+-- contains the TxProcessAssembly objects themselves (discovered during iterative population).
+-- This matches the OPERATION_ pattern (line 909) which is the reference implementation.
 SELECT
     '999|' ||
     r.FORWARD_OBJECT_ID || '|' ||
@@ -945,11 +951,15 @@ FROM $Schema.REL_COMMON r
 INNER JOIN $Schema.PART_ p ON r.OBJECT_ID = p.OBJECT_ID
 LEFT JOIN $Schema.CLASS_DEFINITIONS cd ON p.CLASS_ID = cd.TYPE_ID
 WHERE p.CLASS_ID = 133  -- TxProcessAssembly TYPE_ID
-  AND r.FORWARD_OBJECT_ID IN (SELECT OBJECT_ID FROM temp_project_objects)
+  AND p.OBJECT_ID IN (SELECT OBJECT_ID FROM temp_project_objects)
   AND NOT EXISTS (SELECT 1 FROM $Schema.COLLECTION_ c WHERE c.OBJECT_ID = p.OBJECT_ID)
 UNION ALL
 -- Add MODULE_ nodes (modules/subassemblies in the tree structure)
 -- Module nodes are stored in MODULE_ table and use NAME1_S_ column (not NAME_S_)
+-- CRITICAL: Filter on m.OBJECT_ID (not r.FORWARD_OBJECT_ID) because temp_project_objects
+-- contains the MODULE objects themselves (discovered during iterative population).
+-- This matches the OPERATION_ pattern (line 909) which is the reference implementation.
+-- Using r.FORWARD_OBJECT_ID would check the parent instead, missing objects already discovered.
 SELECT
     '999|' ||
     r.FORWARD_OBJECT_ID || '|' ||
@@ -964,7 +974,7 @@ SELECT
 FROM $Schema.REL_COMMON r
 INNER JOIN $Schema.MODULE_ m ON r.OBJECT_ID = m.OBJECT_ID
 LEFT JOIN $Schema.CLASS_DEFINITIONS cd ON m.CLASS_ID = cd.TYPE_ID
-WHERE r.FORWARD_OBJECT_ID IN (SELECT OBJECT_ID FROM temp_project_objects)
+WHERE m.OBJECT_ID IN (SELECT OBJECT_ID FROM temp_project_objects)
   AND NOT EXISTS (SELECT 1 FROM $Schema.COLLECTION_ c WHERE c.OBJECT_ID = m.OBJECT_ID);
 
 -- Clean up temp table
