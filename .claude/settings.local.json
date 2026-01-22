@@ -16,7 +16,14 @@
       "Bash(then echo \"=== File exists ===\")",
       "Bash(else echo \"File not created yet\")",
       "Bash(fi)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(Get-Process)",
+      "Bash(Where-Object { $_ProcessName -eq 'sqlplus' })",
+      "Bash(Select-Object ProcessName, Id, CPU)",
+      "Bash(tasklist.exe:*)",
+      "Bash(start navigation-tree-DESIGN12-18851221-FRESH.html)",
+      "Bash(./src/powershell/core/run-sql-query.ps1 -TNSName \"DES_SIM_DB1_DB01\" -Query \"SELECT column_name, data_type, data_type_owner, data_length FROM all_tab_columns WHERE owner = ''DESIGN12'' AND table_name = ''COLLECTION_'' AND column_name LIKE ''%CHILDREN%'';\")",
+      "Bash(./src/powershell/main/tree-viewer-launcher.ps1 -NoCache)"
     ]
   }
 }
