@@ -1,0 +1,2 @@
+work_type,mfg_feature_id,mfg_feature_name,last_modified,modified_by,used_in_operations_count,checked_out_by_user_id,checked_out_by_user_name,status,version_id
+MFG_FEATURE_USAGE,20001234,SPOT_WELD_TEMPLATE_A,2026-01-18 08:10:00,asmith,5,0,,Available,0

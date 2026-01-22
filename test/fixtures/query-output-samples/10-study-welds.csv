@@ -1,0 +1,2 @@
+work_type,operation_id,operation_name,weld_point_count,last_modified,modified_by,checked_out_by_user_id,checked_out_by_user_name,status,version_id
+STUDY_WELDS,9336758,PG21,15,2026-01-19 12:45:00,jdoe,0,,Available,0

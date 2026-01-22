@@ -1,0 +1,2 @@
+work_type,object_id,object_name,object_type,created_by,last_modified,modified_by,checked_out_by_user_id,checked_out_by_user_name,status,operation_count,version_id
+IPA_ASSEMBLY,18220207,P702_IPA,TxProcessAssembly,asmith,2026-01-19 12:10:00,asmith,0,,Available,24,0
