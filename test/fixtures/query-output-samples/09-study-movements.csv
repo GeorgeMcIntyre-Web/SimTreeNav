@@ -1,0 +1,2 @@
+work_type,studylayout_id,study_id,study_name,studyinfo_id,location_vector_id,rotation_vector_id,last_modified,vector_modified_at,modified_by,x_coord,y_coord,z_coord,prev_x_coord,prev_y_coord,prev_z_coord,delta_mm,movement_type,checked_out_by_user_id,checked_out_by_user_name,status,version_id
+STUDY_MOVEMENTS,19000123,18144811,DDMP_P702_8J_010_8J_060,19000120,19010100,19020100,2026-01-19 11:20:00,2026-01-19 11:19:30,jdoe,6250,3200,1500,5000,3200,1500,1250,World,0,,Available,0

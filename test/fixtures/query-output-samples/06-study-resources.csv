@@ -1,0 +1,2 @@
+work_type,study_id,study_name,shortcut_id,shortcut_name,resource_id,resource_name,resource_type,allocation_type,sequence,checked_out_by_user_id,checked_out_by_user_name,status,version_id
+STUDY_RESOURCES,18144811,DDMP_P702_8J_010_8J_060,18145720,8J-010,17929717,8J-010,PrStation,Station Reference,1,0,,Available,0
