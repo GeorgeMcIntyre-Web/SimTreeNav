@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "studyType": "RobcadStudy",
+  "maxNameLength": 60,
+  "maxWordCount": 8,
+  "illegalChars": [":", "*", "?", "\"", "<", ">", "|"],
+  "junkTokens": ["test", "temp", "asdf", "qwerty", "xxx", "copy"],
+  "junkPhrases": ["new folder", "do not delete", "final_final"],
+  "legacyTokens": ["old", "legacy", "backup", "deprecated", "unused", "archive"],
+  "yearPattern": "(19|20)\\d{2}",
+  "rareTokenPercent": 2,
+  "editDistance": {
+    "maxNormalizedDistance": 0.6
+  },
+  "abbreviation": {
+    "minTokenCount": 5,
+    "minRatio": 0.6,
+    "maxTokenLength": 4
+  }
+}
