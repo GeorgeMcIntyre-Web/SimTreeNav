@@ -82,9 +82,8 @@ Write-Host "  Study Welds:      $($stats.studyWelds) items" -ForegroundColor Gra
 Write-Host "  User Activity:    $($stats.userActivity) users" -ForegroundColor Gray
 Write-Host ""
 
-# Embed JSON data (escaped for JavaScript)
-$jsonDataEscaped = $jsonContent -replace '\\', '\\' -replace '"', '\"' -replace "`r`n", '\n' -replace "`n", '\n' -replace "`t", '\t'
-$jsonDataEscaped = $jsonDataEscaped -replace '<', '\u003c' -replace '>', '\u003e'
+# Embed JSON data directly as JavaScript object (no escaping needed)
+$jsonDataForJS = $jsonContent
 
 # Generate HTML
 $html = @"
@@ -857,14 +856,11 @@ $html = @"
         // ========================================
         // DATA LOADING
         // ========================================
-        const rawData = $jsonDataEscaped;
-        let dashboardData;
+        const dashboardData = $jsonDataForJS;
 
-        try {
-            dashboardData = JSON.parse(rawData);
-        } catch (e) {
-            document.body.innerHTML = '<div class="error-state"><h3>Error Loading Dashboard</h3><p>Failed to parse dashboard data. Please regenerate the data file.</p></div>';
-            throw new Error('Failed to parse dashboard data: ' + e.message);
+        if (!dashboardData || !dashboardData.metadata) {
+            document.body.innerHTML = '<div class="error-state"><h3>Error Loading Dashboard</h3><p>Failed to load dashboard data. Please regenerate the data file.</p></div>';
+            throw new Error('Failed to load dashboard data');
         }
 
         // ========================================
@@ -1039,8 +1035,8 @@ $html = @"
         }
 
         function toggleTreeItem(index) {
-            const content = document.getElementById(`content-`${index}`);
-            const toggle = document.getElementById(`toggle-`${index}`);
+            const content = document.getElementById(`content-${index}`);
+            const toggle = document.getElementById(`toggle-${index}`);
 
             if (content.classList.contains('expanded')) {
                 content.classList.remove('expanded');
@@ -1241,7 +1237,7 @@ $html = @"
                     timestamp: item.last_modified || item.created_by,
                     user: item.modified_by || item.created_by,
                     workType: 'Project Database',
-                    description: ``${item.object_name} - `${item.status}`,
+                    description: `${item.object_name} - ${item.status}`,
                     objectName: item.object_name
                 });
             });
@@ -1251,7 +1247,7 @@ $html = @"
                     timestamp: item.last_modified,
                     user: item.modified_by || item.checked_out_by_user_name,
                     workType: 'Resource Library',
-                    description: ``${item.object_name} (`${item.object_type}) - `${item.status}`,
+                    description: `${item.object_name} (${item.object_type}) - ${item.status}`,
                     objectName: item.object_name
                 });
             });
@@ -1261,7 +1257,7 @@ $html = @"
                     timestamp: item.last_modified,
                     user: item.modified_by || item.checked_out_by_user_name,
                     workType: 'Part/MFG Library',
-                    description: ``${item.object_name} (`${item.category}) - `${item.status}`,
+                    description: `${item.object_name} (${item.category}) - ${item.status}`,
                     objectName: item.object_name
                 });
             });
@@ -1271,7 +1267,7 @@ $html = @"
                     timestamp: item.last_modified,
                     user: item.modified_by || item.checked_out_by_user_name,
                     workType: 'IPA Assembly',
-                    description: ``${item.object_name} - `${item.status}`,
+                    description: `${item.object_name} - ${item.status}`,
                     objectName: item.object_name
                 });
             });
@@ -1281,7 +1277,7 @@ $html = @"
                     timestamp: item.last_modified,
                     user: item.modified_by || item.checked_out_by_user_name,
                     workType: 'Study Nodes',
-                    description: ``${item.study_name} (`${item.study_type}) - `${item.status}`,
+                    description: `${item.study_name} (${item.study_type}) - ${item.status}`,
                     objectName: item.study_name
                 });
             });
@@ -1472,7 +1468,7 @@ $html = @"
                 const objectName = (row.objectName || '').replace(/,/g, ' ');
                 const description = (row.description || '').replace(/,/g, ' ');
 
-                csv += `"`${timestamp}","`${user}","`${workType}","`${objectName}","`${description}"\n`;
+                csv += `"${timestamp}","${user}","${workType}","${objectName}","${description}"\n`;
             });
 
             // Create download link

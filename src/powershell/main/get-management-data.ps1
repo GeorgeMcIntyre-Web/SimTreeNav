@@ -168,20 +168,43 @@ EXIT;
         $sqlScript | Out-File $tempSqlFile -Encoding ASCII
 
         # Execute query
-        $outputFile = Join-Path $env:TEMP "${QueryName}-${Schema}-${ProjectId}.txt"
         $connectionString = Get-DbConnectionString -TNSName $TNSName -AsSysDBA -ErrorAction Stop
 
         if ($connectionString) {
-            $result = sqlplus -S $connectionString "@$tempSqlFile" 2>&1
-            $result | Out-File $outputFile -Encoding UTF8
+            # Execute query directly (same method as other working scripts)
+            # Use job with timeout to prevent hanging
+            $timeoutSeconds = 60  # Increased timeout for complex queries
+            $job = Start-Job -ScriptBlock {
+                param($connStr, $sqlFile)
+                $result = & sqlplus -S $connStr "@$sqlFile" 2>&1
+                return $result
+            } -ArgumentList $connectionString, $tempSqlFile
+            
+            $completed = Wait-Job $job -Timeout $timeoutSeconds
+            
+            if (-not $completed) {
+                Stop-Job $job -ErrorAction SilentlyContinue
+                Remove-Job $job -Force -ErrorAction SilentlyContinue
+                Write-Warning "    Query timed out after $timeoutSeconds seconds - skipping"
+                Remove-Item $tempSqlFile -ErrorAction SilentlyContinue
+                return @()
+            }
+            
+            $result = Receive-Job $job
+            Remove-Job $job -Force -ErrorAction SilentlyContinue
+
+            if (-not $result) {
+                Write-Warning "    No results returned"
+                Remove-Item $tempSqlFile -ErrorAction SilentlyContinue
+                return @()
+            }
 
             # Parse results
-            $data = Get-Content $outputFile -Encoding UTF8 | Where-Object { $_ -match '\|' }
+            $data = $result | Where-Object { $_ -match '\|' }
             $objects = Convert-PipeDelimitedToObjects -Lines $data
 
             # Cleanup
             Remove-Item $tempSqlFile -ErrorAction SilentlyContinue
-            Remove-Item $outputFile -ErrorAction SilentlyContinue
 
             Write-Host "    ??? Retrieved $($objects.Count) rows" -ForegroundColor Green
             return $objects
@@ -510,3 +533,6 @@ Write-Host "  ??? Results saved to: $finalOutput" -ForegroundColor Green
 $scriptTimer.Stop()
 Write-Host "`n  Total time: $([math]::Round($scriptTimer.Elapsed.TotalSeconds, 2))s" -ForegroundColor Cyan
 Write-Host ""
+
+# Explicitly exit with success code (0 rows is valid - means no activity in date range)
+exit 0
