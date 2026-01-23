@@ -25,12 +25,12 @@ jobs:
 
       - name: Run unit tests (RunStatus library)
         run: |
-          pwsh -Command "./test/integration/Test-RunStatus.ps1"
+          pwsh -File test/integration/Test-RunStatus.ps1
         continue-on-error: false
 
       - name: Run integration smoke test
         run: |
-          pwsh -Command "./test/integration/Test-ReleaseSmoke.ps1 -OutDir ./out -SkipFullRun"
+          pwsh -File test/integration/Test-ReleaseSmoke.ps1 -OutDir ./out -SkipFullRun
         continue-on-error: false
 
       - name: Display run-status.json
