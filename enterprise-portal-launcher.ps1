@@ -56,11 +56,11 @@ $ErrorActionPreference = "Continue"
 $scriptRoot = $PSScriptRoot
 
 Write-Host ""
-Write-Host "╔════════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
-Write-Host "║                                                                ║" -ForegroundColor Cyan
-Write-Host "║          SimTreeNav Enterprise Portal Launcher                 ║" -ForegroundColor Cyan
-Write-Host "║                                                                ║" -ForegroundColor Cyan
-Write-Host "╚════════════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
+Write-Host "================================================================" -ForegroundColor Cyan
+Write-Host "                                                                " -ForegroundColor Cyan
+Write-Host "          SimTreeNav Enterprise Portal Launcher                 " -ForegroundColor Cyan
+Write-Host "                                                                " -ForegroundColor Cyan
+Write-Host "================================================================" -ForegroundColor Cyan
 Write-Host ""
 
 # Helper function to run portal generation
@@ -72,9 +72,9 @@ function Invoke-PortalGeneration {
     $startTime = Get-Date
 
     # Step 1: Gather server health
-    Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor DarkGray
+    Write-Host "----------------------------------------------------------------" -ForegroundColor DarkGray
     Write-Host "[1/4] Gathering Server Health..." -ForegroundColor Cyan
-    Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor DarkGray
+    Write-Host "----------------------------------------------------------------" -ForegroundColor DarkGray
     Write-Host ""
 
     try {
@@ -94,9 +94,9 @@ function Invoke-PortalGeneration {
 
     # Step 2: Aggregate user activity
     Write-Host ""
-    Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor DarkGray
+    Write-Host "----------------------------------------------------------------" -ForegroundColor DarkGray
     Write-Host "[2/4] Aggregating User Activity..." -ForegroundColor Cyan
-    Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor DarkGray
+    Write-Host "----------------------------------------------------------------" -ForegroundColor DarkGray
     Write-Host ""
 
     try {
@@ -116,9 +116,9 @@ function Invoke-PortalGeneration {
 
     # Step 3: Check scheduled jobs
     Write-Host ""
-    Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor DarkGray
+    Write-Host "----------------------------------------------------------------" -ForegroundColor DarkGray
     Write-Host "[3/4] Checking Scheduled Jobs..." -ForegroundColor Cyan
-    Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor DarkGray
+    Write-Host "----------------------------------------------------------------" -ForegroundColor DarkGray
     Write-Host ""
 
     try {
@@ -138,9 +138,9 @@ function Invoke-PortalGeneration {
 
     # Step 4: Generate enterprise portal HTML
     Write-Host ""
-    Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor DarkGray
+    Write-Host "----------------------------------------------------------------" -ForegroundColor DarkGray
     Write-Host "[4/4] Generating Enterprise Portal..." -ForegroundColor Cyan
-    Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor DarkGray
+    Write-Host "----------------------------------------------------------------" -ForegroundColor DarkGray
     Write-Host ""
 
     try {
@@ -165,11 +165,11 @@ function Invoke-PortalGeneration {
 
     # Display success summary
     Write-Host ""
-    Write-Host "╔════════════════════════════════════════════════════════════════╗" -ForegroundColor Green
-    Write-Host "║                                                                ║" -ForegroundColor Green
-    Write-Host "║                 Portal Generated Successfully!                 ║" -ForegroundColor Green
-    Write-Host "║                                                                ║" -ForegroundColor Green
-    Write-Host "╚════════════════════════════════════════════════════════════════╝" -ForegroundColor Green
+    Write-Host "================================================================" -ForegroundColor Green
+    Write-Host "                                                                " -ForegroundColor Green
+    Write-Host "                 Portal Generated Successfully!                 " -ForegroundColor Green
+    Write-Host "                                                                " -ForegroundColor Green
+    Write-Host "================================================================" -ForegroundColor Green
     Write-Host ""
     Write-Host "  Output File: $OutputPath" -ForegroundColor Cyan
     Write-Host "  Duration:    $([math]::Round($duration, 1)) seconds" -ForegroundColor Cyan
@@ -213,11 +213,11 @@ if (-not $success) {
 
 # Auto-refresh loop (if enabled)
 if ($AutoRefresh) {
-    Write-Host "╔════════════════════════════════════════════════════════════════╗" -ForegroundColor Yellow
-    Write-Host "║                                                                ║" -ForegroundColor Yellow
-    Write-Host "║              Auto-Refresh Mode Enabled                         ║" -ForegroundColor Yellow
-    Write-Host "║                                                                ║" -ForegroundColor Yellow
-    Write-Host "╚════════════════════════════════════════════════════════════════╝" -ForegroundColor Yellow
+    Write-Host "================================================================" -ForegroundColor Yellow
+    Write-Host "                                                                " -ForegroundColor Yellow
+    Write-Host "              Auto-Refresh Mode Enabled                         " -ForegroundColor Yellow
+    Write-Host "                                                                " -ForegroundColor Yellow
+    Write-Host "================================================================" -ForegroundColor Yellow
     Write-Host ""
     Write-Host "  Portal will refresh every $RefreshInterval minute(s)" -ForegroundColor Yellow
     Write-Host "  Press Ctrl+C to stop" -ForegroundColor Yellow
@@ -230,9 +230,9 @@ if ($AutoRefresh) {
         Start-Sleep -Seconds ($RefreshInterval * 60)
 
         Write-Host ""
-        Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor DarkCyan
+        Write-Host "----------------------------------------------------------------" -ForegroundColor DarkCyan
         Write-Host "  Auto-Refresh at $(Get-Date -Format 'HH:mm:ss')" -ForegroundColor Cyan
-        Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor DarkCyan
+        Write-Host "----------------------------------------------------------------" -ForegroundColor DarkCyan
         Write-Host ""
 
         $success = Invoke-PortalGeneration -OpenBrowser $false
