@@ -161,16 +161,20 @@ if (-not $SkipFullRun) {
 
 # TEST 4: Verify run-status.json exists and is valid
 Write-Host "`nTest 4: Validate run-status.json..." -ForegroundColor Yellow
-$statusPath = Join-Path $OutDir "json\run-status.json"
 
-if (-not (Test-Path $statusPath)) {
-    Add-Issue "run-status.json not found at $statusPath"
-    Write-Host "  Available files in json/:" -ForegroundColor Gray
-    $jsonDir = Join-Path $OutDir "json"
-    if (Test-Path $jsonDir) {
-        Get-ChildItem $jsonDir | ForEach-Object { Write-Host "    $_" -ForegroundColor Gray }
-    }
+if ($SkipFullRun) {
+    Write-Host "  SKIPPED (full run not executed)" -ForegroundColor Gray
 } else {
+    $statusPath = Join-Path $OutDir "json\run-status.json"
+
+    if (-not (Test-Path $statusPath)) {
+        Add-Issue "run-status.json not found at $statusPath"
+        Write-Host "  Available files in json/:" -ForegroundColor Gray
+        $jsonDir = Join-Path $OutDir "json"
+        if (Test-Path $jsonDir) {
+            Get-ChildItem $jsonDir | ForEach-Object { Write-Host "    $_" -ForegroundColor Gray }
+        }
+    } else {
     try {
         $status = Get-Content -Path $statusPath -Raw | ConvertFrom-Json
 
@@ -223,6 +227,7 @@ if (-not (Test-Path $statusPath)) {
         Write-Host "  Status: $($status.status), Exit: $($status.exitCode), Duration: $($status.durations.totalMs)ms" -ForegroundColor Gray
     } catch {
         Add-Issue "Failed to parse or validate run-status.json: $_"
+    }
     }
 }
 
