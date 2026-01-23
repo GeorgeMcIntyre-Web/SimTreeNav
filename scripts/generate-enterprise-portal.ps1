@@ -52,23 +52,41 @@ Write-Host "  Enterprise Portal Generator" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
-# Validate input files
+# Helper function to resolve paths
+function Resolve-InputPath {
+    param (
+        [string]$Path,
+        [string]$Description
+    )
+
+    if (-not (Test-Path $Path)) {
+        Write-Error "ERROR: $Description path not found: $Path"
+        exit 1
+    }
+
+    if (Test-Path $Path -PathType Container) {
+        $latestFile = Get-ChildItem -Path $Path -Filter "*.json" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+        
+        if (-not $latestFile) {
+            Write-Error "ERROR: No .json files found in $Description directory: $Path"
+            exit 1
+        }
+        
+        Write-Host "  Using latest file for $Description : $($latestFile.Name)" -ForegroundColor DarkGray
+        return $latestFile.FullName
+    }
+
+    return $Path
+}
+
+# Validate and resolve input files
 Write-Host "Validating input files..." -ForegroundColor Cyan
 
-if (-not (Test-Path $ServerHealthPath)) {
-    Write-Error "ERROR: Server health file not found: $ServerHealthPath"
-    exit 1
-}
-if (-not (Test-Path $UserActivityPath)) {
-    Write-Error "ERROR: User activity file not found: $UserActivityPath"
-    exit 1
-}
-if (-not (Test-Path $ScheduledJobsPath)) {
-    Write-Error "ERROR: Scheduled jobs file not found: $ScheduledJobsPath"
-    exit 1
-}
+$ServerHealthPath = Resolve-InputPath -Path $ServerHealthPath -Description "Server Health"
+$UserActivityPath = Resolve-InputPath -Path $UserActivityPath -Description "User Activity"
+$ScheduledJobsPath = Resolve-InputPath -Path $ScheduledJobsPath -Description "Scheduled Jobs"
 
-Write-Host "  ✓ All input files found" -ForegroundColor Green
+Write-Host "  ✓ All input files resolved" -ForegroundColor Green
 Write-Host ""
 
 # Load JSON data
@@ -838,8 +856,8 @@ $html = @"
 
                 const card = document.createElement('div');
                 card.className = 'server-card ' + statusClass;
-                card.innerHTML = `
-                    <div class="server-icon">${statusIcon}</div>
+                card.innerHTML = ``
+                    <div class="server-icon">`${statusIcon}</div>
                     <div class="server-name">`${server.name} (`${server.instance})</div>
                     <div class="server-status `${server.status}">`${server.status.toUpperCase()}</div>
                     <div class="server-metrics">
@@ -847,7 +865,7 @@ $html = @"
                         <span>Sessions: `${server.activeSessions}</span>
                         <span>Schemas: `${server.schemas.length}</span>
                     </div>
-                `;
+                ``;
                 serverGrid.appendChild(card);
             });
 
@@ -861,12 +879,12 @@ $html = @"
                 portalData.scheduledJobs.jobs.forEach(job => {
                     const statusClass = job.status === 'success' ? 'success' : (job.status === 'failed' ? 'danger' : 'warning');
                     const row = document.createElement('tr');
-                    row.innerHTML = `
+                    row.innerHTML = ``
                         <td>`${job.name}</td>
                         <td><span class="status-badge `${statusClass}">`${job.status}</span></td>
                         <td>`${job.lastRun || 'Never'}</td>
                         <td>`${job.nextRun || 'Not scheduled'}</td>
-                    `;
+                    ``;
                     jobsTable.appendChild(row);
                 });
             }
@@ -880,7 +898,7 @@ $html = @"
             portalData.serverHealth.servers.forEach((server, idx) => {
                 const div = document.createElement('div');
                 div.className = 'server-item';
-                div.innerHTML = `
+                div.innerHTML = ``
                     <div class="server-header" onclick="toggleServer('server`${idx}')">
                         <div>
                             <span class="expand-icon" id="icon-server`${idx}">▶</span>
@@ -890,15 +908,15 @@ $html = @"
                     </div>
                     <div id="server`${idx}" class="server-details">
                         <div class="schema-list">
-                            `${server.schemas.map(s => `
+                            `${server.schemas.map(s => ``
                                 <div class="schema-item">
                                     <span class="schema-name">`${s.name}</span>
                                     <span class="project-count">`${s.projectCount} projects</span>
                                 </div>
-                            `).join('')}
+                            ``).join('')}
                         </div>
                     </div>
-                `;
+                ``;
                 serverList.appendChild(div);
             });
 
@@ -912,13 +930,13 @@ $html = @"
                 portalData.userActivity.users.forEach(user => {
                     const row = document.createElement('tr');
                     const staleClass = user.longestCheckout > 72 ? 'text-danger' : '';
-                    row.innerHTML = `
+                    row.innerHTML = ``
                         <td>`${user.name}</td>
                         <td>`${user.checkedOutItems}</td>
                         <td>`${user.servers.join(', ')}</td>
                         <td class="`${staleClass}">`${user.longestCheckout} hours</td>
                         <td>`${user.lastActivity || 'Unknown'}</td>
-                    `;
+                    ``;
                     usersTable.appendChild(row);
                 });
             }
@@ -935,7 +953,7 @@ $html = @"
                 const statusClass = server.status === 'online' ? 'text-success' : (server.status === 'degraded' ? 'text-warning' : 'text-danger');
 
                 const row = document.createElement('tr');
-                row.innerHTML = `
+                row.innerHTML = ``
                     <td>`${server.name}</td>
                     <td>`${server.instance}</td>
                     <td class="`${statusClass}">`${server.status.toUpperCase()}</td>
@@ -943,7 +961,7 @@ $html = @"
                     <td>`${server.activeSessions}</td>
                     <td>`${server.schemas.length}</td>
                     <td>`${totalProjects}</td>
-                `;
+                ``;
                 serversTable.appendChild(row);
             });
 
@@ -957,12 +975,12 @@ $html = @"
                 const treeStatus = server.cacheHealth.treeCache === 'fresh' ? '✓ Fresh' : (server.cacheHealth.treeCache === 'stale' ? '⚠ Stale' : '✗ Missing');
                 const activityStatus = server.cacheHealth.activityCache === 'fresh' ? '✓ Fresh' : (server.cacheHealth.activityCache === 'stale' ? '⚠ Stale' : '✗ Missing');
 
-                row.innerHTML = `
+                row.innerHTML = ``
                     <td>`${server.name}</td>
                     <td>`${iconStatus}</td>
                     <td>`${treeStatus}</td>
                     <td>`${activityStatus}</td>
-                `;
+                ``;
                 cacheTable.appendChild(row);
             });
 
@@ -976,14 +994,14 @@ $html = @"
                 portalData.scheduledJobs.jobs.forEach(job => {
                     const statusClass = job.status === 'success' ? 'success' : (job.status === 'failed' ? 'danger' : 'warning');
                     const row = document.createElement('tr');
-                    row.innerHTML = `
+                    row.innerHTML = ``
                         <td>`${job.name}</td>
                         <td><span class="status-badge `${statusClass}">`${job.status}</span></td>
                         <td>`${job.lastRun || 'Never'}</td>
                         <td>`${job.nextRun || 'Not scheduled'}</td>
                         <td>`${job.state}</td>
                         <td class="text-danger">`${job.errorMessage || '-'}</td>
-                    `;
+                    ``;
                     jobsTable.appendChild(row);
                 });
             }

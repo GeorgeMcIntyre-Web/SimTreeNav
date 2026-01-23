@@ -1,0 +1,43 @@
+{
+    "currentProfile": "Default Profile",
+    "profiles": [
+        {
+            "name": "Default Profile",
+            "hostname": "LOCALHOST",
+            "description": "Default configuration for development",
+            "isDefault": true,
+            "servers": [
+                {
+                    "name": "Production Server",
+                    "defaultInstance": "PROD_A",
+                    "instances": [
+                        {
+                            "name": "PROD_A",
+                            "tnsName": "SIM_PROD_A",
+                            "service": "sim_prod_a.corp.example.com"
+                        },
+                        {
+                            "name": "PROD_B",
+                            "tnsName": "SIM_PROD_B",
+                            "service": "sim_prod_b.corp.example.com"
+                        }
+                    ]
+                },
+                {
+                    "name": "Test Server",
+                    "defaultInstance": "TEST_1",
+                    "instances": [
+                        {
+                            "name": "TEST_1",
+                            "tnsName": "SIM_TEST_1",
+                            "service": "sim_test_1.corp.example.com"
+                        }
+                    ]
+                }
+            ],
+            "lastUsed": null,
+            "createdDate": "2026-01-23 12:00:00",
+            "updatedDate": "2026-01-23 12:00:00"
+        }
+    ]
+}

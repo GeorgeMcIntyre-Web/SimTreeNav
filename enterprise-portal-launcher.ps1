@@ -71,75 +71,109 @@ function Invoke-PortalGeneration {
 
     $startTime = Get-Date
 
-    # Step 1: Gather server health
-    Write-Host "----------------------------------------------------------------" -ForegroundColor DarkGray
-    Write-Host "[1/4] Gathering Server Health..." -ForegroundColor Cyan
-    Write-Host "----------------------------------------------------------------" -ForegroundColor DarkGray
-    Write-Host ""
+    # Check for configuration
+    $configPath = Join-Path $scriptRoot "config\pc-profiles.json"
+    $hasConfig = Test-Path $configPath
 
-    try {
-        $serverHealthPath = & "$scriptRoot\src\powershell\monitoring\Get-ServerHealth.ps1"
-        if (-not $serverHealthPath) {
-            throw "Server health script did not return a file path"
+    if (-not $hasConfig) {
+        Write-Host "----------------------------------------------------------------" -ForegroundColor Yellow
+        Write-Host "  WARNING: Configuration not found (pc-profiles.json)" -ForegroundColor Yellow
+        Write-Host "  Running in DEMO MODE with dummy data" -ForegroundColor Yellow
+        Write-Host "----------------------------------------------------------------" -ForegroundColor Yellow
+        Write-Host ""
+
+        # Run dummy data generator
+        Write-Host "[1/3] Generating Dummy Data..." -ForegroundColor Cyan
+        try {
+            & "$scriptRoot\scripts\generate-dummy-portal-data.ps1" | Out-Null
+            Write-Host "  [OK] Dummy data generated" -ForegroundColor Green
+        } catch {
+            Write-Host "  [X] Failed to generate dummy data: $_" -ForegroundColor Red
+            return $false
         }
+
+        # Set paths to dummy data locations
+        # Note: These paths match what generate-dummy-portal-data.ps1 uses
+        $baseDataPath = "C:\Users\georgem\source\repos\SimTreeNav_Data" 
+        $serverHealthPath = Join-Path $baseDataPath "ServerHealthPath\server-health-dummy.json"
+        $userActivityPath = Join-Path $baseDataPath "UserActivityPath\user-activity-dummy.json"
+        $scheduledJobsPath = Join-Path $baseDataPath "ScheduledJobsPath\scheduled-jobs-dummy.json"
+        
         Write-Host ""
-        Write-Host "  [OK] Server health data collected" -ForegroundColor Green
-        Write-Host "    Path: $serverHealthPath" -ForegroundColor Gray
-    } catch {
+
+    } else {
+        # REAL MODE - Gather actual data
+        
+        # Step 1: Gather server health
+        Write-Host "----------------------------------------------------------------" -ForegroundColor DarkGray
+        Write-Host "[1/4] Gathering Server Health..." -ForegroundColor Cyan
+        Write-Host "----------------------------------------------------------------" -ForegroundColor DarkGray
         Write-Host ""
-        Write-Host "  [X] Failed to gather server health: $_" -ForegroundColor Red
+
+        try {
+            $serverHealthPath = & "$scriptRoot\src\powershell\monitoring\Get-ServerHealth.ps1"
+            if (-not $serverHealthPath) {
+                throw "Server health script did not return a file path"
+            }
+            Write-Host ""
+            Write-Host "  [OK] Server health data collected" -ForegroundColor Green
+            Write-Host "    Path: $serverHealthPath" -ForegroundColor Gray
+        } catch {
+            Write-Host ""
+            Write-Host "  [X] Failed to gather server health: $_" -ForegroundColor Red
+            Write-Host ""
+            return $false
+        }
+
+        # Step 2: Aggregate user activity
         Write-Host ""
-        return $false
+        Write-Host "----------------------------------------------------------------" -ForegroundColor DarkGray
+        Write-Host "[2/4] Aggregating User Activity..." -ForegroundColor Cyan
+        Write-Host "----------------------------------------------------------------" -ForegroundColor DarkGray
+        Write-Host ""
+
+        try {
+            $userActivityPath = & "$scriptRoot\src\powershell\monitoring\Get-UserActivitySummary.ps1"
+            if (-not $userActivityPath) {
+                throw "User activity script did not return a file path"
+            }
+            Write-Host ""
+            Write-Host "  [OK] User activity data collected" -ForegroundColor Green
+            Write-Host "    Path: $userActivityPath" -ForegroundColor Gray
+        } catch {
+            Write-Host ""
+            Write-Host "  [X] Failed to aggregate user activity: $_" -ForegroundColor Red
+            Write-Host ""
+            return $false
+        }
+
+        # Step 3: Check scheduled jobs
+        Write-Host ""
+        Write-Host "----------------------------------------------------------------" -ForegroundColor DarkGray
+        Write-Host "[3/4] Checking Scheduled Jobs..." -ForegroundColor Cyan
+        Write-Host "----------------------------------------------------------------" -ForegroundColor DarkGray
+        Write-Host ""
+
+        try {
+            $scheduledJobsPath = & "$scriptRoot\src\powershell\monitoring\Get-ScheduledJobStatus.ps1"
+            if (-not $scheduledJobsPath) {
+                throw "Scheduled jobs script did not return a file path"
+            }
+            Write-Host ""
+            Write-Host "  [OK] Scheduled job data collected" -ForegroundColor Green
+            Write-Host "    Path: $scheduledJobsPath" -ForegroundColor Gray
+        } catch {
+            Write-Host ""
+            Write-Host "  [X] Failed to check scheduled jobs: $_" -ForegroundColor Red
+            Write-Host ""
+            return $false
+        }
     }
 
-    # Step 2: Aggregate user activity
+    # Step 4 (or 2 in Demo): Generate enterprise portal HTML
     Write-Host ""
     Write-Host "----------------------------------------------------------------" -ForegroundColor DarkGray
-    Write-Host "[2/4] Aggregating User Activity..." -ForegroundColor Cyan
-    Write-Host "----------------------------------------------------------------" -ForegroundColor DarkGray
-    Write-Host ""
-
-    try {
-        $userActivityPath = & "$scriptRoot\src\powershell\monitoring\Get-UserActivitySummary.ps1"
-        if (-not $userActivityPath) {
-            throw "User activity script did not return a file path"
-        }
-        Write-Host ""
-        Write-Host "  [OK] User activity data collected" -ForegroundColor Green
-        Write-Host "    Path: $userActivityPath" -ForegroundColor Gray
-    } catch {
-        Write-Host ""
-        Write-Host "  [X] Failed to aggregate user activity: $_" -ForegroundColor Red
-        Write-Host ""
-        return $false
-    }
-
-    # Step 3: Check scheduled jobs
-    Write-Host ""
-    Write-Host "----------------------------------------------------------------" -ForegroundColor DarkGray
-    Write-Host "[3/4] Checking Scheduled Jobs..." -ForegroundColor Cyan
-    Write-Host "----------------------------------------------------------------" -ForegroundColor DarkGray
-    Write-Host ""
-
-    try {
-        $scheduledJobsPath = & "$scriptRoot\src\powershell\monitoring\Get-ScheduledJobStatus.ps1"
-        if (-not $scheduledJobsPath) {
-            throw "Scheduled jobs script did not return a file path"
-        }
-        Write-Host ""
-        Write-Host "  [OK] Scheduled job data collected" -ForegroundColor Green
-        Write-Host "    Path: $scheduledJobsPath" -ForegroundColor Gray
-    } catch {
-        Write-Host ""
-        Write-Host "  [X] Failed to check scheduled jobs: $_" -ForegroundColor Red
-        Write-Host ""
-        return $false
-    }
-
-    # Step 4: Generate enterprise portal HTML
-    Write-Host ""
-    Write-Host "----------------------------------------------------------------" -ForegroundColor DarkGray
-    Write-Host "[4/4] Generating Enterprise Portal..." -ForegroundColor Cyan
+    Write-Host "[Info] Generating Enterprise Portal..." -ForegroundColor Cyan
     Write-Host "----------------------------------------------------------------" -ForegroundColor DarkGray
     Write-Host ""
 
