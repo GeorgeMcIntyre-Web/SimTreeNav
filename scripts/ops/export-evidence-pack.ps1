@@ -60,6 +60,24 @@ Write-Log "Starting export-evidence-pack stub..."
 Write-Log "Parameters: OutDir='$OutDir', LogDir='$LogDir', Smoke=$Smoke"
 
 if ($Smoke) {
+    Write-Log "Running Smoke Test..."
+    
+    # 1. Check OutDir
+    if (-not (Test-Path $OutDir)) {
+        New-Item -ItemType Directory -Path $OutDir -Force | Out-Null
+        Write-Log "Smoke: Created OutDir '$OutDir'"
+    } else {
+        Write-Log "Smoke: OutDir '$OutDir' exists"
+    }
+
+    # 2. Check LogDir
+    if (-not (Test-Path $LogDir)) {
+        Write-Log "Smoke: FAIL - LogDir '$LogDir' was not created by setup block"
+        exit 1
+    } else {
+        Write-Log "Smoke: LogDir '$LogDir' exists"
+    }
+
     Write-Log "Smoke test passed. Exiting 0."
     exit 0
 }

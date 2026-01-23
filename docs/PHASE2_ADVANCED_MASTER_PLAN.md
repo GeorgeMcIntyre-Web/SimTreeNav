@@ -97,10 +97,10 @@ This plan outlines a safe, additive strategy to introduce advanced features like
 3.  Add "Data Quality" SQL queries to extraction scripts (Read-Only).
 4.  Verify performance impact (must stay < 5min runtime).
 
-**Phase 2.3: UI & Experience (Agent 03)**
-1.  Update Dashboard HTML/JS to consume `quality_metrics`.
-2.  Add "System Status" tab for Inventory.
-3.  Wire up "Export" button to trigger `export-evidence-pack.ps1` (via backend launcher if applicable, or just manual instructions for now).
+**Phase 2.3: Production Release (Agent 03)**
+1.  Establish Production Runbook and Deployment Scripts.
+2.  Wire up "System Status" and "Evidence Pack" ops integration.
+3.  Validate "Export" button trigger mechanism with Ops team.
 
 **Phase 2.4: Verification & Rollout (Agent 10)**
 1.  End-to-End Test: Run extraction -> Dashboard Render -> Monitor Check -> Zip Export.
@@ -133,10 +133,10 @@ This plan outlines a safe, additive strategy to introduce advanced features like
 *   The `ADVANCED_FEATURES_TECH_SPEC.md` for JSON schema fields (`quality_metrics`, `inventory`).
 
 ### What Agent 3 Needs:
-*   The UX Entry Points defined in "Feature Catalog" (System Status Tab, Risk Radar).
-*   Sample JSON data structure (mocked in Tech Spec) to build UI components in parallel.
+*   The UX Entry Points defined in "Feature Catalog" (System Status Tab, Risk Radar) to map to Runbook actions.
+*   The `export-evidence-pack.ps1` stub to define the deployment integration points.
 
 ### Parallel Work Opportunities:
 *   Agent 2 can build the **SQL Extraction Logic** for "Data Quality".
-*   Agent 3 can build the **Frontend Components** (Quality Widget, Server Table) using mock JSON.
+*   Agent 3 can draft the **Production Runbook** and **Deployment Checklist**.
 *   Agent 10 can write the **Test Scenarios** based on Failure Modes.
