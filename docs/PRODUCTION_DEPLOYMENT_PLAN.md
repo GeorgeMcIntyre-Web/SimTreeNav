@@ -43,6 +43,15 @@ Before any effective changes, execute the dry-run operations pack.
     ```
     *Verifies XML generation without registering tasks.*
 
+### Step 0.5: Staging Rehearsal (Recommended)
+Before copying to Production `D:\SimTreeNav`:
+1.  Run `scripts/ops/build-deploy-bundle.ps1 -DeployRoot ./out/staging_root/SimTreeNav -Smoke` locally.
+2.  Verify the bundle layout matches `D:\SimTreeNav`.
+3.  Generate XMLs using the staging bundle path to confirm logic:
+    ```powershell
+    pwsh ./scripts/ops/install-scheduled-tasks.ps1 -HostRoot "D:\SimTreeNav" -OutDir ./out_staging
+    ```
+
 ### Step 1: Smoke Test & Backup (Dev/Ops) - Feb 9
 1.  **Backup** current Production `wwwroot` or share content.
     ```powershell
