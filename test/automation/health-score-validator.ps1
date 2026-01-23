@@ -11,7 +11,7 @@ param(
 
     [string]$ScoreField = "",
     [int]$Tolerance = 3,
-    [string]$OutputReport = "test-automation/results/health-score-validator.json"
+    [string]$OutputReport = "test/automation/results/health-score-validator.json"
 )
 
 function Add-Issue {

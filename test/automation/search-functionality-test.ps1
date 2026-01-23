@@ -7,7 +7,7 @@ param(
     [string]$HtmlPath,
 
     [string]$TermsPath = "",
-    [string]$OutputReport = "test-automation/results/search-functionality-test.json",
+    [string]$OutputReport = "test/automation/results/search-functionality-test.json",
     [string]$OutputCsv = ""
 )
 

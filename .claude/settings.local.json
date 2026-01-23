@@ -23,7 +23,15 @@
       "Bash(tasklist.exe:*)",
       "Bash(start navigation-tree-DESIGN12-18851221-FRESH.html)",
       "Bash(./src/powershell/core/run-sql-query.ps1 -TNSName \"DES_SIM_DB1_DB01\" -Query \"SELECT column_name, data_type, data_type_owner, data_length FROM all_tab_columns WHERE owner = ''DESIGN12'' AND table_name = ''COLLECTION_'' AND column_name LIKE ''%CHILDREN%'';\")",
-      "Bash(./src/powershell/main/tree-viewer-launcher.ps1 -NoCache)"
+      "Bash(./src/powershell/main/tree-viewer-launcher.ps1 -NoCache)",
+      "Bash(git mv:*)",
+      "Bash(git mv FIX-*.md docs/archive/investigations/)",
+      "Bash(git mv DATABASE-INVESTIGATION-FINDINGS.md docs/archive/investigations/)",
+      "Bash(for file in PHASE*-TEST-PLAN.md TEST-PLAN.md TESTING.md UAT-PLAN.md E2E-TESTING-STRATEGY.md SEARCH-TEST-PLAN.md TEST-EXECUTION-GUIDE.md README-TESTING.md SMOKE-TEST-RESULTS.md QUICK-SMOKE-TEST.md PRE-FLIGHT-CHECK.md)",
+      "Bash(do:*)",
+      "Bash(done)",
+      "Bash(for file in DELIVERABLES.md DATABASE-SCHEMA.md SPECIALIZED-NODES-GUIDE.md QUICK-START-GUIDE.md QUICK-VALIDATION-TEST.ps1 STATUS.md PERFORMANCE.md)",
+      "Bash(for file in analyze-study-*.ps1 cache-status.ps1 run-analyze-*.ps1 run-test-*.ps1 run-tool-query.ps1 run-verify-*.ps1 RUN-COVERAGE-CHECK.ps1 validate-against-*.ps1 verify-*.ps1)"
     ]
   }
 }

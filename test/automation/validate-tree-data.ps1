@@ -13,7 +13,7 @@ param(
     [int]$ExpectedIconCount = 0,
     [int]$NodeCountTolerancePercent = 2,
     [int]$MaxMissingSamples = 50,
-    [string]$OutputReport = "test-automation/results/validate-tree-data.json"
+    [string]$OutputReport = "test/automation/results/validate-tree-data.json"
 )
 
 function Add-Issue {

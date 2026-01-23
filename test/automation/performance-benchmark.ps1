@@ -14,7 +14,7 @@ param(
     [int]$MaxCachedLoadSeconds = 5,
     [int]$MaxGenerationSeconds = 90,
     [int]$MaxBrowserMemoryMb = 100,
-    [string]$OutputReport = "test-automation/results/performance-benchmark.json"
+    [string]$OutputReport = "test/automation/results/performance-benchmark.json"
 )
 
 function Add-Issue {

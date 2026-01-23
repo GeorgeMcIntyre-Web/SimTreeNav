@@ -9,7 +9,7 @@ param(
     [string]$ExpectedChainsPath = "",
     [string[]]$RootIds = @(),
     [int]$MaxCycleSamples = 10,
-    [string]$OutputReport = "test-automation/results/dependency-graph-test.json"
+    [string]$OutputReport = "test/automation/results/dependency-graph-test.json"
 )
 
 function Add-Issue {
