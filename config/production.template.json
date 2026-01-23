@@ -1,0 +1,33 @@
+{
+  "database": {
+    "host": "oracle-prod.corp.example.com",
+    "port": 1521,
+    "serviceName": "SIMTREENAV",
+    "schemas": [
+      "SIM_CORE",
+      "SIM_ARCHIVE",
+      "SIM_STAGING"
+    ]
+  },
+  "paths": {
+    "outDir": "./out",
+    "logsDir": "./out/logs",
+    "reportsDir": "./out/reports"
+  },
+  "hosting": {
+    "type": "NetworkShare",
+    "path": "\\\\fileserver\\SimTreeNavShare"
+  },
+  "notification": {
+    "smtpServer": "smtp.corp.example.com",
+    "senderAddress": "simtreenav-noreply@example.com",
+    "adminRecipients": ["admin@example.com"],
+    "digestRecipients": ["team-leads@example.com"]
+  },
+  "features": {
+    "enableDaily": true,
+    "enableMonitor": true,
+    "enableWeeklyDigest": true,
+    "enableMonthlyReport": true
+  }
+}
