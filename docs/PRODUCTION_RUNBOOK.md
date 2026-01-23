@@ -69,3 +69,71 @@ Example:
 [2026-02-10 06:01:05] [INFO] Starting Dashboard Generation
 [2026-02-10 06:02:10] [ERROR] Oracle Connection Timeout
 ```
+
+## Run Status Diagnostics
+
+Every dashboard task run produces a `run-status.json` file in `out/json/` that provides detailed execution diagnostics.
+
+### Location
+```
+C:\Scripts\SimTreeNav\out\json\run-status.json
+```
+
+### Quick Health Check
+```powershell
+# Check last run status
+$status = Get-Content C:\Scripts\SimTreeNav\out\json\run-status.json | ConvertFrom-Json
+Write-Host "Status: $($status.status)"
+Write-Host "Exit Code: $($status.exitCode)"
+Write-Host "Top Error: $($status.topError)"
+```
+
+### Field Reference
+
+| Field | Description | Example |
+|-------|-------------|---------|
+| `status` | Overall run outcome | "success", "failed", "partial" |
+| `exitCode` | Process exit code | 0 (success), 1 (failure), 2 (dependency), 3 (unknown) |
+| `topError` | First critical error | "SQL*Plus not found" |
+| `steps[]` | Execution timeline | Array of step objects |
+| `durations.totalMs` | Total runtime | 45000 (45 seconds) |
+| `logFile` | Full log path | "C:\...\dashboard-task.log" |
+
+### Exit Code Meanings
+
+- **0 (Success)**: All steps completed without errors
+- **1 (Expected Failure)**: Business logic error, config issue, or data problem
+  - Example: Config file not found, generator script failed
+- **2 (Dependency Failure)**: Missing system dependency or permission
+  - Example: SQL*Plus not in PATH, output directory not writable
+- **3 (Unknown Error)**: Unexpected exception or system state
+  - Example: Out of memory, corrupted file
+
+### Troubleshooting by Exit Code
+
+#### Exit Code 1 (Expected Failure)
+1. Check `topError` field in run-status.json
+2. Review step that failed (status: "failed")
+3. Check detailed log file (path in `logFile` field)
+4. Common fixes:
+   - Fix config file path
+   - Correct database credentials
+   - Resolve data quality issues
+
+#### Exit Code 2 (Dependency Failure)
+1. Check `EnvironmentChecks` step in run-status.json
+2. Verify SQL*Plus installation: `sqlplus -version`
+3. Verify output directory permissions
+4. Verify PowerShell version: `$PSVersionTable.PSVersion`
+5. Common fixes:
+   - Install Oracle Client
+   - Grant write permissions to service account
+   - Upgrade PowerShell to 7+
+
+#### Exit Code 3 (Unknown Error)
+1. Review full log file
+2. Check system resources (disk space, memory)
+3. Contact development team with:
+   - run-status.json
+   - Full log file
+   - System event logs

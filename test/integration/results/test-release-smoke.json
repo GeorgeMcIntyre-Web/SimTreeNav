@@ -1,0 +1,27 @@
+{
+  "test": "test-release-smoke",
+  "startedAt": "2026-01-23T11:29:36",
+  "status": "pass",
+  "metrics": {
+    "smokeExitCode": 0
+  },
+  "issues": [],
+  "samples": {
+    "runStatusSample": {
+      "scriptName": "dashboard-task.ps1",
+      "topError": "Config file not found: ./nonexistent.json",
+      "schemaVersion": "1.0.0",
+      "stepCount": 3,
+      "status": "failed",
+      "totalMs": 1000,
+      "exitCode": 1
+    },
+    "environmentChecks": {
+      "psVersion": "7.5.4",
+      "psSufficient": true,
+      "sqlPlusAvailable": true,
+      "outDirWritable": true
+    }
+  },
+  "endedAt": "2026-01-23T11:29:36"
+}
