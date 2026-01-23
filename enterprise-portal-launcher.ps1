@@ -83,11 +83,11 @@ function Invoke-PortalGeneration {
             throw "Server health script did not return a file path"
         }
         Write-Host ""
-        Write-Host "  ✓ Server health data collected" -ForegroundColor Green
+        Write-Host "  [OK] Server health data collected" -ForegroundColor Green
         Write-Host "    Path: $serverHealthPath" -ForegroundColor Gray
     } catch {
         Write-Host ""
-        Write-Host "  ✗ Failed to gather server health: $_" -ForegroundColor Red
+        Write-Host "  [X] Failed to gather server health: $_" -ForegroundColor Red
         Write-Host ""
         return $false
     }
@@ -105,11 +105,11 @@ function Invoke-PortalGeneration {
             throw "User activity script did not return a file path"
         }
         Write-Host ""
-        Write-Host "  ✓ User activity data collected" -ForegroundColor Green
+        Write-Host "  [OK] User activity data collected" -ForegroundColor Green
         Write-Host "    Path: $userActivityPath" -ForegroundColor Gray
     } catch {
         Write-Host ""
-        Write-Host "  ✗ Failed to aggregate user activity: $_" -ForegroundColor Red
+        Write-Host "  [X] Failed to aggregate user activity: $_" -ForegroundColor Red
         Write-Host ""
         return $false
     }
@@ -127,11 +127,11 @@ function Invoke-PortalGeneration {
             throw "Scheduled jobs script did not return a file path"
         }
         Write-Host ""
-        Write-Host "  ✓ Scheduled job data collected" -ForegroundColor Green
+        Write-Host "  [OK] Scheduled job data collected" -ForegroundColor Green
         Write-Host "    Path: $scheduledJobsPath" -ForegroundColor Gray
     } catch {
         Write-Host ""
-        Write-Host "  ✗ Failed to check scheduled jobs: $_" -ForegroundColor Red
+        Write-Host "  [X] Failed to check scheduled jobs: $_" -ForegroundColor Red
         Write-Host ""
         return $false
     }
@@ -155,7 +155,7 @@ function Invoke-PortalGeneration {
         }
     } catch {
         Write-Host ""
-        Write-Host "  ✗ Failed to generate portal: $_" -ForegroundColor Red
+        Write-Host "  [X] Failed to generate portal: $_" -ForegroundColor Red
         Write-Host ""
         return $false
     }
@@ -181,12 +181,12 @@ function Invoke-PortalGeneration {
         $userActivityData = Get-Content $userActivityPath -Raw | ConvertFrom-Json
 
         Write-Host "  Portal Summary:" -ForegroundColor Yellow
-        Write-Host "    • Servers:   $($serverHealthData.summary.onlineServers)/$($serverHealthData.summary.totalServers) online" -ForegroundColor White
-        Write-Host "    • Schemas:   $($serverHealthData.summary.totalSchemas)" -ForegroundColor White
-        Write-Host "    • Projects:  $($serverHealthData.summary.totalProjects)" -ForegroundColor White
-        Write-Host "    • Users:     $($userActivityData.summary.activeUsers) active" -ForegroundColor White
+        Write-Host "    - Servers:   $($serverHealthData.summary.onlineServers)/$($serverHealthData.summary.totalServers) online" -ForegroundColor White
+        Write-Host "    - Schemas:   $($serverHealthData.summary.totalSchemas)" -ForegroundColor White
+        Write-Host "    - Projects:  $($serverHealthData.summary.totalProjects)" -ForegroundColor White
+        Write-Host "    - Users:     $($userActivityData.summary.activeUsers) active" -ForegroundColor White
         $checkoutColor = if ($userActivityData.summary.staleCheckouts -gt 0) { "Yellow" } else { "White" }
-        Write-Host "    • Checkouts: $($userActivityData.summary.totalCheckouts) ($($userActivityData.summary.staleCheckouts) stale)" -ForegroundColor $checkoutColor
+        Write-Host ("    - Checkouts: {0} ({1} stale)" -f $userActivityData.summary.totalCheckouts, $userActivityData.summary.staleCheckouts) -ForegroundColor $checkoutColor
         Write-Host ""
     } catch {
         # Ignore summary errors
@@ -196,7 +196,7 @@ function Invoke-PortalGeneration {
     if ($OpenBrowser -and (Test-Path $OutputPath)) {
         Write-Host "  Opening portal in browser..." -ForegroundColor Yellow
         Start-Process $OutputPath
-        Write-Host "  ✓ Portal opened" -ForegroundColor Green
+        Write-Host "  [OK] Portal opened" -ForegroundColor Green
         Write-Host ""
     }
 
@@ -239,10 +239,10 @@ if ($AutoRefresh) {
 
         if (-not $success) {
             Write-Host ""
-            Write-Host "  ⚠ Refresh failed. Will retry at next interval." -ForegroundColor Yellow
+            Write-Host "  [!] Refresh failed. Will retry at next interval." -ForegroundColor Yellow
         } else {
             Write-Host ""
-            Write-Host "  ✓ Portal refreshed successfully" -ForegroundColor Green
+            Write-Host "  [OK] Portal refreshed successfully" -ForegroundColor Green
         }
 
         Write-Host ""

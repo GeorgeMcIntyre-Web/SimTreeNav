@@ -356,7 +356,7 @@ foreach ($profile in $profiles) {
                 $useSysDBA = $username -eq "sys"
 
             } catch {
-                Write-Host "    ⚠ Credentials not found" -ForegroundColor Yellow
+                Write-Host "    [!] Credentials not found" -ForegroundColor Yellow
 
                 $serverData = [PSCustomObject]@{
                     name = $server.name
@@ -380,7 +380,7 @@ foreach ($profile in $profiles) {
             $connTest = Test-OracleConnection -TNSName $tnsName -Username $username -Password $password -AsSysDBA:$useSysDBA
 
             if ($connTest.Success) {
-                Write-Host "    ✓ $($connTest.Status) ($($connTest.ResponseTime)ms)" -ForegroundColor Green
+                Write-Host "    [OK] $($connTest.Status) ($($connTest.ResponseTime)ms)" -ForegroundColor Green
 
                 # Get active sessions
                 $sessions = Get-ActiveSessions -TNSName $tnsName -Username $username -Password $password -AsSysDBA:$useSysDBA
@@ -434,7 +434,7 @@ foreach ($profile in $profiles) {
                 }
 
             } else {
-                Write-Host "    ✗ Offline" -ForegroundColor Red
+                Write-Host "    [X] Offline" -ForegroundColor Red
                 if ($connTest.Error) {
                     Write-Host "    Error: $($connTest.Error)" -ForegroundColor Red
                 }

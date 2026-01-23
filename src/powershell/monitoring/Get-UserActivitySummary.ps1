@@ -175,7 +175,7 @@ foreach ($tnsName in $TNSNames) {
         $password = $cred.GetNetworkCredential().Password
         $useSysDBA = $username -eq "sys"
     } catch {
-        Write-Host "  ⚠ Credentials not found, skipping" -ForegroundColor Yellow
+        Write-Host "  [!] Credentials not found, skipping" -ForegroundColor Yellow
         continue
     }
 
