@@ -21,7 +21,7 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$TempDir = "$env:TEMP\test-runstatus-$(New-Guid)",
+    [string]$TempDir = (Join-Path ([System.IO.Path]::GetTempPath()) "test-runstatus-$(New-Guid)"),
     [string]$OutputReport = "test/integration/results/test-runstatus.json"
 )
 
