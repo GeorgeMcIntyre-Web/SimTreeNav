@@ -714,6 +714,7 @@ $html = @"
             <button class="nav-tab" onclick="showView('view4')">User Activity</button>
             <button class="nav-tab" onclick="showView('view5')">Timeline</button>
             <button class="nav-tab" onclick="showView('view6')">Activity Log</button>
+            <button class="nav-tab" onclick="showView('view7')">Study Health</button>
         </div>
 
         <!-- View 1: Work Type Summary -->
@@ -845,6 +846,77 @@ $html = @"
                         </tr>
                     </thead>
                     <tbody id="activityLogBody">
+                        <!-- Populated by JavaScript -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- View 7: Study Health -->
+        <div id="view7" class="view-container">
+            <div class="view-header">
+                <h2>Study Health Analysis</h2>
+                <p>Technical debt tracking for RobcadStudy naming conventions and quality</p>
+            </div>
+
+            <!-- Summary Cards -->
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 30px;">
+                <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 8px; box-shadow: var(--shadow);">
+                    <div style="font-size: 2em; font-weight: bold;" id="totalStudiesCount">0</div>
+                    <div style="font-size: 0.9em; opacity: 0.9;">Total Studies</div>
+                </div>
+                <div style="background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%); color: white; padding: 20px; border-radius: 8px; box-shadow: var(--shadow);">
+                    <div style="font-size: 2em; font-weight: bold;" id="criticalIssuesCount">0</div>
+                    <div style="font-size: 0.9em; opacity: 0.9;">Critical Issues</div>
+                </div>
+                <div style="background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%); color: white; padding: 20px; border-radius: 8px; box-shadow: var(--shadow);">
+                    <div style="font-size: 2em; font-weight: bold;" id="highIssuesCount">0</div>
+                    <div style="font-size: 0.9em; opacity: 0.9;">High Priority Issues</div>
+                </div>
+                <div style="background: linear-gradient(135deg, #3498db 0%, #2980b9 100%); color: white; padding: 20px; border-radius: 8px; box-shadow: var(--shadow);">
+                    <div style="font-size: 2em; font-weight: bold;" id="mediumIssuesCount">0</div>
+                    <div style="font-size: 0.9em; opacity: 0.9;">Medium Priority</div>
+                </div>
+                <div style="background: linear-gradient(135deg, #95a5a6 0%, #7f8c8d 100%); color: white; padding: 20px; border-radius: 8px; box-shadow: var(--shadow);">
+                    <div style="font-size: 2em; font-weight: bold;" id="lowIssuesCount">0</div>
+                    <div style="font-size: 0.9em; opacity: 0.9;">Low Priority</div>
+                </div>
+                <div style="background: linear-gradient(135deg, #27ae60 0%, #229954 100%); color: white; padding: 20px; border-radius: 8px; box-shadow: var(--shadow);">
+                    <div style="font-size: 2em; font-weight: bold;" id="healthScorePercent">0%</div>
+                    <div style="font-size: 0.9em; opacity: 0.9;">Health Score</div>
+                </div>
+            </div>
+
+            <!-- Filter Controls -->
+            <div class="controls">
+                <input type="text" class="search-box" id="healthSearch" placeholder="Search issues..." oninput="filterHealthIssues()">
+                <select class="filter-select" id="healthSeverityFilter" onchange="filterHealthIssues()">
+                    <option value="">All Severities</option>
+                    <option value="Critical">Critical</option>
+                    <option value="High">High</option>
+                    <option value="Medium">Medium</option>
+                    <option value="Low">Low</option>
+                </select>
+                <select class="filter-select" id="healthIssueTypeFilter" onchange="filterHealthIssues()">
+                    <option value="">All Issue Types</option>
+                    <!-- Populated by JavaScript -->
+                </select>
+                <button class="btn btn-success" onclick="exportHealthToCSV()">Export CSV</button>
+            </div>
+
+            <!-- Issues Table -->
+            <div class="scrollable">
+                <table class="data-table" id="healthIssuesTable">
+                    <thead>
+                        <tr>
+                            <th class="sortable" onclick="sortTable('healthIssuesTable', 0)">Severity</th>
+                            <th class="sortable" onclick="sortTable('healthIssuesTable', 1)">Study Name</th>
+                            <th class="sortable" onclick="sortTable('healthIssuesTable', 2)">Issue Type</th>
+                            <th>Details</th>
+                            <th class="sortable" onclick="sortTable('healthIssuesTable', 4)">Node ID</th>
+                        </tr>
+                    </thead>
+                    <tbody id="healthIssuesBody">
                         <!-- Populated by JavaScript -->
                     </tbody>
                 </table>
@@ -1447,6 +1519,147 @@ $html = @"
         }
 
         // ========================================
+        // VIEW 7: STUDY HEALTH
+        // ========================================
+        function renderStudyHealth() {
+            const healthData = dashboardData.studyHealth || {};
+            const summary = healthData.summary || {};
+            const issues = healthData.issues || [];
+
+            // Update summary cards
+            document.getElementById('totalStudiesCount').textContent = summary.totalStudies || 0;
+            document.getElementById('criticalIssuesCount').textContent = summary.criticalIssues || 0;
+            document.getElementById('highIssuesCount').textContent = summary.highIssues || 0;
+            document.getElementById('mediumIssuesCount').textContent = summary.mediumIssues || 0;
+            document.getElementById('lowIssuesCount').textContent = summary.lowIssues || 0;
+
+            // Calculate health score (% of studies without issues)
+            const totalStudies = summary.totalStudies || 1;
+            const totalIssues = summary.totalIssues || 0;
+            const studiesWithIssues = new Set(issues.map(i => i.node_id)).size;
+            const healthyStudies = totalStudies - studiesWithIssues;
+            const healthScore = Math.round((healthyStudies / totalStudies) * 100);
+            document.getElementById('healthScorePercent').textContent = healthScore + '%';
+
+            // Store for filtering
+            window.healthIssuesData = issues;
+
+            // Populate issue type filter
+            const issueTypes = [...new Set(issues.map(i => i.issue))].sort();
+            const issueTypeFilter = document.getElementById('healthIssueTypeFilter');
+            issueTypes.forEach(type => {
+                const option = document.createElement('option');
+                option.value = type;
+                option.textContent = type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                issueTypeFilter.appendChild(option);
+            });
+
+            renderFilteredHealthIssues(issues);
+        }
+
+        function renderFilteredHealthIssues(issues) {
+            const tbody = document.getElementById('healthIssuesBody');
+
+            if (issues.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" class="text-center">No issues found - all studies are healthy! 🎉</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = '';
+
+            // Limit to 500 rows for performance
+            issues.slice(0, 500).forEach(issue => {
+                const row = tbody.insertRow();
+
+                // Severity badge
+                let severityBadge = 'badge-info';
+                if (issue.severity === 'Critical') severityBadge = 'badge-danger';
+                else if (issue.severity === 'High') severityBadge = 'badge-warning';
+                else if (issue.severity === 'Medium') severityBadge = 'badge-info';
+                else if (issue.severity === 'Low') severityBadge = 'badge-primary';
+
+                // Issue type readable
+                const issueTypeReadable = (issue.issue || '').replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+
+                row.innerHTML = `
+                    <td><span class="badge ${severityBadge}">${issue.severity || 'N/A'}</span></td>
+                    <td><strong>${issue.study_name || 'N/A'}</strong></td>
+                    <td>${issueTypeReadable}</td>
+                    <td>${issue.details || 'No details'}</td>
+                    <td>${issue.node_id || 'N/A'}</td>
+                `;
+            });
+
+            if (issues.length > 500) {
+                const row = tbody.insertRow();
+                row.innerHTML = `<td colspan="5" class="text-center" style="color: #7f8c8d;">Showing first 500 of ${issues.length} issues. Use filters to narrow results.</td>`;
+            }
+        }
+
+        function filterHealthIssues() {
+            const searchTerm = document.getElementById('healthSearch').value.toLowerCase();
+            const severityFilter = document.getElementById('healthSeverityFilter').value;
+            const issueTypeFilter = document.getElementById('healthIssueTypeFilter').value;
+
+            let filtered = window.healthIssuesData || [];
+
+            if (searchTerm) {
+                filtered = filtered.filter(i =>
+                    (i.study_name && i.study_name.toLowerCase().includes(searchTerm)) ||
+                    (i.issue && i.issue.toLowerCase().includes(searchTerm)) ||
+                    (i.details && i.details.toLowerCase().includes(searchTerm)) ||
+                    (i.node_id && i.node_id.toString().includes(searchTerm))
+                );
+            }
+
+            if (severityFilter) {
+                filtered = filtered.filter(i => i.severity === severityFilter);
+            }
+
+            if (issueTypeFilter) {
+                filtered = filtered.filter(i => i.issue === issueTypeFilter);
+            }
+
+            renderFilteredHealthIssues(filtered);
+        }
+
+        function exportHealthToCSV() {
+            const data = window.healthIssuesData || [];
+
+            if (data.length === 0) {
+                alert('No health issues to export');
+                return;
+            }
+
+            // Create CSV header
+            let csv = 'Severity,Study Name,Issue Type,Details,Node ID\n';
+
+            // Add data rows
+            data.forEach(row => {
+                const severity = (row.severity || '').replace(/,/g, ' ');
+                const studyName = (row.study_name || '').replace(/,/g, ' ');
+                const issue = (row.issue || '').replace(/,/g, ' ');
+                const details = (row.details || '').replace(/,/g, ' ');
+                const nodeId = (row.node_id || '').toString();
+
+                csv += `"${severity}","${studyName}","${issue}","${details}","${nodeId}"\n`;
+            });
+
+            // Create download link
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+
+            link.setAttribute('href', url);
+            link.setAttribute('download', 'study-health-issues-export.csv');
+            link.style.visibility = 'hidden';
+
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        // ========================================
         // CSV EXPORT
         // ========================================
         function exportToCSV() {
@@ -1498,6 +1711,7 @@ $html = @"
                 populateUserSelectors();
                 renderTimeline();
                 renderActivityLog();
+                renderStudyHealth();
 
                 console.log('Dashboard initialized successfully');
             } catch (e) {
