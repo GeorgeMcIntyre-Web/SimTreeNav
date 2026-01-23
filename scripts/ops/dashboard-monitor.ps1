@@ -83,6 +83,34 @@ if ($Smoke) {
         Write-Log "Smoke: LogDir '$LogDir' exists"
     }
 
+    # 3. Check RunManifest (if present)
+    $jsonDir = Join-Path $OutDir "json"
+    $manifestPath = Join-Path $jsonDir "run-manifest.json"
+    
+    if (Test-Path $manifestPath) {
+        Write-Log "Smoke: Found run-manifest.json at '$manifestPath'"
+        try {
+            $content = Get-Content -Path $manifestPath -Raw | ConvertFrom-Json
+            
+            # Validate required keys
+            $requiredKeys = @("schemaVersion", "source", "artifacts")
+            foreach ($key in $requiredKeys) {
+                if ($null -eq $content.$key) {
+                    Write-Log "Smoke: FAIL - Manifest missing required key '$key'"
+                    exit 1
+                }
+            }
+            
+            Write-Log "Smoke: Manifest validation passed (Ref: schema $($content.schemaVersion))"
+        }
+        catch {
+            Write-Log "Smoke: FAIL - Failed to parse run-manifest.json: $_"
+            exit 1
+        }
+    } else {
+        Write-Log "Smoke: No run-manifest.json found (SKIP validation)"
+    }
+
     Write-Log "Smoke test passed. Exiting 0."
     exit 0
 }
