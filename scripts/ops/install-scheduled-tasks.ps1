@@ -59,7 +59,9 @@ foreach ($task in $tasks) {
     $xmlPath = Join-Path $taskXmlDir "$taskName.xml"
     
     $command = "pwsh.exe"
-    $arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$($task.Script)`" $($task.Args)"
+    $command = "pwsh.exe"
+    $scriptPath = [System.IO.Path]::Combine($HostRoot, $task.Script)
+    $arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$scriptPath`" $($task.Args)"
     $workingDir = $HostRoot
 
     # Simple XML Template
