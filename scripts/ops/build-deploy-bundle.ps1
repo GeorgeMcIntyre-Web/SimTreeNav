@@ -8,16 +8,21 @@
     DeployRoot - Destination for the bundle (Default: .\out\staging_root\SimTreeNav)
     OutDir - Directory for logs/temp outputs (Default: ./out)
     Smoke - Run in validation mode (asserts files exist)
+    Zip - Create a zip file of the bundle
+    ZipPath - Path to the zip output (Default: .\out\SimTreeNav_bundle.zip)
 
 .EXAMPLE
     ./build-deploy-bundle.ps1 -Smoke
+    ./build-deploy-bundle.ps1 -Zip -Smoke
 #>
 
 param(
     [string]$RepoRoot = ".",
     [string]$DeployRoot = ".\out\staging_root\SimTreeNav",
     [string]$OutDir = "./out",
-    [switch]$Smoke
+    [switch]$Smoke,
+    [switch]$Zip,
+    [string]$ZipPath = ".\out\SimTreeNav_bundle.zip"
 )
 
 $ErrorActionPreference = "Stop"
@@ -31,10 +36,15 @@ function Write-Log {
 }
 
 try {
-    # Resolve Paths
-    $RepoRoot = Resolve-Path $RepoRoot
+    # Resolve Paths (AbsolutePath Fix)
+    # Using [System.IO.Path]::GetFullPath ensures clean absolute paths without unintended concatenation
+    $currentLoc = Get-Location
+    $RepoRoot = [System.IO.Path]::GetFullPath((Join-Path $currentLoc $RepoRoot))
+    $DeployRoot = [System.IO.Path]::GetFullPath((Join-Path $currentLoc $DeployRoot))
+    $OutDir = [System.IO.Path]::GetFullPath((Join-Path $currentLoc $OutDir))
+    
+    # Ensure DeployRoot parent exists if needed, then create DeployRoot
     if (-not (Test-Path $DeployRoot)) { New-Item -Path $DeployRoot -ItemType Directory -Force | Out-Null }
-    $DeployRoot = Resolve-Path $DeployRoot
     
     # Setup Logging
     $logDir = Join-Path $DeployRoot "out\logs"
@@ -63,7 +73,7 @@ try {
     $copyList = @(
         # Scripts
         @{ Src="scripts/ops/*.ps1"; Dest="scripts/ops" },
-        @{ Src="scripts/lib/*.ps1"; Dest="scripts/lib" }, # Assuming lib exists, handle if empty
+        @{ Src="scripts/lib/*.ps1"; Dest="scripts/lib" }, 
         
         # Config
         @{ Src="config/production.template.json"; Dest="config/production.template.json" },
@@ -76,7 +86,12 @@ try {
         @{ Src="docs/SECURITY_AND_CREDENTIALS.md"; Dest="docs" },
         @{ Src="docs/UAT_PLAN_AND_SURVEY.md"; Dest="docs" },
         @{ Src="docs/UAT_FEEDBACK_SUMMARY.md"; Dest="docs" },
-        @{ Src="docs/GO_LIVE_COMMANDS.md"; Dest="docs" }
+        @{ Src="docs/GO_LIVE_COMMANDS.md"; Dest="docs" },
+        @{ Src="docs/IT_SERVER_RUN_SCRIPTED.md"; Dest="docs" },
+        @{ Src="docs/PRODUCTION_SERVER_EVIDENCE.md"; Dest="docs" },
+        @{ Src="docs/GO_NO_GO_GATE.md"; Dest="docs" },
+        @{ Src="docs/IT_HANDOFF_MESSAGE.md"; Dest="docs" },
+        @{ Src="docs/PRODUCTION_REHEARSAL_REPORT.md"; Dest="docs" }
     )
 
     $manifest = @()
@@ -85,7 +100,6 @@ try {
         $srcPath = Join-Path $RepoRoot $item.Src
         $destPath = Join-Path $DeployRoot $item.Dest
         
-        # Handle wildcard checks manually to avoid errors if no files match
         if ($item.Src.Contains("*")) {
            $files = Get-ChildItem -Path $srcPath -ErrorAction SilentlyContinue
            if ($files) {
@@ -95,7 +109,7 @@ try {
                    Write-Log "Copied: $($f.Name)"
                }
            } else {
-               Write-Log "No files found for pattern: $($item.Src)" "WARNING"
+               # Write-Log "No files found for pattern: $($item.Src)" "WARNING"
            }
         } else {
             if (Test-Path $srcPath) {
@@ -103,13 +117,6 @@ try {
                 $fname = Split-Path $srcPath -Leaf
                 $manifest += "UserFile|$fname|$(Get-Date)"
                 Write-Log "Copied: $fname"
-            } else {
-                # Optional files allowed to be missing?
-                if ($item.Src -match "GO_LIVE_COMMANDS") {
-                    # Might not exist yet
-                } else {
-                   # Write-Log "Source missing: $srcPath" "WARNING"
-                }
             }
         }
     }
@@ -119,7 +126,27 @@ try {
     $manifest | Sort-Object | Set-Content -Path $manifestPath
     Write-Log "Manifest generated at $manifestPath"
 
-    # 4. Smoke Test Mode
+    # 4. Zip Creation (Optional)
+    if ($Zip) {
+        $ZipPath = [System.IO.Path]::GetFullPath((Join-Path $currentLoc $ZipPath))
+        # Ensure parent of zip exists
+        $zipParent = Split-Path $ZipPath
+        if (-not (Test-Path $zipParent)) { New-Item -Path $zipParent -ItemType Directory -Force | Out-Null }
+        if (Test-Path $ZipPath) { Remove-Item $ZipPath -Force }
+
+        Write-Log "Creating Zip: $ZipPath"
+        Compress-Archive -Path "$DeployRoot\*" -DestinationPath $ZipPath -Force
+        
+        $hashObj = Get-FileHash -Path $ZipPath -Algorithm SHA256
+        $hashStr = "$($hashObj.Algorithm) Hash: $($hashObj.Hash)"
+        Write-Log $hashStr
+        
+        # Save hash for easy reference
+        $hashPath = Join-Path $logDir "bundle-hash.txt"
+        Set-Content -Path $hashPath -Value $hashStr
+    }
+
+    # 5. Smoke Test Mode
     if ($Smoke) {
         Write-Log "Performing Smoke Test Validation..."
         
@@ -139,6 +166,10 @@ try {
         
         if (-not (Test-Path $manifestPath)) { throw "Missing bundle manifest" }
         
+        if ($Zip) {
+             if (-not (Test-Path $ZipPath)) { throw "Zip file missing." }
+        }
+
         Write-Log "Smoke Test Passed."
     }
 
