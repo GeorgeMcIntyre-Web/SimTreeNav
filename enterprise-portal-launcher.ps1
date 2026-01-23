@@ -185,7 +185,8 @@ function Invoke-PortalGeneration {
         Write-Host "    • Schemas:   $($serverHealthData.summary.totalSchemas)" -ForegroundColor White
         Write-Host "    • Projects:  $($serverHealthData.summary.totalProjects)" -ForegroundColor White
         Write-Host "    • Users:     $($userActivityData.summary.activeUsers) active" -ForegroundColor White
-        Write-Host "    • Checkouts: $($userActivityData.summary.totalCheckouts) ($($userActivityData.summary.staleCheckouts) stale)" -ForegroundColor $(if ($userActivityData.summary.staleCheckouts -gt 0) { "Yellow" } else { "White" })
+        $checkoutColor = if ($userActivityData.summary.staleCheckouts -gt 0) { "Yellow" } else { "White" }
+        Write-Host "    • Checkouts: $($userActivityData.summary.totalCheckouts) ($($userActivityData.summary.staleCheckouts) stale)" -ForegroundColor $checkoutColor
         Write-Host ""
     } catch {
         # Ignore summary errors
