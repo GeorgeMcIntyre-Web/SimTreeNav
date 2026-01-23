@@ -715,6 +715,7 @@ $html = @"
             <button class="nav-tab" onclick="showView('view5')">Timeline</button>
             <button class="nav-tab" onclick="showView('view6')">Activity Log</button>
             <button class="nav-tab" onclick="showView('view7')">Study Health</button>
+            <button class="nav-tab" onclick="showView('view8')">Resource Conflicts</button>
         </div>
 
         <!-- View 1: Work Type Summary -->
@@ -920,6 +921,95 @@ $html = @"
                         <!-- Populated by JavaScript -->
                     </tbody>
                 </table>
+        <!-- View 8: Resource Conflicts & Stale Checkouts -->
+        <div id="view8" class="view-container">
+            <div class="view-header">
+                <h2>Resource Conflicts & Stale Checkouts</h2>
+                <p>Track resource conflicts and identify bottlenecks from long-running checkouts</p>
+            </div>
+
+            <!-- Summary Cards -->
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-bottom: 30px;">
+                <div style="background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%); color: white; padding: 20px; border-radius: 8px; box-shadow: var(--shadow);">
+                    <div style="font-size: 2em; font-weight: bold;" id="conflictCount">0</div>
+                    <div style="font-size: 0.9em; opacity: 0.9;">Resource Conflicts</div>
+                    <div style="font-size: 0.8em; margin-top: 5px; opacity: 0.8;">Resources used in 2+ studies</div>
+                </div>
+                <div style="background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%); color: white; padding: 20px; border-radius: 8px; box-shadow: var(--shadow);">
+                    <div style="font-size: 2em; font-weight: bold;" id="staleCheckoutCount">0</div>
+                    <div style="font-size: 0.9em; opacity: 0.9;">Stale Checkouts</div>
+                    <div style="font-size: 0.8em; margin-top: 5px; opacity: 0.8;">&gt;72 hours checked out</div>
+                </div>
+                <div style="background: linear-gradient(135deg, #3498db 0%, #2980b9 100%); color: white; padding: 20px; border-radius: 8px; box-shadow: var(--shadow);">
+                    <div style="font-size: 2em; font-weight: bold;" id="bottleneckUserCount">0</div>
+                    <div style="font-size: 0.9em; opacity: 0.9;">Users with Bottlenecks</div>
+                    <div style="font-size: 0.8em; margin-top: 5px; opacity: 0.8;">Users with stale checkouts</div>
+                </div>
+            </div>
+
+            <!-- Resource Conflicts Section -->
+            <div style="margin-bottom: 30px;">
+                <h3 style="color: var(--primary-color); margin-bottom: 15px;">Resource Conflicts</h3>
+                <div class="scrollable">
+                    <table class="data-table" id="conflictsTable">
+                        <thead>
+                            <tr>
+                                <th class="sortable" onclick="sortTable('conflictsTable', 0)">Resource</th>
+                                <th class="sortable" onclick="sortTable('conflictsTable', 1)">Type</th>
+                                <th class="sortable" onclick="sortTable('conflictsTable', 2)">Study Count</th>
+                                <th>Studies Using Resource</th>
+                                <th class="sortable" onclick="sortTable('conflictsTable', 4)">Risk Level</th>
+                            </tr>
+                        </thead>
+                        <tbody id="conflictsBody">
+                            <!-- Populated by JavaScript -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Stale Checkouts Section -->
+            <div style="margin-bottom: 30px;">
+                <h3 style="color: var(--primary-color); margin-bottom: 15px;">Stale Checkouts (&gt;72 hours)</h3>
+                <div class="controls">
+                    <input type="text" class="search-box" id="staleSearch" placeholder="Search checkouts..." oninput="filterStaleCheckouts()">
+                    <select class="filter-select" id="staleSeverityFilter" onchange="filterStaleCheckouts()">
+                        <option value="">All Severities</option>
+                        <option value="Critical">Critical (7+ days)</option>
+                        <option value="High">High (5-7 days)</option>
+                        <option value="Medium">Medium (3-5 days)</option>
+                    </select>
+                    <button class="btn btn-success" onclick="exportStaleCheckoutsToCSV()">Export CSV</button>
+                </div>
+                <div class="scrollable">
+                    <table class="data-table" id="staleCheckoutsTable">
+                        <thead>
+                            <tr>
+                                <th class="sortable" onclick="sortTable('staleCheckoutsTable', 0)">Object</th>
+                                <th class="sortable" onclick="sortTable('staleCheckoutsTable', 1)">Type</th>
+                                <th class="sortable" onclick="sortTable('staleCheckoutsTable', 2)">Checked Out By</th>
+                                <th class="sortable" onclick="sortTable('staleCheckoutsTable', 3)">Duration</th>
+                                <th class="sortable" onclick="sortTable('staleCheckoutsTable', 4)">Last Modified</th>
+                                <th class="sortable" onclick="sortTable('staleCheckoutsTable', 5)">Severity</th>
+                            </tr>
+                        </thead>
+                        <tbody id="staleCheckoutsBody">
+                            <!-- Populated by JavaScript -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Bottleneck Queue Section -->
+            <div>
+                <h3 style="color: var(--primary-color); margin-bottom: 15px;">Bottleneck Queue (By User)</h3>
+                <p style="color: #7f8c8d; margin-bottom: 15px; font-size: 0.9em;">
+                    Users sorted by total checkout duration. Long checkouts may indicate workflow bottlenecks.
+                </p>
+                <div id="bottleneckQueueContainer">
+                    <!-- Populated by JavaScript -->
+                </div>
+
             </div>
         </div>
     </div>
@@ -1520,8 +1610,7 @@ $html = @"
 
         // ========================================
         // VIEW 7: STUDY HEALTH
-        // ========================================
-        function renderStudyHealth() {
+        // =================================        function renderStudyHealth() {
             const healthData = dashboardData.studyHealth || {};
             const summary = healthData.summary || {};
             const issues = healthData.issues || [];
@@ -1562,6 +1651,36 @@ $html = @"
 
             if (issues.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="5" class="text-center">No issues found - all studies are healthy! 🎉</td></tr>';
+=======
+        // VIEW 8: RESOURCE CONFLICTS & STALE CHECKOUTS
+        // ========================================
+        function renderResourceConflicts() {
+            const conflicts = dashboardData.resourceConflicts || [];
+            const staleCheckouts = dashboardData.staleCheckouts || [];
+            const bottleneckQueue = dashboardData.bottleneckQueue || [];
+
+            // Update summary cards
+            document.getElementById('conflictCount').textContent = conflicts.length;
+            document.getElementById('staleCheckoutCount').textContent = staleCheckouts.filter(c => c.flagged).length;
+            document.getElementById('bottleneckUserCount').textContent = bottleneckQueue.length;
+
+            // Render resource conflicts table
+            renderConflictsTable(conflicts);
+
+            // Store stale checkouts for filtering
+            window.staleCheckoutsData = staleCheckouts.filter(c => c.flagged);
+            renderFilteredStaleCheckouts(window.staleCheckoutsData);
+
+            // Render bottleneck queue
+            renderBottleneckQueue(bottleneckQueue);
+        }
+
+        function renderConflictsTable(conflicts) {
+            const tbody = document.getElementById('conflictsBody');
+
+            if (conflicts.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" class="text-center">No resource conflicts detected</td></tr>';
+
                 return;
             }
 
@@ -1569,6 +1688,37 @@ $html = @"
 
             // Limit to 500 rows for performance
             issues.slice(0, 500).forEach(issue => {
+            conflicts.forEach(conflict => {
+                const row = tbody.insertRow();
+
+                // Risk level badge
+                let riskBadge = 'badge-info';
+                if (conflict.risk_level === 'Critical') riskBadge = 'badge-danger';
+                else if (conflict.risk_level === 'High') riskBadge = 'badge-warning';
+                else if (conflict.risk_level === 'Medium') riskBadge = 'badge-info';
+
+                row.innerHTML = `
+                    <td><strong>${conflict.resource_name || 'N/A'}</strong></td>
+                    <td>${conflict.resource_type || 'N/A'}</td>
+                    <td><span class="badge ${riskBadge}">${conflict.study_count}</span></td>
+                    <td>${conflict.studies || 'N/A'}</td>
+                    <td><span class="badge ${riskBadge}">${conflict.risk_level}</span></td>
+                `;
+            });
+        }
+
+        function renderFilteredStaleCheckouts(checkouts) {
+            const tbody = document.getElementById('staleCheckoutsBody');
+
+            if (checkouts.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" class="text-center">No stale checkouts detected</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = '';
+
+            checkouts.forEach(checkout => {
+
                 const row = tbody.insertRow();
 
                 // Severity badge
@@ -1609,6 +1759,38 @@ $html = @"
                     (i.issue && i.issue.toLowerCase().includes(searchTerm)) ||
                     (i.details && i.details.toLowerCase().includes(searchTerm)) ||
                     (i.node_id && i.node_id.toString().includes(searchTerm))
+                if (checkout.severity === 'Critical') severityBadge = 'badge-danger';
+                else if (checkout.severity === 'High') severityBadge = 'badge-warning';
+                else if (checkout.severity === 'Medium') severityBadge = 'badge-info';
+
+                // Format duration
+                const durationText = checkout.checkout_duration_days >= 1
+                    ? `${checkout.checkout_duration_days.toFixed(1)} days`
+                    : `${checkout.checkout_duration_hours.toFixed(1)} hours`;
+
+                row.innerHTML = `
+                    <td><strong>${checkout.object_name || 'N/A'}</strong></td>
+                    <td>${checkout.object_type || 'N/A'}</td>
+                    <td>${checkout.checked_out_by || 'Unknown'}</td>
+                    <td><span class="badge ${severityBadge}">${durationText}</span></td>
+                    <td>${checkout.last_modified || 'N/A'}</td>
+                    <td><span class="badge ${severityBadge}">${checkout.severity}</span></td>
+                `;
+            });
+        }
+
+        function filterStaleCheckouts() {
+            const searchTerm = document.getElementById('staleSearch').value.toLowerCase();
+            const severityFilter = document.getElementById('staleSeverityFilter').value;
+
+            let filtered = window.staleCheckoutsData || [];
+
+            if (searchTerm) {
+                filtered = filtered.filter(c =>
+                    (c.object_name && c.object_name.toLowerCase().includes(searchTerm)) ||
+                    (c.object_type && c.object_type.toLowerCase().includes(searchTerm)) ||
+                    (c.checked_out_by && c.checked_out_by.toLowerCase().includes(searchTerm))
+
                 );
             }
 
@@ -1628,6 +1810,54 @@ $html = @"
 
             if (data.length === 0) {
                 alert('No health issues to export');
+                filtered = filtered.filter(c => c.severity === severityFilter);
+            }
+
+            renderFilteredStaleCheckouts(filtered);
+        }
+
+        function renderBottleneckQueue(queue) {
+            const container = document.getElementById('bottleneckQueueContainer');
+
+            if (queue.length === 0) {
+                container.innerHTML = '<div class="empty-state"><p>No bottlenecks detected</p></div>';
+                return;
+            }
+
+            // Find max hours for scaling
+            const maxHours = Math.max(...queue.map(q => q.total_hours));
+
+            container.innerHTML = '';
+
+            queue.forEach(user => {
+                const percentage = (user.total_hours / maxHours) * 100;
+                const daysText = (user.total_hours / 24).toFixed(1);
+
+                const userItem = document.createElement('div');
+                userItem.className = 'bar-item';
+                userItem.style.marginBottom = '20px';
+                userItem.innerHTML = `
+                    <div class="bar-label">
+                        <span class="name">${user.user_name || 'Unknown'}</span>
+                        <span class="value">${user.checkout_count} checkouts (${daysText} days total)</span>
+                    </div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width: ${percentage}%">${user.checkout_count}</div>
+                    </div>
+                    <div style="margin-top: 5px; font-size: 0.85em; color: #7f8c8d;">
+                        ${user.items.map(item => `${item.object_name} (${(item.duration_hours / 24).toFixed(1)}d)`).join(', ')}
+                    </div>
+                `;
+                container.appendChild(userItem);
+            });
+        }
+
+        function exportStaleCheckoutsToCSV() {
+            const data = window.staleCheckoutsData || [];
+
+            if (data.length === 0) {
+                alert('No stale checkouts to export');
+
                 return;
             }
 
@@ -1643,6 +1873,20 @@ $html = @"
                 const nodeId = (row.node_id || '').toString();
 
                 csv += `"${severity}","${studyName}","${issue}","${details}","${nodeId}"\n`;
+            let csv = 'Object,Type,Checked Out By,Duration (hours),Duration (days),Last Modified,Severity\n';
+
+            // Add data rows
+            data.forEach(row => {
+                const objectName = (row.object_name || '').replace(/,/g, ' ');
+                const objectType = (row.object_type || '').replace(/,/g, ' ');
+                const checkedOutBy = (row.checked_out_by || '').replace(/,/g, ' ');
+                const durationHours = row.checkout_duration_hours || 0;
+                const durationDays = row.checkout_duration_days || 0;
+                const lastModified = (row.last_modified || '').replace(/,/g, ' ');
+                const severity = (row.severity || '').replace(/,/g, ' ');
+
+                csv += `"${objectName}","${objectType}","${checkedOutBy}",${durationHours},${durationDays},"${lastModified}","${severity}"\n`;
+
             });
 
             // Create download link
@@ -1652,6 +1896,8 @@ $html = @"
 
             link.setAttribute('href', url);
             link.setAttribute('download', 'study-health-issues-export.csv');
+            link.setAttribute('download', 'stale-checkouts-export.csv');
+
             link.style.visibility = 'hidden';
 
             document.body.appendChild(link);
@@ -1712,6 +1958,8 @@ $html = @"
                 renderTimeline();
                 renderActivityLog();
                 renderStudyHealth();
+                renderResourceConflicts();
+
 
                 console.log('Dashboard initialized successfully');
             } catch (e) {

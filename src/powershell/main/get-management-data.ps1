@@ -75,6 +75,9 @@ $results = @{
         suspicious = @()
         renameSuggestions = @()
     }
+    resourceConflicts = @()
+    staleCheckouts = @()
+    bottleneckQueue = @()
 }
 
 # Parse SQL*Plus pipe-delimited output into objects for JSON conversion.
@@ -233,7 +236,8 @@ EXIT;
 }
 
 # QUERY 1: Project Database Activity
-Write-Host "`n[1/12] Project Database Setup" -ForegroundColor Cyan
+Write-Host "`n[1/14] Project Database Setup" -ForegroundColor Cyan
+
 $query1 = @'
 SELECT
     'PROJECT_DATABASE' as work_type,
@@ -255,7 +259,8 @@ $query1 = $query1.Replace('##SCHEMA##', $Schema).Replace('##PROJECTID##', $Proje
 $results.projectDatabase = Execute-Query -QueryName "ProjectDatabase" -Query $query1
 
 # QUERY 2: Resource Library Activity
-Write-Host "`n[2/12] Resource Library" -ForegroundColor Cyan
+Write-Host "`n[2/14] Resource Library" -ForegroundColor Cyan
+
 $query2 = @'
 SELECT
     'RESOURCE_LIBRARY' as work_type,
@@ -280,7 +285,8 @@ $query2 = $query2.Replace('##SCHEMA##', $Schema).Replace('##STARTDATE##', $start
 $results.resourceLibrary = Execute-Query -QueryName "ResourceLibrary" -Query $query2
 
 # QUERY 3: Part/MFG Library Activity
-Write-Host "`n[3/12] Part/MFG Library" -ForegroundColor Cyan
+Write-Host "`n[3/14] Part/MFG Library" -ForegroundColor Cyan
+
 $query3 = @'
 SELECT
     'PART_LIBRARY' as work_type,
@@ -314,7 +320,8 @@ $query3 = $query3.Replace('##SCHEMA##', $Schema).Replace('##STARTDATE##', $start
 $results.partLibrary = Execute-Query -QueryName "PartLibrary" -Query $query3
 
 # QUERY 4: IPA Assembly Activity
-Write-Host "`n[4/12] IPA Assembly" -ForegroundColor Cyan
+Write-Host "`n[4/14] IPA Assembly" -ForegroundColor Cyan
+
 $query4 = @'
 SELECT
     'IPA_ASSEMBLY' as work_type,
@@ -339,7 +346,8 @@ $query4 = $query4.Replace('##SCHEMA##', $Schema).Replace('##STARTDATE##', $start
 $results.ipaAssembly = Execute-Query -QueryName "IpaAssembly" -Query $query4
 
 # QUERY 5A: Study Summary
-Write-Host "`n[5/12] Study Summary" -ForegroundColor Cyan
+Write-Host "`n[5/14] Study Summary" -ForegroundColor Cyan
+
 $query5a = @'
 SELECT
     'STUDY_SUMMARY' as work_type,
@@ -364,7 +372,8 @@ $query5a = $query5a.Replace('##SCHEMA##', $Schema).Replace('##STARTDATE##', $sta
 $results.studySummary = Execute-Query -QueryName "StudySummary" -Query $query5a
 
 # QUERY 5B: Study Resources
-Write-Host "`n[6/12] Study Resource Allocation" -ForegroundColor Cyan
+Write-Host "`n[6/14] Study Resource Allocation" -ForegroundColor Cyan
+
 $query5b = @'
 SELECT
     'STUDY_RESOURCES' as work_type,
@@ -395,7 +404,8 @@ $query5b = $query5b.Replace('##SCHEMA##', $Schema).Replace('##STARTDATE##', $sta
 $results.studyResources = Execute-Query -QueryName "StudyResources" -Query $query5b
 
 # QUERY 5C: Study Panels
-Write-Host "`n[7/12] Study Panel Usage" -ForegroundColor Cyan
+Write-Host "`n[7/14] Study Panel Usage" -ForegroundColor Cyan
+
 $query5c = @'
 SELECT
     'STUDY_PANELS' as work_type,
@@ -422,7 +432,8 @@ $query5c = $query5c.Replace('##SCHEMA##', $Schema).Replace('##STARTDATE##', $sta
 $results.studyPanels = Execute-Query -QueryName "StudyPanels" -Query $query5c
 
 # QUERY 5D: Study Operations
-Write-Host "`n[8/12] Study Operations" -ForegroundColor Cyan
+Write-Host "`n[8/14] Study Operations" -ForegroundColor Cyan
+
 $query5d = @'
 SELECT
     'STUDY_OPERATIONS' as work_type,
@@ -450,7 +461,8 @@ $query5d = $query5d.Replace('##SCHEMA##', $Schema).Replace('##STARTDATE##', $sta
 $results.studyOperations = Execute-Query -QueryName "StudyOperations" -Query $query5d
 
 # QUERY 5E: Study Movements
-Write-Host "`n[9/12] Study Movement/Location Changes" -ForegroundColor Cyan
+Write-Host "`n[9/14] Study Movement/Location Changes" -ForegroundColor Cyan
+
 $query5e = @'
 SELECT
     'STUDY_MOVEMENTS' as work_type,
@@ -469,7 +481,8 @@ $query5e = $query5e.Replace('##SCHEMA##', $Schema).Replace('##STARTDATE##', $sta
 $results.studyMovements = Execute-Query -QueryName "StudyMovements" -Query $query5e
 
 # QUERY 5F: Study Welds
-Write-Host "`n[10/12] Study Weld Points" -ForegroundColor Cyan
+Write-Host "`n[10/14] Study Weld Points" -ForegroundColor Cyan
+
 $query5f = @'
 SELECT
     'STUDY_WELDS' as work_type,
@@ -487,7 +500,8 @@ $query5f = $query5f.Replace('##SCHEMA##', $Schema).Replace('##STARTDATE##', $sta
 $results.studyWelds = Execute-Query -QueryName "StudyWelds" -Query $query5f
 
 # QUERY 6: User Activity
-Write-Host "`n[11/12] User Activity Summary" -ForegroundColor Cyan
+Write-Host "`n[11/14] User Activity Summary" -ForegroundColor Cyan
+
 $query6 = @'
 SELECT
     u.OBJECT_ID as user_id,
@@ -505,7 +519,7 @@ $query6 = $query6.Replace('##SCHEMA##', $Schema)
 $results.userActivity = Execute-Query -QueryName "UserActivity" -Query $query6
 
 # QUERY 7: Study Health Analysis
-Write-Host "`n[12/12] Study Health Analysis" -ForegroundColor Cyan
+Write-Host "`n[12/14] Study Health Analysis" -ForegroundColor Cyan
 $query7 = @'
 SELECT
     rs.OBJECT_ID as object_id,
@@ -727,6 +741,110 @@ $results.studyHealth.renameSuggestions = $renameSuggestions
 
 Write-Host "    ✓ Analyzed $($allStudies.Count) studies, found $($issues.Count) issues" -ForegroundColor Green
 Write-Host "      Critical: $($results.studyHealth.summary.criticalIssues), High: $($results.studyHealth.summary.highIssues), Medium: $($results.studyHealth.summary.mediumIssues), Low: $($results.studyHealth.summary.lowIssues)" -ForegroundColor Gray
+# QUERY 7: Resource Conflicts
+Write-Host "`n[13/14] Resource Conflict Detection" -ForegroundColor Cyan
+$query7 = @'
+SELECT
+    r.NAME_S_ as resource_name,
+    r.OBJECT_ID as resource_id,
+    cd.NICE_NAME as resource_type,
+    COUNT(DISTINCT rs.OBJECT_ID) as study_count,
+    LISTAGG(rs.NAME_S_, ', ') WITHIN GROUP (ORDER BY rs.NAME_S_) as studies_using_resource
+FROM ##SCHEMA##.SHORTCUT_ s
+INNER JOIN ##SCHEMA##.RESOURCE_ r ON s.NAME_S_ = r.NAME_S_
+INNER JOIN ##SCHEMA##.REL_COMMON rc ON s.OBJECT_ID = rc.OBJECT_ID
+INNER JOIN ##SCHEMA##.ROBCADSTUDY_ rs ON rc.FORWARD_OBJECT_ID = rs.OBJECT_ID
+INNER JOIN ##SCHEMA##.PROXY p ON rs.OBJECT_ID = p.OBJECT_ID
+LEFT JOIN ##SCHEMA##.CLASS_DEFINITIONS cd ON r.CLASS_ID = cd.TYPE_ID
+WHERE p.WORKING_VERSION_ID > 0
+GROUP BY r.NAME_S_, r.OBJECT_ID, cd.NICE_NAME
+HAVING COUNT(DISTINCT rs.OBJECT_ID) > 1
+ORDER BY study_count DESC;
+'@
+$query7 = $query7.Replace('##SCHEMA##', $Schema)
+$conflicts = Execute-Query -QueryName "ResourceConflicts" -Query $query7
+
+# Add risk level classification
+$results.resourceConflicts = $conflicts | ForEach-Object {
+    $studyCount = [int]$_.study_count
+    $riskLevel = if ($studyCount -ge 3) { "Critical" } elseif ($studyCount -eq 2) { "High" } else { "Medium" }
+
+    [PSCustomObject]@{
+        resource_name = $_.resource_name
+        resource_id = $_.resource_id
+        resource_type = $_.resource_type
+        study_count = $studyCount
+        studies = $_.studies_using_resource
+        risk_level = $riskLevel
+    }
+}
+
+# QUERY 8: Stale Checkouts (>72 hours)
+Write-Host "`n[14/14] Stale Checkout Detection" -ForegroundColor Cyan
+$query8 = @'
+SELECT
+    c.OBJECT_ID as object_id,
+    c.CAPTION_S_ as object_name,
+    cd.NICE_NAME as object_type,
+    c.MODIFICATIONDATE_DA_ as last_modified,
+    u.CAPTION_S_ as checked_out_by,
+    u.OBJECT_ID as user_id,
+    ROUND((SYSDATE - c.MODIFICATIONDATE_DA_) * 24, 1) as checkout_duration_hours,
+    ROUND((SYSDATE - c.MODIFICATIONDATE_DA_), 1) as checkout_duration_days
+FROM ##SCHEMA##.COLLECTION_ c
+INNER JOIN ##SCHEMA##.PROXY p ON c.OBJECT_ID = p.OBJECT_ID
+LEFT JOIN ##SCHEMA##.USER_ u ON p.OWNER_ID = u.OBJECT_ID
+LEFT JOIN ##SCHEMA##.CLASS_DEFINITIONS cd ON c.CLASS_ID = cd.TYPE_ID
+WHERE p.WORKING_VERSION_ID > 0
+  AND c.MODIFICATIONDATE_DA_ < SYSDATE - 3
+ORDER BY checkout_duration_hours DESC;
+'@
+$query8 = $query8.Replace('##SCHEMA##', $Schema)
+$staleCheckouts = Execute-Query -QueryName "StaleCheckouts" -Query $query8
+
+# Add severity classification
+$results.staleCheckouts = $staleCheckouts | ForEach-Object {
+    $hours = [double]$_.checkout_duration_hours
+    $days = [double]$_.checkout_duration_days
+    $severity = if ($hours -ge 168) { "Critical" } elseif ($hours -ge 120) { "High" } elseif ($hours -ge 72) { "Medium" } else { "Low" }
+
+    [PSCustomObject]@{
+        object_id = $_.object_id
+        object_name = $_.object_name
+        object_type = $_.object_type
+        last_modified = $_.last_modified
+        checked_out_by = $_.checked_out_by
+        user_id = $_.user_id
+        checkout_duration_hours = $hours
+        checkout_duration_days = $days
+        severity = $severity
+        flagged = ($hours -ge 72)
+    }
+}
+
+# Create bottleneck queue (group by user)
+$results.bottleneckQueue = $results.staleCheckouts |
+    Where-Object { $_.flagged } |
+    Group-Object -Property checked_out_by |
+    ForEach-Object {
+        [PSCustomObject]@{
+            user_name = $_.Name
+            checkout_count = $_.Count
+            total_hours = ($_.Group | Measure-Object -Property checkout_duration_hours -Sum).Sum
+            items = $_.Group | ForEach-Object {
+                [PSCustomObject]@{
+                    object_name = $_.object_name
+                    object_type = $_.object_type
+                    duration_hours = $_.checkout_duration_hours
+                }
+            }
+        }
+    } |
+    Sort-Object -Property total_hours -Descending
+
+Write-Host "    ✓ Found $($results.resourceConflicts.Count) resource conflicts" -ForegroundColor Green
+Write-Host "    ✓ Found $($results.staleCheckouts.Count) stale checkouts (>72 hours)" -ForegroundColor Green
+Write-Host "    ✓ Identified $($results.bottleneckQueue.Count) users with stale checkouts" -ForegroundColor Green
 
 # Save results to JSON
 Write-Host "`n========================================" -ForegroundColor Cyan
