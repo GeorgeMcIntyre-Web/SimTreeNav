@@ -3,6 +3,7 @@
 [![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-blue)](https://github.com/PowerShell/PowerShell)
 [![Oracle](https://img.shields.io/badge/Oracle-12c-red)](https://www.oracle.com/database/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![CI Smoke Test](https://github.com/GeorgeMcIntyre-Web/SimTreeNav/actions/workflows/ci-smoke-test.yml/badge.svg)](https://github.com/GeorgeMcIntyre-Web/SimTreeNav/actions/workflows/ci-smoke-test.yml)
 
 A PowerShell-based tree navigation viewer for Siemens Process Simulation databases. Extracts, visualizes, and navigates hierarchical project structures with full icon support.
 
