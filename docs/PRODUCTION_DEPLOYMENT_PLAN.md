@@ -31,6 +31,18 @@ This plan details the additive deployment of Phase 2 features. The strategy mini
 
 ## Deployment Steps
 
+### Step 0: Dry-Run Preparation (Mandatory)
+Before any effective changes, execute the dry-run operations pack.
+1.  **Validate Environment**:
+    ```powershell
+    pwsh ./scripts/ops/validate-environment.ps1 -Smoke
+    ```
+2.  **Generate Configs**:
+    ```powershell
+    pwsh ./scripts/ops/install-scheduled-tasks.ps1 -OutDir ./out
+    ```
+    *Verifies XML generation without registering tasks.*
+
 ### Step 1: Smoke Test & Backup (Dev/Ops) - Feb 9
 1.  **Backup** current Production `wwwroot` or share content.
     ```powershell
