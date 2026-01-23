@@ -62,6 +62,19 @@ $results = @{
     studyMovements = @()
     studyWelds = @()
     userActivity = @()
+    studyHealth = @{
+        summary = @{
+            totalStudies = 0
+            totalIssues = 0
+            criticalIssues = 0
+            highIssues = 0
+            mediumIssues = 0
+            lowIssues = 0
+        }
+        issues = @()
+        suspicious = @()
+        renameSuggestions = @()
+    }
 }
 
 # Parse SQL*Plus pipe-delimited output into objects for JSON conversion.
@@ -220,7 +233,7 @@ EXIT;
 }
 
 # QUERY 1: Project Database Activity
-Write-Host "`n[1/11] Project Database Setup" -ForegroundColor Cyan
+Write-Host "`n[1/12] Project Database Setup" -ForegroundColor Cyan
 $query1 = @'
 SELECT
     'PROJECT_DATABASE' as work_type,
@@ -242,7 +255,7 @@ $query1 = $query1.Replace('##SCHEMA##', $Schema).Replace('##PROJECTID##', $Proje
 $results.projectDatabase = Execute-Query -QueryName "ProjectDatabase" -Query $query1
 
 # QUERY 2: Resource Library Activity
-Write-Host "`n[2/11] Resource Library" -ForegroundColor Cyan
+Write-Host "`n[2/12] Resource Library" -ForegroundColor Cyan
 $query2 = @'
 SELECT
     'RESOURCE_LIBRARY' as work_type,
@@ -267,7 +280,7 @@ $query2 = $query2.Replace('##SCHEMA##', $Schema).Replace('##STARTDATE##', $start
 $results.resourceLibrary = Execute-Query -QueryName "ResourceLibrary" -Query $query2
 
 # QUERY 3: Part/MFG Library Activity
-Write-Host "`n[3/11] Part/MFG Library" -ForegroundColor Cyan
+Write-Host "`n[3/12] Part/MFG Library" -ForegroundColor Cyan
 $query3 = @'
 SELECT
     'PART_LIBRARY' as work_type,
@@ -301,7 +314,7 @@ $query3 = $query3.Replace('##SCHEMA##', $Schema).Replace('##STARTDATE##', $start
 $results.partLibrary = Execute-Query -QueryName "PartLibrary" -Query $query3
 
 # QUERY 4: IPA Assembly Activity
-Write-Host "`n[4/11] IPA Assembly" -ForegroundColor Cyan
+Write-Host "`n[4/12] IPA Assembly" -ForegroundColor Cyan
 $query4 = @'
 SELECT
     'IPA_ASSEMBLY' as work_type,
@@ -326,7 +339,7 @@ $query4 = $query4.Replace('##SCHEMA##', $Schema).Replace('##STARTDATE##', $start
 $results.ipaAssembly = Execute-Query -QueryName "IpaAssembly" -Query $query4
 
 # QUERY 5A: Study Summary
-Write-Host "`n[5/11] Study Summary" -ForegroundColor Cyan
+Write-Host "`n[5/12] Study Summary" -ForegroundColor Cyan
 $query5a = @'
 SELECT
     'STUDY_SUMMARY' as work_type,
@@ -351,7 +364,7 @@ $query5a = $query5a.Replace('##SCHEMA##', $Schema).Replace('##STARTDATE##', $sta
 $results.studySummary = Execute-Query -QueryName "StudySummary" -Query $query5a
 
 # QUERY 5B: Study Resources
-Write-Host "`n[6/11] Study Resource Allocation" -ForegroundColor Cyan
+Write-Host "`n[6/12] Study Resource Allocation" -ForegroundColor Cyan
 $query5b = @'
 SELECT
     'STUDY_RESOURCES' as work_type,
@@ -382,7 +395,7 @@ $query5b = $query5b.Replace('##SCHEMA##', $Schema).Replace('##STARTDATE##', $sta
 $results.studyResources = Execute-Query -QueryName "StudyResources" -Query $query5b
 
 # QUERY 5C: Study Panels
-Write-Host "`n[7/11] Study Panel Usage" -ForegroundColor Cyan
+Write-Host "`n[7/12] Study Panel Usage" -ForegroundColor Cyan
 $query5c = @'
 SELECT
     'STUDY_PANELS' as work_type,
@@ -409,7 +422,7 @@ $query5c = $query5c.Replace('##SCHEMA##', $Schema).Replace('##STARTDATE##', $sta
 $results.studyPanels = Execute-Query -QueryName "StudyPanels" -Query $query5c
 
 # QUERY 5D: Study Operations
-Write-Host "`n[8/11] Study Operations" -ForegroundColor Cyan
+Write-Host "`n[8/12] Study Operations" -ForegroundColor Cyan
 $query5d = @'
 SELECT
     'STUDY_OPERATIONS' as work_type,
@@ -437,7 +450,7 @@ $query5d = $query5d.Replace('##SCHEMA##', $Schema).Replace('##STARTDATE##', $sta
 $results.studyOperations = Execute-Query -QueryName "StudyOperations" -Query $query5d
 
 # QUERY 5E: Study Movements
-Write-Host "`n[9/11] Study Movement/Location Changes" -ForegroundColor Cyan
+Write-Host "`n[9/12] Study Movement/Location Changes" -ForegroundColor Cyan
 $query5e = @'
 SELECT
     'STUDY_MOVEMENTS' as work_type,
@@ -456,7 +469,7 @@ $query5e = $query5e.Replace('##SCHEMA##', $Schema).Replace('##STARTDATE##', $sta
 $results.studyMovements = Execute-Query -QueryName "StudyMovements" -Query $query5e
 
 # QUERY 5F: Study Welds
-Write-Host "`n[10/11] Study Weld Points" -ForegroundColor Cyan
+Write-Host "`n[10/12] Study Weld Points" -ForegroundColor Cyan
 $query5f = @'
 SELECT
     'STUDY_WELDS' as work_type,
@@ -474,7 +487,7 @@ $query5f = $query5f.Replace('##SCHEMA##', $Schema).Replace('##STARTDATE##', $sta
 $results.studyWelds = Execute-Query -QueryName "StudyWelds" -Query $query5f
 
 # QUERY 6: User Activity
-Write-Host "`n[11/11] User Activity Summary" -ForegroundColor Cyan
+Write-Host "`n[11/12] User Activity Summary" -ForegroundColor Cyan
 $query6 = @'
 SELECT
     u.OBJECT_ID as user_id,
@@ -490,6 +503,230 @@ ORDER BY active_checkouts DESC;
 '@
 $query6 = $query6.Replace('##SCHEMA##', $Schema)
 $results.userActivity = Execute-Query -QueryName "UserActivity" -Query $query6
+
+# QUERY 7: Study Health Analysis
+Write-Host "`n[12/12] Study Health Analysis" -ForegroundColor Cyan
+$query7 = @'
+SELECT
+    rs.OBJECT_ID as object_id,
+    rs.NAME_S_ as study_name,
+    cd.NICE_NAME as study_type,
+    NVL(rs.CREATEDBY_S_, '') as created_by,
+    TO_CHAR(rs.MODIFICATIONDATE_DA_, 'YYYY-MM-DD HH24:MI:SS') as last_modified,
+    NVL(rs.LASTMODIFIEDBY_S_, '') as modified_by,
+    rs.CLASS_ID as class_id
+FROM ##SCHEMA##.ROBCADSTUDY_ rs
+LEFT JOIN ##SCHEMA##.CLASS_DEFINITIONS cd ON rs.CLASS_ID = cd.TYPE_ID
+WHERE rs.NAME_S_ IS NOT NULL
+ORDER BY rs.NAME_S_;
+'@
+$query7 = $query7.Replace('##SCHEMA##', $Schema)
+$allStudies = Execute-Query -QueryName "StudyHealthData" -Query $query7
+
+# Perform health checks on studies
+Write-Host "  Analyzing study names for health issues..." -ForegroundColor Yellow
+
+# Load rules from config file
+$rulesPath = Join-Path $PSScriptRoot "..\..\..\config\robcad-study-health-rules.json"
+$rules = @{
+    maxNameLength = 60
+    maxWordCount = 8
+    illegalChars = @(":", "*", "?", '"', "<", ">", "|")
+    junkTokens = @("test", "temp", "asdf", "qwerty", "xxx", "copy")
+    junkPhrases = @("new folder", "do not delete", "final_final")
+    legacyTokens = @("old", "legacy", "backup", "deprecated", "unused", "archive")
+    yearPattern = "(19|20)\d{2}"
+}
+
+if (Test-Path $rulesPath) {
+    try {
+        $rulesJson = Get-Content $rulesPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        $rules.maxNameLength = $rulesJson.maxNameLength
+        $rules.maxWordCount = $rulesJson.maxWordCount
+        $rules.illegalChars = $rulesJson.illegalChars
+        $rules.junkTokens = $rulesJson.junkTokens
+        $rules.junkPhrases = $rulesJson.junkPhrases
+        $rules.legacyTokens = $rulesJson.legacyTokens
+        $rules.yearPattern = $rulesJson.yearPattern
+    } catch {
+        Write-Warning "    Could not load rules from $rulesPath, using defaults"
+    }
+}
+
+$issues = @()
+$suspicious = @()
+$renameSuggestions = @()
+
+# Helper function to check for illegal characters
+function Test-IllegalChars {
+    param([string]$Name, [string[]]$IllegalChars)
+    foreach ($char in $IllegalChars) {
+        if ($Name.Contains($char)) {
+            return $true
+        }
+    }
+    return $false
+}
+
+# Helper function to extract tokens
+function Get-NameTokens {
+    param([string]$Name)
+    if ([string]::IsNullOrWhiteSpace($Name)) {
+        return @()
+    }
+    $matches = [regex]::Matches($Name, "[A-Za-z0-9]+")
+    return $matches | ForEach-Object { $_.Value.ToLowerInvariant() }
+}
+
+# Analyze each study
+foreach ($study in $allStudies) {
+    $name = $study.study_name
+
+    # Skip if name is null or whitespace
+    if ([string]::IsNullOrWhiteSpace($name)) {
+        $issues += [PSCustomObject]@{
+            node_id = $study.object_id
+            study_name = ""
+            severity = "Critical"
+            issue = "empty_name"
+            details = "Name is empty or whitespace"
+        }
+        continue
+    }
+
+    # Check for leading/trailing whitespace
+    if ($name -ne $name.Trim()) {
+        $issues += [PSCustomObject]@{
+            node_id = $study.object_id
+            study_name = $name
+            severity = "Critical"
+            issue = "leading_trailing_whitespace"
+            details = "Leading or trailing whitespace detected"
+        }
+    }
+
+    # Check for illegal characters
+    if (Test-IllegalChars -Name $name -IllegalChars $rules.illegalChars) {
+        $issues += [PSCustomObject]@{
+            node_id = $study.object_id
+            study_name = $name
+            severity = "Critical"
+            issue = "illegal_chars"
+            details = "Contains illegal characters"
+        }
+    }
+
+    # Check for junk tokens
+    $tokens = Get-NameTokens -Name $name
+    $junkFound = @()
+    foreach ($junk in $rules.junkTokens) {
+        if ($tokens -contains $junk.ToLowerInvariant()) {
+            $junkFound += $junk
+        }
+    }
+
+    # Check for junk phrases
+    $nameLower = $name.ToLowerInvariant()
+    foreach ($phrase in $rules.junkPhrases) {
+        if ($nameLower.Contains($phrase.ToLowerInvariant())) {
+            $junkFound += $phrase
+        }
+    }
+
+    if ($junkFound.Count -gt 0) {
+        $issues += [PSCustomObject]@{
+            node_id = $study.object_id
+            study_name = $name
+            severity = "High"
+            issue = "junk_tokens"
+            details = "Contains placeholder tokens: $($junkFound -join ', ')"
+        }
+    }
+
+    # Check for hash-like names
+    if ($nameLower -match '[0-9a-f]{16,}') {
+        $issues += [PSCustomObject]@{
+            node_id = $study.object_id
+            study_name = $name
+            severity = "High"
+            issue = "hash_like_name"
+            details = "Looks like a GUID or hash"
+        }
+    }
+
+    # Check for file path in name
+    if ($nameLower -match '([a-z]:\\|\\\\|/home/)') {
+        $issues += [PSCustomObject]@{
+            node_id = $study.object_id
+            study_name = $name
+            severity = "High"
+            issue = "file_path_name"
+            details = "Contains a file path"
+        }
+    }
+
+    # Check for legacy markers
+    $legacyFound = @()
+    foreach ($legacy in $rules.legacyTokens) {
+        if ($tokens -contains $legacy.ToLowerInvariant()) {
+            $legacyFound += $legacy
+        }
+    }
+
+    # Check for year stamp
+    if ($nameLower -match $rules.yearPattern) {
+        $legacyFound += "year_stamp"
+    }
+
+    if ($legacyFound.Count -gt 0) {
+        $issues += [PSCustomObject]@{
+            node_id = $study.object_id
+            study_name = $name
+            severity = "High"
+            issue = "legacy_markers"
+            details = "Contains legacy markers: $($legacyFound -join ', ')"
+        }
+    }
+
+    # Check for overlong name
+    if ($name.Length -gt $rules.maxNameLength) {
+        $issues += [PSCustomObject]@{
+            node_id = $study.object_id
+            study_name = $name
+            severity = "Low"
+            issue = "overlong_name"
+            details = "Length $($name.Length) exceeds $($rules.maxNameLength)"
+        }
+    }
+
+    # Check for too many words
+    $wordTokens = ($name.Trim() -split '\s+') | Where-Object { $_ }
+    if ($wordTokens.Count -gt $rules.maxWordCount) {
+        $issues += [PSCustomObject]@{
+            node_id = $study.object_id
+            study_name = $name
+            severity = "Low"
+            issue = "too_many_tokens"
+            details = "Word count $($wordTokens.Count) exceeds $($rules.maxWordCount)"
+        }
+    }
+}
+
+# Calculate summary statistics
+$results.studyHealth.summary.totalStudies = $allStudies.Count
+$results.studyHealth.summary.totalIssues = $issues.Count
+$results.studyHealth.summary.criticalIssues = @($issues | Where-Object { $_.severity -eq "Critical" }).Count
+$results.studyHealth.summary.highIssues = @($issues | Where-Object { $_.severity -eq "High" }).Count
+$results.studyHealth.summary.mediumIssues = @($issues | Where-Object { $_.severity -eq "Medium" }).Count
+$results.studyHealth.summary.lowIssues = @($issues | Where-Object { $_.severity -eq "Low" }).Count
+
+# Add to results
+$results.studyHealth.issues = $issues
+$results.studyHealth.suspicious = $suspicious
+$results.studyHealth.renameSuggestions = $renameSuggestions
+
+Write-Host "    ✓ Analyzed $($allStudies.Count) studies, found $($issues.Count) issues" -ForegroundColor Green
+Write-Host "      Critical: $($results.studyHealth.summary.criticalIssues), High: $($results.studyHealth.summary.highIssues), Medium: $($results.studyHealth.summary.mediumIssues), Low: $($results.studyHealth.summary.lowIssues)" -ForegroundColor Gray
 
 # Save results to JSON
 Write-Host "`n========================================" -ForegroundColor Cyan
