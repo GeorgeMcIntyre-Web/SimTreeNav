@@ -36,12 +36,22 @@ function Write-Log {
 }
 
 try {
-    # Resolve Paths (AbsolutePath Fix)
-    # Using [System.IO.Path]::GetFullPath ensures clean absolute paths without unintended concatenation
-    $currentLoc = Get-Location
-    $RepoRoot = [System.IO.Path]::GetFullPath((Join-Path $currentLoc $RepoRoot))
-    $DeployRoot = [System.IO.Path]::GetFullPath((Join-Path $currentLoc $DeployRoot))
-    $OutDir = [System.IO.Path]::GetFullPath((Join-Path $currentLoc $OutDir))
+    # Resolve Paths (Absolute/Relative Fix)
+    $currentLoc = (Get-Location).Path
+    
+    function Resolve-NormalizedPath {
+        param([string]$InputPath, [string]$BasePath)
+        if ([string]::IsNullOrWhiteSpace($InputPath)) { return $BasePath }
+        if ([System.IO.Path]::IsPathRooted($InputPath)) {
+            return [System.IO.Path]::GetFullPath($InputPath)
+        } else {
+            return [System.IO.Path]::GetFullPath((Join-Path $BasePath $InputPath))
+        }
+    }
+
+    $RepoRoot = Resolve-NormalizedPath -InputPath $RepoRoot -BasePath $currentLoc
+    $DeployRoot = Resolve-NormalizedPath -InputPath $DeployRoot -BasePath $currentLoc
+    $OutDir = Resolve-NormalizedPath -InputPath $OutDir -BasePath $currentLoc
     
     # Ensure DeployRoot parent exists if needed, then create DeployRoot
     if (-not (Test-Path $DeployRoot)) { New-Item -Path $DeployRoot -ItemType Directory -Force | Out-Null }
