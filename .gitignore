@@ -44,6 +44,7 @@ add-fallback-icons.ps1
 nul
 timing-*.ps1
 TEST-*.ps1
+!test/integration/Test-*.ps1
 perf-*.html
 
 # Debug/investigation SQL files
