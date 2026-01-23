@@ -49,13 +49,17 @@ function New-RunStatus {
 
     $statusPath = Join-Path $jsonDir "run-status.json"
 
+    # Get cross-platform host information
+    $machineName = if ($env:COMPUTERNAME) { $env:COMPUTERNAME } else { hostname }
+    $userName = if ($env:USERNAME) { $env:USERNAME } else { $env:USER }
+
     $status = [ordered]@{
         schemaVersion = $SchemaVersion
         scriptName    = $ScriptName
         startedAt     = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
         host          = [ordered]@{
-            machineName = $env:COMPUTERNAME
-            user        = $env:USERNAME
+            machineName = $machineName
+            user        = $userName
             psVersion   = $PSVersionTable.PSVersion.ToString()
         }
         steps         = @()

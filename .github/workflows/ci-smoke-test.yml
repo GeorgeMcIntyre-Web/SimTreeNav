@@ -1,0 +1,132 @@
+name: CI Smoke Test
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  smoke-test:
+    name: Run Smoke Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Verify PowerShell version
+        run: |
+          pwsh -Version
+          pwsh -Command '$PSVersionTable.PSVersion'
+
+      - name: Run unit tests (RunStatus library)
+        run: |
+          pwsh -File test/integration/Test-RunStatus.ps1
+        continue-on-error: false
+
+      - name: Run integration smoke test
+        run: |
+          pwsh -File test/integration/Test-ReleaseSmoke.ps1 -OutDir ./out -SkipFullRun
+        continue-on-error: false
+
+      - name: Display run-status.json
+        if: always()
+        run: |
+          if [ -f ./out/json/run-status.json ]; then
+            echo "=== run-status.json ==="
+            cat ./out/json/run-status.json
+          else
+            echo "run-status.json not found"
+          fi
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: |
+            test/integration/results/*.json
+            out/logs/*.log
+            out/json/run-status.json
+          retention-days: 30
+
+      - name: Upload test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-artifacts
+          path: |
+            out/
+          retention-days: 7
+
+  secrets-scan:
+    name: Scan for Secrets
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Scan for hardcoded secrets
+        run: |
+          echo "Scanning for hardcoded secrets..."
+
+          # Define patterns - focus on actual secrets (assignment patterns)
+          # Not just any occurrence of these words
+          PATTERNS="password\s*=|password\s*:|token\s*=|token\s*:|secret\s*=|secret\s*:|apikey\s*=|api_key\s*=|PRIVATE_KEY|BEGIN RSA|BEGIN OPENSSH"
+
+          echo "Searching for potential secrets (excluding PowerShell scripts)..."
+
+          # Exclude PowerShell files (have legitimate "credential" module names, "token" variables)
+          # Exclude SQL files (only have example passwords in comments)
+          # Focus on config files, shell scripts, and other files that shouldn't have secrets
+          MATCHES=$(grep -rni -E "$PATTERNS" . \
+            --exclude-dir={.git,node_modules,.vscode,.claude,out,test} \
+            --exclude="*.md" \
+            --exclude="*.json" \
+            --exclude="*.log" \
+            --exclude="*.ps1" \
+            --exclude="*.sql" \
+            --exclude=".secretsignore" \
+            --exclude="ci-smoke-test.yml" \
+            || true)
+
+          if [ -n "$MATCHES" ]; then
+            echo "⚠️  WARNING: Potential secrets found:"
+            echo "$MATCHES"
+            echo ""
+            echo "If these are false positives, add them to .secretsignore"
+            exit 1
+          else
+            echo "✓ No hardcoded secrets detected"
+            echo "Note: PowerShell and SQL files excluded (use code review for these)"
+          fi
+
+  test-summary:
+    name: Test Summary
+    runs-on: ubuntu-latest
+    needs: [smoke-test, secrets-scan]
+    if: always()
+
+    steps:
+      - name: Check test results
+        run: |
+          SMOKE_RESULT="${{ needs.smoke-test.result }}"
+          SECRETS_RESULT="${{ needs.secrets-scan.result }}"
+
+          echo "=== Test Summary ==="
+          echo "Smoke Tests: $SMOKE_RESULT"
+          echo "Secrets Scan: $SECRETS_RESULT"
+          echo ""
+
+          if [ "$SMOKE_RESULT" = "success" ] && [ "$SECRETS_RESULT" = "success" ]; then
+            echo "✓ All checks passed"
+            exit 0
+          else
+            echo "✗ Some checks failed"
+            exit 1
+          fi
