@@ -165,6 +165,7 @@ function Test-RequiredPaths {
     #>
     param(
         [Parameter(Mandatory=$true)]
+        [AllowEmptyCollection()]
         [string[]]$Paths
     )
 

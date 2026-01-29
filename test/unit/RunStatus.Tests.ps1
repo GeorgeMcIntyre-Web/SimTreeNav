@@ -53,10 +53,10 @@ Describe 'RunStatus Library' {
             $status.startedAt | Should -Not -BeNullOrEmpty
             $status.host | Should -Not -BeNull
             $status.host.machineName | Should -Not -BeNullOrEmpty
-            $status.steps | Should -Not -BeNull
-            $status.durations | Should -Not -BeNull
-            $status.status | Should -Not -BeNull
-            $status.exitCode | Should -Not -BeNull
+            $status.PSObject.Properties['steps'] | Should -Not -BeNull
+            $status.PSObject.Properties['durations'] | Should -Not -BeNull
+            $status.PSObject.Properties['status'] | Should -Not -BeNull
+            $status.PSObject.Properties['exitCode'] | Should -Not -BeNull
             $status.PSObject.Properties['topError'] | Should -Not -BeNull
             $status.PSObject.Properties['logFile'] | Should -Not -BeNull
             $status.PSObject.Properties['completedAt'] | Should -Not -BeNull
@@ -66,8 +66,19 @@ Describe 'RunStatus Library' {
             $statusPath = New-RunStatus -OutDir $script:TempDir -ScriptName "test.ps1"
 
             $status = Get-Content -Path $statusPath -Raw | ConvertFrom-Json
-            $status.steps | Should -BeOfType [System.Array]
-            $status.steps.Count | Should -Be 0
+            ($status.PSObject.Properties.Name -contains 'steps') | Should -BeTrue
+
+            $stepList = @()
+            if ($status.PSObject.Properties['steps']) {
+                if ($null -eq $status.steps) {
+                    $stepList = @()
+                } else {
+                    $stepList = @($status.steps)
+                }
+            }
+
+            Should -BeOfType -ActualValue $stepList -ExpectedType ([System.Array])
+            $stepList.Count | Should -Be 0
         }
 
         It 'sets initial status to null' {

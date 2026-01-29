@@ -228,7 +228,8 @@ Describe 'EnvChecks Library' {
             $missingPath = Join-Path $script:TempDir "missing.txt"
             $result = Test-RequiredPaths -Paths @($missingPath)
 
-            $result.Error | Should -Match [regex]::Escape($missingPath)
+            $escapedPath = [regex]::Escape($missingPath)
+            $result.Error | Should -Match $escapedPath
         }
 
         It 'validates directories as well as files' {

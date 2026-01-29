@@ -53,10 +53,12 @@ function New-RunStatus {
     $machineName = if ($env:COMPUTERNAME) { $env:COMPUTERNAME } else { hostname }
     $userName = if ($env:USERNAME) { $env:USERNAME } else { $env:USER }
 
+    $timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
+
     $status = [ordered]@{
         schemaVersion = $SchemaVersion
         scriptName    = $ScriptName
-        startedAt     = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+        startedAt     = $timestamp
         host          = [ordered]@{
             machineName = $machineName
             user        = $userName
@@ -73,6 +75,43 @@ function New-RunStatus {
 
     $status | ConvertTo-Json -Depth 10 | Set-Content -Path $statusPath -Encoding UTF8
     Write-Output $statusPath
+}
+
+function Convert-RunStatusTimestamp {
+    <#
+    .SYNOPSIS
+        Parses run-status timestamps with or without milliseconds.
+    #>
+    param(
+        [object]$Value
+    )
+
+    if ($Value -is [DateTime]) {
+        return $Value.ToUniversalTime()
+    }
+
+    if ([string]::IsNullOrWhiteSpace([string]$Value)) {
+        return [DateTime]::MinValue
+    }
+
+    $formats = @(
+        "yyyy-MM-ddTHH:mm:ss.fffZ",
+        "yyyy-MM-ddTHH:mm:ssZ"
+    )
+
+    foreach ($format in $formats) {
+        $parsed = [DateTime]::MinValue
+        if ([DateTime]::TryParseExact(
+                [string]$Value,
+                $format,
+                [System.Globalization.CultureInfo]::InvariantCulture,
+                [System.Globalization.DateTimeStyles]::AdjustToUniversal,
+                [ref]$parsed)) {
+            return $parsed
+        }
+    }
+
+    return [DateTime]::Parse([string]$Value).ToUniversalTime()
 }
 
 function Set-RunStatusStep {
@@ -122,7 +161,7 @@ function Set-RunStatusStep {
         $step = [ordered]@{
             name        = $StepName
             status      = $Status
-            startedAt   = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+            startedAt   = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
             completedAt = $null
             durationMs  = $null
             error       = $Error
@@ -139,17 +178,15 @@ function Set-RunStatusStep {
 
         # Calculate duration if completing or failing
         if ($Status -eq "completed" -or $Status -eq "failed") {
-            $completedAt = Get-Date
-            $content.steps[$stepIndex].completedAt = $completedAt.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+            $completedAt = (Get-Date).ToUniversalTime()
+            $content.steps[$stepIndex].completedAt = $completedAt.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
 
             # Calculate duration from startedAt
-            $startedAtValue = $content.steps[$stepIndex].startedAt
-            if ($startedAtValue -is [DateTime]) {
-                $startedAt = $startedAtValue.ToUniversalTime()
-            } else {
-                $startedAt = [DateTime]::ParseExact($startedAtValue, "yyyy-MM-ddTHH:mm:ssZ", [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::AdjustToUniversal)
+            $startedAt = Convert-RunStatusTimestamp -Value $content.steps[$stepIndex].startedAt
+            $durationMs = [int](($completedAt - $startedAt).TotalMilliseconds)
+            if ($durationMs -lt 0) {
+                $durationMs = 0
             }
-            $durationMs = [int](($completedAt.ToUniversalTime() - $startedAt).TotalMilliseconds)
             $content.steps[$stepIndex].durationMs = $durationMs
 
             # Update durations map
@@ -211,25 +248,15 @@ function Complete-RunStatus {
     $content.exitCode = $ExitCode
     $content.topError = $TopError
     $content.logFile = $LogFile
-    $content.completedAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+    $completedAt = (Get-Date).ToUniversalTime()
+    $content.completedAt = $completedAt.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
 
     # Calculate total duration
-    $startedAtValue = $content.startedAt
-    $completedAtValue = $content.completedAt
-
-    if ($startedAtValue -is [DateTime]) {
-        $startedAt = $startedAtValue.ToUniversalTime()
-    } else {
-        $startedAt = [DateTime]::ParseExact($startedAtValue, "yyyy-MM-ddTHH:mm:ssZ", [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::AdjustToUniversal)
-    }
-
-    if ($completedAtValue -is [DateTime]) {
-        $completedAt = $completedAtValue.ToUniversalTime()
-    } else {
-        $completedAt = [DateTime]::ParseExact($completedAtValue, "yyyy-MM-ddTHH:mm:ssZ", [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::AdjustToUniversal)
-    }
-
+    $startedAt = Convert-RunStatusTimestamp -Value $content.startedAt
     $totalMs = [int](($completedAt - $startedAt).TotalMilliseconds)
+    if ($totalMs -lt 0) {
+        $totalMs = 0
+    }
     $content.durations | Add-Member -MemberType NoteProperty -Name "totalMs" -Value $totalMs -Force
 
     # Write back to file
