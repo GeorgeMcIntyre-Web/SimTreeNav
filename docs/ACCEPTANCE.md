@@ -294,6 +294,68 @@ on:
 
 ---
 
+## Deterministic Output Behavior
+
+The CI workflow ensures predictable, testable outputs even when tests fail:
+
+### Directory Creation
+**Before tests run**, the workflow creates all required directories:
+```bash
+mkdir -p out/logs out/json test/integration/results
+```
+
+**Benefits:**
+- Tests never fail due to missing directories
+- Artifact upload paths always exist
+- Consistent environment across all runs
+
+### Run Status JSON
+**Every execution** produces `out/json/run-status.json`, including:
+- **Smoke tests** - SmokeTest step tracked with timing
+- **Failed tests** - Partial status with error details
+- **Successful tests** - Complete status with all steps
+
+**Schema fields always present:**
+```json
+{
+  "schemaVersion": "1.0.0",
+  "scriptName": "dashboard-task.ps1",
+  "startedAt": "ISO8601 timestamp",
+  "host": { "machineName", "user", "psVersion" },
+  "steps": [ /* array of step objects */ ],
+  "durations": { "totalMs": 0 },
+  "status": "success|failed|partial",
+  "exitCode": 0,
+  "topError": "",
+  "logFile": "path/to/log",
+  "completedAt": "ISO8601 timestamp"
+}
+```
+
+### Test Results JSON
+**All test scripts** produce results JSON in `test/integration/results/`:
+- `test-runstatus.json` - Unit test results
+- `test-release-smoke.json` - Integration test results
+
+**Schema:**
+```json
+{
+  "test": "test-name",
+  "startedAt": "ISO8601",
+  "status": "pass|fail",
+  "issues": [ /* array of failure reasons */ ],
+  "endedAt": "ISO8601"
+}
+```
+
+### Artifact Guarantees
+**Artifacts always upload** (even on failure):
+- `if-no-files-found: warn` - Don't fail if optional files missing
+- `if: always()` - Upload even when tests fail
+- Test results available for offline analysis
+
+---
+
 ## Acceptance Gates Summary
 
 | Gate | Criteria | Failure Action |
