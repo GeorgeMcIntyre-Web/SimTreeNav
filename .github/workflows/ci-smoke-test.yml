@@ -28,6 +28,15 @@ jobs:
           mkdir -p out/logs out/json test/integration/results
           echo "Created required directories for test outputs"
 
+      - name: Verify directories exist
+        run: |
+          echo "Verifying directory creation..."
+          test -d out/logs && echo "✓ out/logs exists" || (echo "✗ out/logs missing" && exit 1)
+          test -d out/json && echo "✓ out/json exists" || (echo "✗ out/json missing" && exit 1)
+          test -d test/integration/results && echo "✓ test/integration/results exists" || (echo "✗ test/integration/results missing" && exit 1)
+          test -w out/logs && echo "✓ out/logs writable" || (echo "✗ out/logs not writable" && exit 1)
+          echo "All directories verified successfully"
+
       - name: Run unit tests (RunStatus library)
         run: |
           pwsh -File test/integration/Test-RunStatus.ps1
