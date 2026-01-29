@@ -206,6 +206,10 @@ try {
     Add-Issue "Complete-RunStatus failed: $_"
 }
 
+# TEST 7: Intentional failure to test CI artifact upload
+Write-Host "`nTest 7: CI artifact test (intentional failure)..." -ForegroundColor Yellow
+Add-Issue "INTENTIONAL TEST FAILURE: Testing that CI uploads artifacts even on failure"
+
 # Cleanup
 Write-Host "`nCleaning up test directory..." -ForegroundColor Gray
 Remove-Item -Path $TempDir -Recurse -Force -ErrorAction SilentlyContinue
