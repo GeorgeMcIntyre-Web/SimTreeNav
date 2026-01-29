@@ -53,6 +53,7 @@ jobs:
             out/logs/*.log
             out/json/run-status.json
           retention-days: 30
+          if-no-files-found: warn
 
       - name: Upload test artifacts
         if: always()
@@ -62,6 +63,7 @@ jobs:
           path: |
             out/
           retention-days: 7
+          if-no-files-found: warn
 
   secrets-scan:
     name: Scan for Secrets
