@@ -38,6 +38,28 @@ if (Test-Path $credManagerPath) {
     Write-Warning "Credential manager not found. Using default password."
 }
 
+# Import evidence and snapshot libraries
+$evidenceLibPath = Join-Path $PSScriptRoot "..\..\..\scripts\lib\EvidenceClassifier.ps1"
+if (Test-Path $evidenceLibPath) {
+    . $evidenceLibPath
+} else {
+    Write-Warning "Evidence classifier not found: $evidenceLibPath"
+}
+
+$snapshotLibPath = Join-Path $PSScriptRoot "..\..\..\scripts\lib\SnapshotManager.ps1"
+if (Test-Path $snapshotLibPath) {
+    . $snapshotLibPath
+} else {
+    Write-Warning "Snapshot manager not found: $snapshotLibPath"
+}
+
+$enrichmentLibPath = Join-Path $PSScriptRoot "..\..\..\scripts\lib\WorkflowEnrichment.ps1"
+if (Test-Path $enrichmentLibPath) {
+    . $enrichmentLibPath
+} else {
+    Write-Warning "Workflow enrichment library not found: $enrichmentLibPath"
+}
+
 # Format dates for SQL
 $startDateStr = $StartDate.ToString('yyyy-MM-dd')
 $endDateStr = $EndDate.ToString('yyyy-MM-dd')
@@ -45,6 +67,7 @@ $endDateStr = $EndDate.ToString('yyyy-MM-dd')
 # Initialize results object
 $results = @{
     metadata = @{
+        schemaVersion = "1.2.0"
         schema = $Schema
         projectId = $ProjectId
         startDate = $startDateStr
@@ -62,6 +85,7 @@ $results = @{
     studyMovements = @()
     studyWelds = @()
     userActivity = @()
+    events = @()
     studyHealth = @{
         summary = @{
             totalStudies = 0
@@ -126,6 +150,221 @@ function Convert-PipeDelimitedToObjects {
     }
 
     return $objects
+}
+
+function Convert-StringToDateTime {
+    param(
+        [string]$Value
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return [datetime]::MinValue
+    }
+
+    $parsed = [datetime]::MinValue
+    $culture = [System.Globalization.CultureInfo]::InvariantCulture
+    $styles = [System.Globalization.DateTimeStyles]::AssumeLocal
+
+    if ([datetime]::TryParseExact($Value, 'yyyy-MM-dd HH:mm:ss', $culture, $styles, [ref]$parsed)) {
+        return $parsed
+    }
+
+    if ([datetime]::TryParse($Value, $culture, $styles, [ref]$parsed)) {
+        return $parsed
+    }
+
+    return [datetime]::MinValue
+}
+
+function Test-DateInRange {
+    param(
+        [datetime]$Value,
+        [datetime]$Start,
+        [datetime]$End
+    )
+
+    if ($Value -eq [datetime]::MinValue) {
+        return $false
+    }
+
+    return ($Value -ge $Start -and $Value -le $End)
+}
+
+function New-SnapshotEvidence {
+    param(
+        [hashtable]$SnapshotComparison
+    )
+
+    if (-not $SnapshotComparison) {
+        return $null
+    }
+
+    return @{
+        hasWrite = $SnapshotComparison.hasWrite
+        hasDelta = $SnapshotComparison.hasDelta
+        changes = $SnapshotComparison.changes
+    }
+}
+
+function New-DefaultEvidence {
+    return @{
+        hasCheckout = $false
+        hasWrite = $false
+        hasDelta = $false
+        attributionStrength = "weak"
+        confidence = "unattributed"
+    }
+}
+
+function Ensure-EvidenceBlock {
+    param(
+        [hashtable]$Evidence
+    )
+
+    if (-not $Evidence) {
+        return New-DefaultEvidence
+    }
+
+    $defaultEvidence = New-DefaultEvidence
+    foreach ($key in $defaultEvidence.Keys) {
+        if (-not $Evidence.ContainsKey($key)) {
+            $Evidence[$key] = $defaultEvidence[$key]
+        }
+    }
+
+    return $Evidence
+}
+
+if (-not (Get-Command -Name New-CoordinateDeltaSummary -ErrorAction SilentlyContinue)) {
+    function New-CoordinateDeltaSummary {
+        param(
+            [hashtable]$NewRecord,
+            [hashtable]$PreviousRecord
+        )
+
+        if (-not $NewRecord -or -not $PreviousRecord) {
+            return $null
+        }
+
+        if (-not $NewRecord.coordinates -or -not $PreviousRecord.coordinates) {
+            return $null
+        }
+
+        $dx = [Math]::Round(($NewRecord.coordinates.x - $PreviousRecord.coordinates.x), 2)
+        $dy = [Math]::Round(($NewRecord.coordinates.y - $PreviousRecord.coordinates.y), 2)
+        $dz = [Math]::Round(($NewRecord.coordinates.z - $PreviousRecord.coordinates.z), 2)
+
+        $maxDelta = [Math]::Max([Math]::Max([Math]::Abs($dx), [Math]::Abs($dy)), [Math]::Abs($dz))
+
+        return @{
+            kind = "movement"
+            fields = @("x", "y", "z")
+            maxAbsDelta = $maxDelta
+            before = $PreviousRecord.coordinates
+            after = $NewRecord.coordinates
+            delta = @{ x = $dx; y = $dy; z = $dz }
+        }
+    }
+}
+
+if (-not (Get-Command -Name New-AllocationDeltaSummary -ErrorAction SilentlyContinue)) {
+    function New-AllocationDeltaSummary {
+        param(
+            [hashtable]$SnapshotComparison,
+            [hashtable]$NewRecord
+        )
+
+        if (-not $SnapshotComparison) {
+            return $null
+        }
+
+        if (-not $SnapshotComparison.hasDelta) {
+            return $null
+        }
+
+        $fields = @()
+        if ($SnapshotComparison.changes -and $SnapshotComparison.changes.Count -gt 0) {
+            $fields = $SnapshotComparison.changes
+        }
+
+        if ($fields.Count -eq 0) {
+            $fields = @("operation")
+        }
+
+        $before = $null
+        if ($SnapshotComparison.previousRecord -and $SnapshotComparison.previousRecord.PSObject.Properties['metadata']) {
+            $before = $SnapshotComparison.previousRecord.metadata
+        }
+
+        $after = $null
+        if ($NewRecord -and $NewRecord.metadata) {
+            $after = $NewRecord.metadata
+        }
+
+        return @{
+            kind = "allocation"
+            fields = $fields
+            before = $before
+            after = $after
+        }
+    }
+}
+
+if (-not (Get-Command -Name New-LibraryDeltaSummary -ErrorAction SilentlyContinue)) {
+    function New-LibraryDeltaSummary {
+        param(
+            [hashtable]$SnapshotComparison,
+            [hashtable]$NewRecord
+        )
+
+        if (-not $SnapshotComparison) {
+            return $null
+        }
+
+        if (-not $SnapshotComparison.hasDelta) {
+            return $null
+        }
+
+        $isNew = -not $SnapshotComparison.previousRecord
+        $kind = if ($isNew) { "libraryAdd" } else { "libraryChange" }
+
+        $before = $null
+        if (-not $isNew -and $SnapshotComparison.previousRecord -and $SnapshotComparison.previousRecord.PSObject.Properties['metadata']) {
+            $before = $SnapshotComparison.previousRecord.metadata
+        }
+
+        $after = $null
+        if ($NewRecord -and $NewRecord.metadata) {
+            $after = $NewRecord.metadata
+        }
+
+        return @{
+            kind = $kind
+            fields = @("record")
+            before = $before
+            after = $after
+        }
+    }
+}
+
+function Normalize-WorkTypeSafe {
+    param(
+        [string]$WorkType,
+        [string]$ObjectType = "",
+        [string]$Category = ""
+    )
+
+    if (Get-Command -Name Normalize-WorkType -ErrorAction SilentlyContinue) {
+        $normalized = Normalize-WorkType -WorkType $WorkType -ObjectType $ObjectType -Category $Category
+        if (-not [string]::IsNullOrWhiteSpace($normalized)) {
+            return $normalized
+        }
+
+        Write-Warning "Unknown workType '$WorkType' - falling back to original value"
+        return $WorkType
+    }
+
+    return $WorkType
 }
 
 function Test-FileLocked {
@@ -249,7 +488,8 @@ SELECT
     c.LASTMODIFIEDBY_S_ as modified_by,
     NVL(p.OWNER_ID, 0) as checked_out_by_user_id,
     NVL(u.CAPTION_S_, '') as checked_out_by_user_name,
-    CASE WHEN p.WORKING_VERSION_ID > 0 THEN 'Checked Out' ELSE 'Available' END as status
+    CASE WHEN p.WORKING_VERSION_ID > 0 THEN 'Checked Out' ELSE 'Available' END as status,
+    NVL(p.WORKING_VERSION_ID, 0) as checkout_working_version_id
 FROM ##SCHEMA##.COLLECTION_ c
 LEFT JOIN ##SCHEMA##.PROXY p ON c.OBJECT_ID = p.OBJECT_ID AND p.WORKING_VERSION_ID > 0
 LEFT JOIN ##SCHEMA##.USER_ u ON p.OWNER_ID = u.OBJECT_ID
@@ -272,12 +512,14 @@ SELECT
     NVL(r.LASTMODIFIEDBY_S_, '') as modified_by,
     NVL(p.OWNER_ID, 0) as checked_out_by_user_id,
     NVL(u.CAPTION_S_, '') as checked_out_by_user_name,
-    CASE WHEN p.WORKING_VERSION_ID > 0 THEN 'Checked Out' ELSE 'Available' END as status
+    CASE WHEN p.WORKING_VERSION_ID > 0 THEN 'Checked Out' ELSE 'Available' END as status,
+    NVL(p.WORKING_VERSION_ID, 0) as checkout_working_version_id
 FROM ##SCHEMA##.RESOURCE_ r
 LEFT JOIN ##SCHEMA##.CLASS_DEFINITIONS cd ON r.CLASS_ID = cd.TYPE_ID
 LEFT JOIN ##SCHEMA##.PROXY p ON r.OBJECT_ID = p.OBJECT_ID
 LEFT JOIN ##SCHEMA##.USER_ u ON p.OWNER_ID = u.OBJECT_ID
-WHERE r.MODIFICATIONDATE_DA_ > TO_DATE('##STARTDATE##', 'YYYY-MM-DD')
+WHERE (r.MODIFICATIONDATE_DA_ > TO_DATE('##STARTDATE##', 'YYYY-MM-DD')
+  OR p.WORKING_VERSION_ID > 0)
   AND ROWNUM <= 100
 ORDER BY r.MODIFICATIONDATE_DA_ DESC;
 '@
@@ -307,12 +549,14 @@ SELECT
     NVL(p.LASTMODIFIEDBY_S_, '') as modified_by,
     NVL(pr.OWNER_ID, 0) as checked_out_by_user_id,
     NVL(u.CAPTION_S_, '') as checked_out_by_user_name,
-    CASE WHEN pr.WORKING_VERSION_ID > 0 THEN 'Checked Out' ELSE 'Available' END as status
+    CASE WHEN pr.WORKING_VERSION_ID > 0 THEN 'Checked Out' ELSE 'Available' END as status,
+    NVL(pr.WORKING_VERSION_ID, 0) as checkout_working_version_id
 FROM ##SCHEMA##.PART_ p
 LEFT JOIN ##SCHEMA##.CLASS_DEFINITIONS cd ON p.CLASS_ID = cd.TYPE_ID
 LEFT JOIN ##SCHEMA##.PROXY pr ON p.OBJECT_ID = pr.OBJECT_ID
 LEFT JOIN ##SCHEMA##.USER_ u ON pr.OWNER_ID = u.OBJECT_ID
-WHERE p.MODIFICATIONDATE_DA_ > TO_DATE('##STARTDATE##', 'YYYY-MM-DD')
+WHERE (p.MODIFICATIONDATE_DA_ > TO_DATE('##STARTDATE##', 'YYYY-MM-DD')
+  OR pr.WORKING_VERSION_ID > 0)
   AND ROWNUM <= 100
 ORDER BY p.MODIFICATIONDATE_DA_ DESC;
 '@
@@ -333,12 +577,18 @@ SELECT
     NVL(pa.LASTMODIFIEDBY_S_, '') as modified_by,
     NVL(pr.OWNER_ID, 0) as checked_out_by_user_id,
     NVL(u.CAPTION_S_, '') as checked_out_by_user_name,
-    CASE WHEN pr.WORKING_VERSION_ID > 0 THEN 'Checked Out' ELSE 'Available' END as status
+    CASE WHEN pr.WORKING_VERSION_ID > 0 THEN 'Checked Out' ELSE 'Available' END as status,
+    NVL(pr.WORKING_VERSION_ID, 0) as checkout_working_version_id,
+    (SELECT COUNT(DISTINCT o.OBJECT_ID)
+        FROM ##SCHEMA##.REL_COMMON r
+        INNER JOIN ##SCHEMA##.OPERATION_ o ON r.OBJECT_ID = o.OBJECT_ID
+        WHERE r.FORWARD_OBJECT_ID = pa.OBJECT_ID) as operation_count
 FROM ##SCHEMA##.PART_ pa
 LEFT JOIN ##SCHEMA##.PROXY pr ON pa.OBJECT_ID = pr.OBJECT_ID
 LEFT JOIN ##SCHEMA##.USER_ u ON pr.OWNER_ID = u.OBJECT_ID
 WHERE pa.CLASS_ID = 133
-  AND pa.MODIFICATIONDATE_DA_ > TO_DATE('##STARTDATE##', 'YYYY-MM-DD')
+  AND (pa.MODIFICATIONDATE_DA_ > TO_DATE('##STARTDATE##', 'YYYY-MM-DD')
+    OR pr.WORKING_VERSION_ID > 0)
   AND ROWNUM <= 100
 ORDER BY pa.MODIFICATIONDATE_DA_ DESC;
 '@
@@ -359,12 +609,14 @@ SELECT
     NVL(rs.LASTMODIFIEDBY_S_, '') as modified_by,
     NVL(p.OWNER_ID, 0) as checked_out_by_user_id,
     NVL(u.CAPTION_S_, '') as checked_out_by_user_name,
-    CASE WHEN p.WORKING_VERSION_ID > 0 THEN 'Active' ELSE 'Idle' END as status
+    CASE WHEN p.WORKING_VERSION_ID > 0 THEN 'Active' ELSE 'Idle' END as status,
+    NVL(p.WORKING_VERSION_ID, 0) as checkout_working_version_id
 FROM ##SCHEMA##.ROBCADSTUDY_ rs
 LEFT JOIN ##SCHEMA##.CLASS_DEFINITIONS cd ON rs.CLASS_ID = cd.TYPE_ID
 LEFT JOIN ##SCHEMA##.PROXY p ON rs.OBJECT_ID = p.OBJECT_ID
 LEFT JOIN ##SCHEMA##.USER_ u ON p.OWNER_ID = u.OBJECT_ID
-WHERE rs.MODIFICATIONDATE_DA_ > TO_DATE('##STARTDATE##', 'YYYY-MM-DD')
+WHERE (rs.MODIFICATIONDATE_DA_ > TO_DATE('##STARTDATE##', 'YYYY-MM-DD')
+  OR p.WORKING_VERSION_ID > 0)
   AND ROWNUM <= 50
 ORDER BY rs.MODIFICATIONDATE_DA_ DESC;
 '@
@@ -443,16 +695,23 @@ SELECT
     NVL(o.OPERATIONTYPE_S_, '') as operation_type,
     TO_CHAR(o.MODIFICATIONDATE_DA_, 'YYYY-MM-DD HH24:MI:SS') as last_modified,
     NVL(o.LASTMODIFIEDBY_S_, '') as modified_by,
+    NVL(p.OWNER_ID, 0) as checked_out_by_user_id,
+    NVL(u.CAPTION_S_, '') as checked_out_by_user_name,
     CASE
         WHEN o.NAME_S_ LIKE 'PG%' THEN 'Weld Point Group'
         WHEN o.NAME_S_ LIKE 'MOV\_%' ESCAPE '\' THEN 'Movement Operation'
         WHEN o.NAME_S_ LIKE 'tip\_%' ESCAPE '\' THEN 'Tool Maintenance'
         WHEN o.NAME_S_ LIKE '%WELD%' THEN 'Weld Operation'
         ELSE 'Other'
-    END as operation_category
+    END as operation_category,
+    CASE WHEN p.WORKING_VERSION_ID > 0 THEN 'Checked Out' ELSE 'Available' END as status,
+    NVL(p.WORKING_VERSION_ID, 0) as checkout_working_version_id
 FROM ##SCHEMA##.OPERATION_ o
 LEFT JOIN ##SCHEMA##.CLASS_DEFINITIONS cd ON o.CLASS_ID = cd.TYPE_ID
-WHERE o.MODIFICATIONDATE_DA_ > TO_DATE('##STARTDATE##', 'YYYY-MM-DD')
+LEFT JOIN ##SCHEMA##.PROXY p ON o.OBJECT_ID = p.OBJECT_ID
+LEFT JOIN ##SCHEMA##.USER_ u ON p.OWNER_ID = u.OBJECT_ID
+WHERE (o.MODIFICATIONDATE_DA_ > TO_DATE('##STARTDATE##', 'YYYY-MM-DD')
+  OR p.WORKING_VERSION_ID > 0)
   AND o.CLASS_ID = 141
   AND ROWNUM <= 100
 ORDER BY o.MODIFICATIONDATE_DA_ DESC;
@@ -471,9 +730,25 @@ SELECT
     TO_CHAR(sl.MODIFICATIONDATE_DA_, 'YYYY-MM-DD HH24:MI:SS') as last_modified,
     NVL(sl.LASTMODIFIEDBY_S_, '') as modified_by,
     sl.LOCATION_V_ as location_vector_id,
-    sl.ROTATION_V_ as rotation_vector_id
+    sl.ROTATION_V_ as rotation_vector_id,
+    (SELECT MAX(CASE WHEN vl.SEQ_NUMBER = 0 THEN TO_NUMBER(vl.DATA) END)
+        FROM ##SCHEMA##.VEC_LOCATION_ vl
+        WHERE vl.OBJECT_ID = sl.LOCATION_V_) as x_coord,
+    (SELECT MAX(CASE WHEN vl.SEQ_NUMBER = 1 THEN TO_NUMBER(vl.DATA) END)
+        FROM ##SCHEMA##.VEC_LOCATION_ vl
+        WHERE vl.OBJECT_ID = sl.LOCATION_V_) as y_coord,
+    (SELECT MAX(CASE WHEN vl.SEQ_NUMBER = 2 THEN TO_NUMBER(vl.DATA) END)
+        FROM ##SCHEMA##.VEC_LOCATION_ vl
+        WHERE vl.OBJECT_ID = sl.LOCATION_V_) as z_coord,
+    NVL(p.OWNER_ID, 0) as checked_out_by_user_id,
+    NVL(u.CAPTION_S_, '') as checked_out_by_user_name,
+    CASE WHEN p.WORKING_VERSION_ID > 0 THEN 'Checked Out' ELSE 'Available' END as status,
+    NVL(p.WORKING_VERSION_ID, 0) as checkout_working_version_id
 FROM ##SCHEMA##.STUDYLAYOUT_ sl
-WHERE sl.MODIFICATIONDATE_DA_ > TO_DATE('##STARTDATE##', 'YYYY-MM-DD')
+LEFT JOIN ##SCHEMA##.PROXY p ON sl.OBJECT_ID = p.OBJECT_ID
+LEFT JOIN ##SCHEMA##.USER_ u ON p.OWNER_ID = u.OBJECT_ID
+WHERE (sl.MODIFICATIONDATE_DA_ > TO_DATE('##STARTDATE##', 'YYYY-MM-DD')
+  OR p.WORKING_VERSION_ID > 0)
   AND ROWNUM <= 100
 ORDER BY sl.MODIFICATIONDATE_DA_ DESC;
 '@
@@ -489,10 +764,17 @@ SELECT
     o.OBJECT_ID as operation_id,
     o.NAME_S_ as operation_name,
     TO_CHAR(o.MODIFICATIONDATE_DA_, 'YYYY-MM-DD HH24:MI:SS') as last_modified,
-    NVL(o.LASTMODIFIEDBY_S_, '') as modified_by
+    NVL(o.LASTMODIFIEDBY_S_, '') as modified_by,
+    NVL(p.OWNER_ID, 0) as checked_out_by_user_id,
+    NVL(u.CAPTION_S_, '') as checked_out_by_user_name,
+    CASE WHEN p.WORKING_VERSION_ID > 0 THEN 'Checked Out' ELSE 'Available' END as status,
+    NVL(p.WORKING_VERSION_ID, 0) as checkout_working_version_id
 FROM ##SCHEMA##.OPERATION_ o
+LEFT JOIN ##SCHEMA##.PROXY p ON o.OBJECT_ID = p.OBJECT_ID
+LEFT JOIN ##SCHEMA##.USER_ u ON p.OWNER_ID = u.OBJECT_ID
 WHERE o.CLASS_ID = 141
-  AND o.MODIFICATIONDATE_DA_ > TO_DATE('##STARTDATE##', 'YYYY-MM-DD')
+  AND (o.MODIFICATIONDATE_DA_ > TO_DATE('##STARTDATE##', 'YYYY-MM-DD')
+    OR p.WORKING_VERSION_ID > 0)
   AND ROWNUM <= 100
 ORDER BY o.MODIFICATIONDATE_DA_ DESC;
 '@
@@ -845,6 +1127,805 @@ $results.bottleneckQueue = $results.staleCheckouts |
 Write-Host "    ✓ Found $($results.resourceConflicts.Count) resource conflicts" -ForegroundColor Green
 Write-Host "    ✓ Found $($results.staleCheckouts.Count) stale checkouts (>72 hours)" -ForegroundColor Green
 Write-Host "    ✓ Identified $($results.bottleneckQueue.Count) users with stale checkouts" -ForegroundColor Green
+
+# ========================================
+# Evidence & Snapshot Processing
+# ========================================
+Write-Host "`n========================================" -ForegroundColor Cyan
+Write-Host "  Evidence & Snapshot Processing" -ForegroundColor Cyan
+Write-Host "========================================" -ForegroundColor Cyan
+
+$evidenceEnabled = $false
+if (Get-Command -Name New-EvidenceBlock -ErrorAction SilentlyContinue) {
+    $evidenceEnabled = $true
+} else {
+    Write-Warning "Evidence classifier not available; evidence blocks will be empty."
+}
+
+$previousSnapshot = $null
+$snapshotPath = $null
+$snapshotAvailable = $false
+if (Get-Command -Name Read-Snapshot -ErrorAction SilentlyContinue) {
+    $snapshotPath = Get-SnapshotPath -Schema $Schema -ProjectId $ProjectId
+    $previousSnapshot = Read-Snapshot -SnapshotPath $snapshotPath
+    $snapshotAvailable = $true
+    if ($snapshotPath) {
+        $results.metadata.snapshotFile = [System.IO.Path]::GetFileName($snapshotPath)
+    }
+} else {
+    Write-Warning "Snapshot manager not available; diffs disabled."
+}
+
+$newSnapshotRecords = @()
+
+function Add-EventRecord {
+    param(
+        [string]$WorkType,
+        [string]$Timestamp,
+        [string]$User,
+        [string]$Description,
+        [string]$ObjectName,
+        [string]$ObjectId,
+        [string]$ObjectType,
+        [hashtable]$Evidence,
+        [hashtable]$Context
+    )
+
+    $safeEvidence = Ensure-EvidenceBlock -Evidence $Evidence
+
+    $event = [ordered]@{
+        timestamp = $Timestamp
+        user = $User
+        workType = $WorkType
+        description = $Description
+        objectName = $ObjectName
+        objectId = $ObjectId
+        objectType = $ObjectType
+        evidence = $safeEvidence
+    }
+
+    if ($Context -and $Context.Count -gt 0) {
+        $event.context = $Context
+    }
+
+    $results.events += [PSCustomObject]$event
+}
+
+# Project Database events
+foreach ($item in $results.projectDatabase) {
+    $objectId = [string]$item.object_id
+    $objectType = if ($item.object_type) { $item.object_type } else { "Project" }
+    $objectName = $item.object_name
+    $modifiedBy = $item.modified_by
+    $lastModifiedDate = Convert-StringToDateTime -Value $item.last_modified
+    $writeSources = @()
+    if (Test-DateInRange -Value $lastModifiedDate -Start $StartDate -End $EndDate) {
+        $writeSources += "COLLECTION_.MODIFICATIONDATE_DA_"
+    }
+
+    $snapshotRecord = New-SnapshotRecord `
+        -ObjectId $objectId `
+        -ObjectType $objectType `
+        -ModificationDate $lastModifiedDate `
+        -LastModifiedBy $modifiedBy `
+        -Metadata @{ objectName = $objectName }
+
+    if ($snapshotRecord) {
+        $newSnapshotRecords += $snapshotRecord
+    }
+
+    $snapshotComparison = $null
+    if ($previousSnapshot) {
+        $snapshotComparison = Compare-Snapshots -ObjectId $objectId -NewRecord $snapshotRecord -PreviousSnapshot $previousSnapshot
+    }
+    $snapshotEvidence = New-SnapshotEvidence -SnapshotComparison $snapshotComparison
+
+    $deltaSummary = New-AllocationDeltaSummary -SnapshotComparison $snapshotComparison -NewRecord $snapshotRecord
+
+    $evidence = @{}
+    if ($evidenceEnabled) {
+        $evidence = New-EvidenceBlock `
+            -ObjectId $objectId `
+            -ObjectType $objectType `
+            -ProxyOwnerId $item.checked_out_by_user_id `
+            -ProxyOwnerName $item.checked_out_by_user_name `
+            -LastModifiedBy $modifiedBy `
+            -CheckoutWorkingVersionId ([int]$item.checkout_working_version_id) `
+            -ModificationDate $lastModifiedDate `
+            -WriteSources $writeSources `
+            -DeltaSummary $deltaSummary `
+            -SnapshotComparison $snapshotEvidence
+    }
+
+    $normalizedWorkType = Normalize-WorkTypeSafe -WorkType "Project Database" -ObjectType $objectType
+    $description = if ($item.status) { "$objectName - $($item.status)" } else { $objectName }
+    $context = $null
+    if (Get-Command -Name New-EventEnrichment -ErrorAction SilentlyContinue) {
+        $enrichment = New-EventEnrichment `
+            -WorkType $normalizedWorkType `
+            -ObjectName $objectName `
+            -ObjectType $objectType `
+            -ObjectId $objectId `
+            -Category $null `
+            -Item $item `
+            -DeltaSummary $deltaSummary `
+            -SnapshotComparison $snapshotComparison
+
+        if ($enrichment -and $enrichment.description) {
+            $description = $enrichment.description
+        }
+        $context = $enrichment.context
+    }
+    $user = if ($modifiedBy) { $modifiedBy } else { $item.checked_out_by_user_name }
+
+    Add-EventRecord `
+        -WorkType $normalizedWorkType `
+        -Timestamp $item.last_modified `
+        -User $user `
+        -Description $description `
+        -ObjectName $objectName `
+        -ObjectId $objectId `
+        -ObjectType $objectType `
+        -Evidence $evidence `
+        -Context $context
+}
+
+# Resource Library events
+foreach ($item in $results.resourceLibrary) {
+    $objectId = [string]$item.object_id
+    $objectType = if ($item.object_type) { $item.object_type } else { "Resource" }
+    $objectName = $item.object_name
+    $modifiedBy = $item.modified_by
+    $lastModifiedDate = Convert-StringToDateTime -Value $item.last_modified
+    $writeSources = @()
+    if (Test-DateInRange -Value $lastModifiedDate -Start $StartDate -End $EndDate) {
+        $writeSources += "RESOURCE_.MODIFICATIONDATE_DA_"
+    }
+
+    $snapshotRecord = New-SnapshotRecord `
+        -ObjectId $objectId `
+        -ObjectType $objectType `
+        -ModificationDate $lastModifiedDate `
+        -LastModifiedBy $modifiedBy `
+        -Metadata @{ objectName = $objectName }
+
+    if ($snapshotRecord) {
+        $newSnapshotRecords += $snapshotRecord
+    }
+
+    $snapshotComparison = $null
+    if ($previousSnapshot) {
+        $snapshotComparison = Compare-Snapshots -ObjectId $objectId -NewRecord $snapshotRecord -PreviousSnapshot $previousSnapshot
+    }
+    $snapshotEvidence = New-SnapshotEvidence -SnapshotComparison $snapshotComparison
+
+    $deltaSummary = New-LibraryDeltaSummary -SnapshotComparison $snapshotComparison -NewRecord $snapshotRecord
+
+    $evidence = @{}
+    if ($evidenceEnabled) {
+        $evidence = New-EvidenceBlock `
+            -ObjectId $objectId `
+            -ObjectType $objectType `
+            -ProxyOwnerId $item.checked_out_by_user_id `
+            -ProxyOwnerName $item.checked_out_by_user_name `
+            -LastModifiedBy $modifiedBy `
+            -CheckoutWorkingVersionId ([int]$item.checkout_working_version_id) `
+            -ModificationDate $lastModifiedDate `
+            -WriteSources $writeSources `
+            -DeltaSummary $deltaSummary `
+            -SnapshotComparison $snapshotEvidence
+    }
+
+    $normalizedWorkType = Normalize-WorkTypeSafe -WorkType "Resource Library" -ObjectType $objectType
+    $description = if ($item.status) { "$objectName ($($item.object_type)) - $($item.status)" } else { "$objectName ($($item.object_type))" }
+    $context = $null
+    if (Get-Command -Name New-EventEnrichment -ErrorAction SilentlyContinue) {
+        $enrichment = New-EventEnrichment `
+            -WorkType $normalizedWorkType `
+            -ObjectName $objectName `
+            -ObjectType $objectType `
+            -ObjectId $objectId `
+            -Category $null `
+            -Item $item `
+            -DeltaSummary $deltaSummary `
+            -SnapshotComparison $snapshotComparison
+
+        if ($enrichment -and $enrichment.description) {
+            $description = $enrichment.description
+        }
+        $context = $enrichment.context
+    }
+    $user = if ($modifiedBy) { $modifiedBy } else { $item.checked_out_by_user_name }
+
+    Add-EventRecord `
+        -WorkType $normalizedWorkType `
+        -Timestamp $item.last_modified `
+        -User $user `
+        -Description $description `
+        -ObjectName $objectName `
+        -ObjectId $objectId `
+        -ObjectType $objectType `
+        -Evidence $evidence `
+        -Context $context
+}
+
+# Part Library events
+foreach ($item in $results.partLibrary) {
+    $objectId = [string]$item.object_id
+    $objectType = if ($item.object_type) { $item.object_type } else { "Part" }
+    $objectName = $item.object_name
+    $modifiedBy = $item.modified_by
+    $lastModifiedDate = Convert-StringToDateTime -Value $item.last_modified
+    $writeSources = @()
+    if (Test-DateInRange -Value $lastModifiedDate -Start $StartDate -End $EndDate) {
+        $writeSources += "PART_.MODIFICATIONDATE_DA_"
+    }
+
+    $snapshotRecord = New-SnapshotRecord `
+        -ObjectId $objectId `
+        -ObjectType $objectType `
+        -ModificationDate $lastModifiedDate `
+        -LastModifiedBy $modifiedBy `
+        -Metadata @{ objectName = $objectName; category = $item.category }
+
+    if ($snapshotRecord) {
+        $newSnapshotRecords += $snapshotRecord
+    }
+
+    $snapshotComparison = $null
+    if ($previousSnapshot) {
+        $snapshotComparison = Compare-Snapshots -ObjectId $objectId -NewRecord $snapshotRecord -PreviousSnapshot $previousSnapshot
+    }
+    $snapshotEvidence = New-SnapshotEvidence -SnapshotComparison $snapshotComparison
+
+    $deltaSummary = New-LibraryDeltaSummary -SnapshotComparison $snapshotComparison -NewRecord $snapshotRecord
+
+    $evidence = @{}
+    if ($evidenceEnabled) {
+        $evidence = New-EvidenceBlock `
+            -ObjectId $objectId `
+            -ObjectType $objectType `
+            -ProxyOwnerId $item.checked_out_by_user_id `
+            -ProxyOwnerName $item.checked_out_by_user_name `
+            -LastModifiedBy $modifiedBy `
+            -CheckoutWorkingVersionId ([int]$item.checkout_working_version_id) `
+            -ModificationDate $lastModifiedDate `
+            -WriteSources $writeSources `
+            -DeltaSummary $deltaSummary `
+            -SnapshotComparison $snapshotEvidence
+    }
+
+    $normalizedWorkType = Normalize-WorkTypeSafe -WorkType "Part/MFG Library" -ObjectType $objectType -Category $item.category
+    $description = if ($item.status) { "$objectName ($($item.category)) - $($item.status)" } else { "$objectName ($($item.category))" }
+    $context = $null
+    if (Get-Command -Name New-EventEnrichment -ErrorAction SilentlyContinue) {
+        $enrichment = New-EventEnrichment `
+            -WorkType $normalizedWorkType `
+            -ObjectName $objectName `
+            -ObjectType $objectType `
+            -ObjectId $objectId `
+            -Category $item.category `
+            -Item $item `
+            -DeltaSummary $deltaSummary `
+            -SnapshotComparison $snapshotComparison
+
+        if ($enrichment -and $enrichment.description) {
+            $description = $enrichment.description
+        }
+        $context = $enrichment.context
+    }
+    $user = if ($modifiedBy) { $modifiedBy } else { $item.checked_out_by_user_name }
+
+    Add-EventRecord `
+        -WorkType $normalizedWorkType `
+        -Timestamp $item.last_modified `
+        -User $user `
+        -Description $description `
+        -ObjectName $objectName `
+        -ObjectId $objectId `
+        -ObjectType $objectType `
+        -Evidence $evidence `
+        -Context $context
+}
+
+# IPA Assembly events
+foreach ($item in $results.ipaAssembly) {
+    $objectId = [string]$item.object_id
+    $objectType = if ($item.object_type) { $item.object_type } else { "TxProcessAssembly" }
+    $objectName = $item.object_name
+    $modifiedBy = $item.modified_by
+    $lastModifiedDate = Convert-StringToDateTime -Value $item.last_modified
+    $operationCount = 0
+    if (-not [string]::IsNullOrWhiteSpace($item.operation_count)) {
+        $operationCount = [int]$item.operation_count
+    }
+
+    $stationContext = $null
+    if (Get-Command -Name Try-ResolveStationContext -ErrorAction SilentlyContinue) {
+        $stationContext = Try-ResolveStationContext -Item $item -ObjectName $objectName
+    }
+
+    $stationValue = $null
+    if ($stationContext -and $stationContext.station) {
+        $stationValue = $stationContext.station
+    }
+
+    $allocationFingerprint = $null
+    if (Get-Command -Name New-AllocationFingerprint -ErrorAction SilentlyContinue) {
+        $allocationFingerprint = New-AllocationFingerprint -Station $stationValue -OperationCount $operationCount
+    }
+
+    $operationCounts = $null
+    if ($operationCount -gt 0 -or $allocationFingerprint) {
+        $operationCounts = @{
+            operationCount = $operationCount
+        }
+        if ($allocationFingerprint) {
+            $operationCounts.allocationFingerprint = $allocationFingerprint
+        }
+    }
+
+    $writeSources = @()
+    if (Test-DateInRange -Value $lastModifiedDate -Start $StartDate -End $EndDate) {
+        if (Get-Command -Name Get-IpaWriteSources -ErrorAction SilentlyContinue) {
+            $writeSources += Get-IpaWriteSources -OperationCount $operationCount
+        } else {
+            $writeSources += "PART_.MODIFICATIONDATE_DA_"
+        }
+    }
+
+    $joinSources = @("REL_COMMON.OBJECT_ID", "OPERATION_.OBJECT_ID")
+
+    $metadata = @{ objectName = $objectName }
+    if ($stationValue) {
+        $metadata.station = $stationValue
+    }
+
+    if ($allocationFingerprint) {
+        $metadata.allocationFingerprint = $allocationFingerprint
+    }
+
+    $snapshotRecord = New-SnapshotRecord `
+        -ObjectId $objectId `
+        -ObjectType $objectType `
+        -ModificationDate $lastModifiedDate `
+        -LastModifiedBy $modifiedBy `
+        -OperationCounts $operationCounts `
+        -Metadata $metadata
+
+    if ($snapshotRecord) {
+        $newSnapshotRecords += $snapshotRecord
+    }
+
+    $snapshotComparison = $null
+    if ($previousSnapshot) {
+        $snapshotComparison = Compare-Snapshots -ObjectId $objectId -NewRecord $snapshotRecord -PreviousSnapshot $previousSnapshot
+    }
+    $snapshotEvidence = New-SnapshotEvidence -SnapshotComparison $snapshotComparison
+
+    $allocationHistory = @()
+    if ($snapshotComparison -and $snapshotComparison.previousRecord -and $snapshotComparison.previousRecord.PSObject.Properties['metadata']) {
+        $previousMetadata = $snapshotComparison.previousRecord.metadata
+        if ($previousMetadata.PSObject.Properties['allocationFingerprintHistory']) {
+            $allocationHistory = @($previousMetadata.allocationFingerprintHistory)
+        } elseif ($previousMetadata.PSObject.Properties['allocationFingerprint']) {
+            $allocationHistory = @($previousMetadata.allocationFingerprint)
+        }
+    }
+
+    if ($allocationFingerprint) {
+        $allocationHistory += $allocationFingerprint
+        if ($allocationHistory.Count -gt 3) {
+            $allocationHistory = $allocationHistory[-3..-1]
+        }
+    }
+
+    if ($snapshotRecord -and $allocationHistory.Count -gt 0) {
+        if (-not $snapshotRecord.metadata) {
+            $snapshotRecord.metadata = @{}
+        }
+        $snapshotRecord.metadata.allocationFingerprintHistory = $allocationHistory
+    }
+
+    $allocationState = $null
+    if (Get-Command -Name Get-AllocationStabilityState -ErrorAction SilentlyContinue) {
+        $allocationState = Get-AllocationStabilityState -FingerprintHistory $allocationHistory -Window 3
+    }
+
+    $deltaSummary = New-AllocationDeltaSummary -SnapshotComparison $snapshotComparison -NewRecord $snapshotRecord
+
+    $evidence = @{}
+    if ($evidenceEnabled) {
+        $evidence = New-EvidenceBlock `
+            -ObjectId $objectId `
+            -ObjectType $objectType `
+            -ProxyOwnerId $item.checked_out_by_user_id `
+            -ProxyOwnerName $item.checked_out_by_user_name `
+            -LastModifiedBy $modifiedBy `
+            -CheckoutWorkingVersionId ([int]$item.checkout_working_version_id) `
+            -ModificationDate $lastModifiedDate `
+            -WriteSources $writeSources `
+            -DeltaSummary $deltaSummary `
+            -JoinSources $joinSources `
+            -SnapshotComparison $snapshotEvidence
+    }
+
+    $normalizedWorkType = Normalize-WorkTypeSafe -WorkType "IPA Assembly" -ObjectType $objectType
+    $description = if ($item.status) { "$objectName - $($item.status)" } else { $objectName }
+    $context = $null
+    if (Get-Command -Name New-EventEnrichment -ErrorAction SilentlyContinue) {
+        $enrichment = New-EventEnrichment `
+            -WorkType $normalizedWorkType `
+            -ObjectName $objectName `
+            -ObjectType $objectType `
+            -ObjectId $objectId `
+            -Category $null `
+            -Item $item `
+            -DeltaSummary $deltaSummary `
+            -SnapshotComparison $snapshotComparison
+
+        if ($enrichment -and $enrichment.description) {
+            $description = $enrichment.description
+        }
+        $context = $enrichment.context
+    }
+
+    if ($allocationState) {
+        if (-not $context) {
+            $context = @{}
+        }
+        $context.allocationState = $allocationState
+    }
+    $user = if ($modifiedBy) { $modifiedBy } else { $item.checked_out_by_user_name }
+
+    Add-EventRecord `
+        -WorkType $normalizedWorkType `
+        -Timestamp $item.last_modified `
+        -User $user `
+        -Description $description `
+        -ObjectName $objectName `
+        -ObjectId $objectId `
+        -ObjectType $objectType `
+        -Evidence $evidence `
+        -Context $context
+}
+
+# Study Summary events
+foreach ($item in $results.studySummary) {
+    $objectId = [string]$item.study_id
+    $objectType = if ($item.study_type) { $item.study_type } else { "RobcadStudy" }
+    $objectName = $item.study_name
+    $modifiedBy = $item.modified_by
+    $lastModifiedDate = Convert-StringToDateTime -Value $item.last_modified
+    $writeSources = @()
+    if (Test-DateInRange -Value $lastModifiedDate -Start $StartDate -End $EndDate) {
+        $writeSources += "ROBCADSTUDY_.MODIFICATIONDATE_DA_"
+    }
+
+    $snapshotRecord = New-SnapshotRecord `
+        -ObjectId $objectId `
+        -ObjectType $objectType `
+        -ModificationDate $lastModifiedDate `
+        -LastModifiedBy $modifiedBy `
+        -Metadata @{ studyName = $objectName }
+
+    if ($snapshotRecord) {
+        $newSnapshotRecords += $snapshotRecord
+    }
+
+    $snapshotComparison = $null
+    if ($previousSnapshot) {
+        $snapshotComparison = Compare-Snapshots -ObjectId $objectId -NewRecord $snapshotRecord -PreviousSnapshot $previousSnapshot
+    }
+    $snapshotEvidence = New-SnapshotEvidence -SnapshotComparison $snapshotComparison
+
+    $evidence = @{}
+    if ($evidenceEnabled) {
+        $evidence = New-EvidenceBlock `
+            -ObjectId $objectId `
+            -ObjectType $objectType `
+            -ProxyOwnerId $item.checked_out_by_user_id `
+            -ProxyOwnerName $item.checked_out_by_user_name `
+            -LastModifiedBy $modifiedBy `
+            -CheckoutWorkingVersionId ([int]$item.checkout_working_version_id) `
+            -ModificationDate $lastModifiedDate `
+            -WriteSources $writeSources `
+            -SnapshotComparison $snapshotEvidence
+    }
+
+    $normalizedWorkType = Normalize-WorkTypeSafe -WorkType "Study Nodes" -ObjectType $objectType
+    $description = if ($item.status) { "$objectName ($($item.study_type)) - $($item.status)" } else { "$objectName ($($item.study_type))" }
+    $context = $null
+    if (Get-Command -Name New-EventEnrichment -ErrorAction SilentlyContinue) {
+        $enrichment = New-EventEnrichment `
+            -WorkType $normalizedWorkType `
+            -ObjectName $objectName `
+            -ObjectType $objectType `
+            -ObjectId $objectId `
+            -Category $null `
+            -Item $item `
+            -DeltaSummary $null `
+            -SnapshotComparison $snapshotComparison
+
+        if ($enrichment -and $enrichment.description) {
+            $description = $enrichment.description
+        }
+        $context = $enrichment.context
+    }
+    $user = if ($modifiedBy) { $modifiedBy } else { $item.checked_out_by_user_name }
+
+    Add-EventRecord `
+        -WorkType $normalizedWorkType `
+        -Timestamp $item.last_modified `
+        -User $user `
+        -Description $description `
+        -ObjectName $objectName `
+        -ObjectId $objectId `
+        -ObjectType $objectType `
+        -Evidence $evidence `
+        -Context $context
+}
+
+# Study Movement events
+foreach ($item in $results.studyMovements) {
+    $objectId = [string]$item.studylayout_id
+    $objectType = "StudyLayout"
+    $objectName = "StudyLayout $objectId"
+    $modifiedBy = $item.modified_by
+    $lastModifiedDate = Convert-StringToDateTime -Value $item.last_modified
+    $writeSources = @()
+    if (Test-DateInRange -Value $lastModifiedDate -Start $StartDate -End $EndDate) {
+        $writeSources += "STUDYLAYOUT_.MODIFICATIONDATE_DA_"
+    }
+
+    $coordinates = $null
+    if (-not [string]::IsNullOrWhiteSpace($item.x_coord) -and
+        -not [string]::IsNullOrWhiteSpace($item.y_coord) -and
+        -not [string]::IsNullOrWhiteSpace($item.z_coord)) {
+        $coordinates = @{
+            x = [double]$item.x_coord
+            y = [double]$item.y_coord
+            z = [double]$item.z_coord
+        }
+    }
+
+    $snapshotRecord = New-SnapshotRecord `
+        -ObjectId $objectId `
+        -ObjectType $objectType `
+        -ModificationDate $lastModifiedDate `
+        -LastModifiedBy $modifiedBy `
+        -Coordinates $coordinates `
+        -Metadata @{ studyId = $item.studyinfo_id; locationVectorId = $item.location_vector_id }
+
+    if ($snapshotRecord) {
+        $newSnapshotRecords += $snapshotRecord
+    }
+
+    $snapshotComparison = $null
+    if ($previousSnapshot) {
+        $snapshotComparison = Compare-Snapshots -ObjectId $objectId -NewRecord $snapshotRecord -PreviousSnapshot $previousSnapshot
+    }
+    $snapshotEvidence = New-SnapshotEvidence -SnapshotComparison $snapshotComparison
+
+    $deltaSummary = $null
+    if ($snapshotComparison -and $snapshotComparison.previousRecord -and $snapshotComparison.hasDelta) {
+        $deltaSummary = New-CoordinateDeltaSummary -NewRecord $snapshotRecord -PreviousRecord $snapshotComparison.previousRecord
+    }
+
+    $evidence = @{}
+    if ($evidenceEnabled) {
+        $evidence = New-EvidenceBlock `
+            -ObjectId $objectId `
+            -ObjectType $objectType `
+            -ProxyOwnerId $item.checked_out_by_user_id `
+            -ProxyOwnerName $item.checked_out_by_user_name `
+            -LastModifiedBy $modifiedBy `
+            -CheckoutWorkingVersionId ([int]$item.checkout_working_version_id) `
+            -ModificationDate $lastModifiedDate `
+            -WriteSources $writeSources `
+            -DeltaSummary $deltaSummary `
+            -SnapshotComparison $snapshotEvidence
+    }
+
+    $normalizedWorkType = Normalize-WorkTypeSafe -WorkType "Study Movements" -ObjectType $objectType
+    $description = "Study layout update (location vector $($item.location_vector_id))"
+    $context = $null
+    if (Get-Command -Name New-EventEnrichment -ErrorAction SilentlyContinue) {
+        $enrichment = New-EventEnrichment `
+            -WorkType $normalizedWorkType `
+            -ObjectName $objectName `
+            -ObjectType $objectType `
+            -ObjectId $objectId `
+            -Category $null `
+            -Item $item `
+            -DeltaSummary $deltaSummary `
+            -SnapshotComparison $snapshotComparison
+
+        if ($enrichment -and $enrichment.description) {
+            $description = $enrichment.description
+        }
+        $context = $enrichment.context
+    }
+    $user = if ($modifiedBy) { $modifiedBy } else { $item.checked_out_by_user_name }
+
+    Add-EventRecord `
+        -WorkType $normalizedWorkType `
+        -Timestamp $item.last_modified `
+        -User $user `
+        -Description $description `
+        -ObjectName $objectName `
+        -ObjectId $objectId `
+        -ObjectType $objectType `
+        -Evidence $evidence `
+        -Context $context
+}
+
+# Study Operation events
+foreach ($item in $results.studyOperations) {
+    $objectId = [string]$item.operation_id
+    $objectType = if ($item.operation_class) { $item.operation_class } else { "Operation" }
+    $objectName = $item.operation_name
+    $modifiedBy = $item.modified_by
+    $lastModifiedDate = Convert-StringToDateTime -Value $item.last_modified
+    $writeSources = @()
+    if (Test-DateInRange -Value $lastModifiedDate -Start $StartDate -End $EndDate) {
+        $writeSources += "OPERATION_.MODIFICATIONDATE_DA_"
+    }
+
+    $snapshotRecord = New-SnapshotRecord `
+        -ObjectId $objectId `
+        -ObjectType $objectType `
+        -ModificationDate $lastModifiedDate `
+        -LastModifiedBy $modifiedBy `
+        -Metadata @{ operationName = $objectName; operationType = $item.operation_type }
+
+    if ($snapshotRecord) {
+        $newSnapshotRecords += $snapshotRecord
+    }
+
+    $snapshotComparison = $null
+    if ($previousSnapshot) {
+        $snapshotComparison = Compare-Snapshots -ObjectId $objectId -NewRecord $snapshotRecord -PreviousSnapshot $previousSnapshot
+    }
+    $snapshotEvidence = New-SnapshotEvidence -SnapshotComparison $snapshotComparison
+
+    $deltaSummary = New-AllocationDeltaSummary -SnapshotComparison $snapshotComparison -NewRecord $snapshotRecord
+
+    $evidence = @{}
+    if ($evidenceEnabled) {
+        $evidence = New-EvidenceBlock `
+            -ObjectId $objectId `
+            -ObjectType $objectType `
+            -ProxyOwnerId $item.checked_out_by_user_id `
+            -ProxyOwnerName $item.checked_out_by_user_name `
+            -LastModifiedBy $modifiedBy `
+            -CheckoutWorkingVersionId ([int]$item.checkout_working_version_id) `
+            -ModificationDate $lastModifiedDate `
+            -WriteSources $writeSources `
+            -DeltaSummary $deltaSummary `
+            -SnapshotComparison $snapshotEvidence
+    }
+
+    $normalizedWorkType = Normalize-WorkTypeSafe -WorkType "Study Operations" -ObjectType $objectType
+    $description = if ($item.operation_category) { "$objectName - $($item.operation_category)" } else { $objectName }
+    $context = $null
+    if (Get-Command -Name New-EventEnrichment -ErrorAction SilentlyContinue) {
+        $enrichment = New-EventEnrichment `
+            -WorkType $normalizedWorkType `
+            -ObjectName $objectName `
+            -ObjectType $objectType `
+            -ObjectId $objectId `
+            -Category $null `
+            -Item $item `
+            -DeltaSummary $deltaSummary `
+            -SnapshotComparison $snapshotComparison
+
+        if ($enrichment -and $enrichment.description) {
+            $description = $enrichment.description
+        }
+        $context = $enrichment.context
+    }
+    $user = if ($modifiedBy) { $modifiedBy } else { $item.checked_out_by_user_name }
+
+    Add-EventRecord `
+        -WorkType $normalizedWorkType `
+        -Timestamp $item.last_modified `
+        -User $user `
+        -Description $description `
+        -ObjectName $objectName `
+        -ObjectId $objectId `
+        -ObjectType $objectType `
+        -Evidence $evidence `
+        -Context $context
+}
+
+# Study Weld events
+foreach ($item in $results.studyWelds) {
+    $objectId = [string]$item.operation_id
+    $objectType = "WeldOperation"
+    $objectName = $item.operation_name
+    $modifiedBy = $item.modified_by
+    $lastModifiedDate = Convert-StringToDateTime -Value $item.last_modified
+    $writeSources = @()
+    if (Test-DateInRange -Value $lastModifiedDate -Start $StartDate -End $EndDate) {
+        $writeSources += "OPERATION_.MODIFICATIONDATE_DA_"
+    }
+
+    $snapshotRecord = New-SnapshotRecord `
+        -ObjectId $objectId `
+        -ObjectType $objectType `
+        -ModificationDate $lastModifiedDate `
+        -LastModifiedBy $modifiedBy `
+        -Metadata @{ operationName = $objectName }
+
+    if ($snapshotRecord) {
+        $newSnapshotRecords += $snapshotRecord
+    }
+
+    $snapshotComparison = $null
+    if ($previousSnapshot) {
+        $snapshotComparison = Compare-Snapshots -ObjectId $objectId -NewRecord $snapshotRecord -PreviousSnapshot $previousSnapshot
+    }
+    $snapshotEvidence = New-SnapshotEvidence -SnapshotComparison $snapshotComparison
+
+    $deltaSummary = New-AllocationDeltaSummary -SnapshotComparison $snapshotComparison -NewRecord $snapshotRecord
+
+    $evidence = @{}
+    if ($evidenceEnabled) {
+        $evidence = New-EvidenceBlock `
+            -ObjectId $objectId `
+            -ObjectType $objectType `
+            -ProxyOwnerId $item.checked_out_by_user_id `
+            -ProxyOwnerName $item.checked_out_by_user_name `
+            -LastModifiedBy $modifiedBy `
+            -CheckoutWorkingVersionId ([int]$item.checkout_working_version_id) `
+            -ModificationDate $lastModifiedDate `
+            -WriteSources $writeSources `
+            -DeltaSummary $deltaSummary `
+            -SnapshotComparison $snapshotEvidence
+    }
+
+    $normalizedWorkType = Normalize-WorkTypeSafe -WorkType "Study Welds" -ObjectType $objectType
+    $description = $objectName
+    $context = $null
+    if (Get-Command -Name New-EventEnrichment -ErrorAction SilentlyContinue) {
+        $enrichment = New-EventEnrichment `
+            -WorkType $normalizedWorkType `
+            -ObjectName $objectName `
+            -ObjectType $objectType `
+            -ObjectId $objectId `
+            -Category $null `
+            -Item $item `
+            -DeltaSummary $deltaSummary `
+            -SnapshotComparison $snapshotComparison
+
+        if ($enrichment -and $enrichment.description) {
+            $description = $enrichment.description
+        }
+        $context = $enrichment.context
+    }
+    $user = if ($modifiedBy) { $modifiedBy } else { $item.checked_out_by_user_name }
+
+    Add-EventRecord `
+        -WorkType $normalizedWorkType `
+        -Timestamp $item.last_modified `
+        -User $user `
+        -Description $description `
+        -ObjectName $objectName `
+        -ObjectId $objectId `
+        -ObjectType $objectType `
+        -Evidence $evidence `
+        -Context $context
+}
+
+if ($snapshotAvailable -and $newSnapshotRecords.Count -gt 0) {
+    try {
+        Save-Snapshot -SnapshotRecords $newSnapshotRecords -OutputPath $snapshotPath -Schema $Schema -ProjectId $ProjectId | Out-Null
+        Write-Host "    ✓ Snapshot saved: $snapshotPath" -ForegroundColor Green
+    } catch {
+        Write-Warning "    Failed to save snapshot: $_"
+    }
+}
 
 # Save results to JSON
 Write-Host "`n========================================" -ForegroundColor Cyan
