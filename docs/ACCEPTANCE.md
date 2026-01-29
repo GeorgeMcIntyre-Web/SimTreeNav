@@ -448,6 +448,8 @@ The CI workflow measures code coverage for the PowerShell library layer to ensur
 - `scripts/lib/RunStatus.ps1` - Run diagnostics and status tracking
 - `scripts/lib/EnvChecks.ps1` - Environment validation functions
 - `scripts/lib/RunManifest.ps1` - Artifact manifest management
+- `scripts/lib/EvidenceClassifier.ps1` - Evidence classification and confidence logic
+- `scripts/lib/SnapshotManager.ps1` - Snapshot diffing and change detection
 
 **What is NOT measured:**
 - `scripts/ops/*` - Operational scripts (tested via integration tests)

@@ -1,8 +1,8 @@
 # Phase 2: Management Dashboard Specification
 
-**Version:** 1.0
-**Date:** 2026-01-22
-**Status:** Locked for execution
+**Version:** 1.1
+**Date:** 2026-01-29
+**Status:** Updated for evidence-backed events
 
 ## Purpose
 
@@ -117,7 +117,7 @@ Generate a management reporting dashboard that tracks work activity across 5 cor
 **UX:**
 - Reverse chronological (newest first)
 - Infinite scroll / "Load More" pagination
-- Search and filter by user, work type, keyword
+- Search and filter by user, work type, workflow phase, confidence, allocation state, keyword
 
 ### View 6: Detailed Activity Log
 
@@ -132,7 +132,7 @@ Generate a management reporting dashboard that tracks work activity across 5 cor
 
 **UX:**
 - Search box (filters all text)
-- Dropdown filters: Work Type, User
+- Dropdown filters: Work Type, Workflow Phase, User, Allocation State
 - Export button (CSV)
 
 ## Data Contract: management.json
@@ -142,6 +142,7 @@ Generate a management reporting dashboard that tracks work activity across 5 cor
 ```json
 {
   "metadata": {
+    "schemaVersion": "1.2.0",
     "projectId": "18140190",
     "projectName": "FORD_DEARBORN",
     "schema": "DESIGN12",
@@ -189,6 +190,132 @@ Generate a management reporting dashboard that tracks work activity across 5 cor
       }
     }
   ]
+}
+```
+
+### Evidence & Events (Schema v1.2)
+
+**New:** A root-level `events` array provides evidence-backed activity records. This is additive and does not replace existing sections.
+
+Each event includes an `evidence` block that explains *why* the event is classified as real simulator work.
+
+**Workflow workType taxonomy:**
+- `libraries.partLibrary`
+- `libraries.mfgLibrary`
+- `libraries.partInstanceLibrary`
+- `process.ipa`
+- `resources.resourceLibrary`
+- `study.layout`
+- `study.robotMount`
+- `study.toolMount`
+- `study.accessCheck`
+- `study.operationAllocation`
+- `designLoop.gunCloud`
+
+**Evidence schema (per event):**
+```json
+{
+  "hasCheckout": true,
+  "hasWrite": true,
+  "hasDelta": true,
+  "proxyOwnerId": "12345",
+  "proxyOwnerName": "John Smith",
+  "lastModifiedBy": "John Smith",
+  "checkoutWorkingVersionId": 3,
+  "writeSources": ["TABLE.FIELD"],
+  "joinSources": ["REL_COMMON.OBJECT_ID", "OPERATION_.OBJECT_ID"],
+  "deltaSummary": {
+    "kind": "movement|operationCounts|other",
+    "fields": ["x", "y", "z"],
+    "maxAbsDelta": 1250,
+    "before": {},
+    "after": {}
+  },
+  "attributionStrength": "strong|medium|weak",
+  "confidence": "confirmed|likely|checkout_only|unattributed"
+}
+```
+
+**writeSources vs joinSources**
+- `writeSources`: ONLY modification/last-modified columns used as write indicators. Displayed as **Write proof** in the dashboard.
+- `joinSources`: optional join keys used to derive relationships; informational only. Displayed as **Relationships checked** in the dashboard.
+
+**Context schema (optional per event):**
+```json
+{
+  "context": {
+    "station": "8J-010",
+    "zone": "Sill/Cowl",
+    "nodePath": "IPA/Sill-Cowl/8J-010",
+    "libraryPath": "PartLibrary/CX727/COMMON",
+    "objectType": "robot|gun|fixture|station|weldOp|partInstance|partPrototype|mfgFeature",
+    "partNumbers": ["CX727-010", "CX727-012"],
+    "allocationState": "volatile|settling|stable"
+  }
+}
+```
+
+```json
+{
+  "events": [
+    {
+      "timestamp": "2026-01-22T14:32:00Z",
+      "user": "John Smith",
+      "workType": "study.layout",
+      "description": "Layout moved (dx=1250, dy=0, dz=0)",
+      "objectName": "StudyLayout 99123",
+      "objectId": "99123",
+      "objectType": "StudyLayout",
+      "context": {
+        "objectType": "station"
+      },
+      "evidence": {
+        "hasCheckout": true,
+        "hasWrite": true,
+        "hasDelta": true,
+        "proxyOwnerId": "12345",
+        "proxyOwnerName": "John Smith",
+        "lastModifiedBy": "John Smith",
+        "checkoutWorkingVersionId": 3,
+        "writeSources": ["STUDYLAYOUT_.MODIFICATIONDATE_DA_"],
+        "deltaSummary": {
+          "kind": "movement",
+          "fields": ["x", "y", "z"],
+          "maxAbsDelta": 1250,
+          "before": { "x": 5000, "y": 3200, "z": 1500 },
+          "after": { "x": 6250, "y": 3200, "z": 1500 }
+        },
+        "attributionStrength": "strong",
+        "confidence": "confirmed"
+      }
+    }
+  ]
+}
+```
+
+**IPA allocation delta example:**
+```json
+{
+  "timestamp": "2026-01-22T14:12:00Z",
+  "user": "Jane Doe",
+  "workType": "process.ipa",
+  "description": "Updated IPA assembly: IPA_8J_010_020",
+  "context": {
+    "station": "8J-010",
+    "allocationState": "settling"
+  },
+  "evidence": {
+    "writeSources": ["PART_.MODIFICATIONDATE_DA_"],
+    "joinSources": ["REL_COMMON.OBJECT_ID", "OPERATION_.OBJECT_ID"],
+    "deltaSummary": {
+      "kind": "allocation",
+      "fields": ["operationsAdded", "operationsRemoved", "fingerprintChanged"],
+      "operationsAddedCount": 2,
+      "operationsRemovedCount": 0,
+      "fingerprintBefore": "a1b2c3d4e5f6a7b8",
+      "fingerprintAfter": "c9d0e1f2a3b4c5d6"
+    }
+  }
 }
 ```
 
@@ -421,6 +548,7 @@ Generate a management reporting dashboard that tracks work activity across 5 cor
 1. **management-DESIGN12-18140190.json** - Data file (output directory: `data/output/`)
 2. **management-dashboard-DESIGN12-18140190.html** - Interactive HTML (output directory: `data/output/`)
 3. **management-cache-DESIGN12-18140190.json** - Cache file (output directory: repo root, 15-minute lifetime)
+4. **management-snapshot-DESIGN12-18140190.json** - Snapshot baseline for diffs (output directory: `data/output/`)
 
 ## Non-Functional Requirements
 
@@ -510,6 +638,6 @@ Generate a management reporting dashboard that tracks work activity across 5 cor
 
 ---
 
-**Document Status:** LOCKED - No feature additions without user approval
-**Last Updated:** 2026-01-22
+**Document Status:** Updated - Evidence-backed events added
+**Last Updated:** 2026-01-29
 **Owner:** Agent 01 (PM/Docs)

@@ -1,8 +1,8 @@
 # Phase 2: Acceptance Criteria
 
 **Version:** 1.0
-**Date:** 2026-01-22
-**Status:** Definition of Done - LOCKED
+**Date:** 2026-01-29
+**Status:** Definition of Done - Updated for evidence
 
 ## Overview
 
@@ -344,6 +344,17 @@ WHERE rs.MODIFICATIONDATE_DA_ > SYSDATE - 7;
 - No broken UI elements
 - Clear messaging why no data shown
 - No JavaScript null reference errors
+
+### 4.6 Evidence & Confidence Classification
+
+**Requirement:** Each event includes an evidence block and confidence classification.
+
+**Pass Criteria:**
+- Checked out but unchanged items show `confidence = checkout_only`
+- Coordinate diffs set `hasDelta = true` with a populated `deltaSummary`
+- Modification timestamp changes (no delta) set `hasWrite = true`, `hasDelta = false`
+- Dashboard shows confidence badges and filters by confidence
+- Dashboard provides workflow phase filtering based on workType prefix
 
 ## Gate 5: Documentation
 
