@@ -49,11 +49,21 @@ function Write-Log {
 # 2. Smoke Test
 if ($Smoke) {
     Write-Log "Running Smoke Test..."
+
+    # Create run-status.json even in smoke mode for deterministic output
+    $statusPath = New-RunStatus -OutDir $OutDir -ScriptName "dashboard-task.ps1" -SchemaVersion "1.0.0"
+    Set-RunStatusStep -StatusPath $statusPath -StepName "SmokeTest" -Status "running"
+
     if (-not (Test-Path $ScriptRoot)) {
         Write-Log "FAIL: ScriptRoot not found" "ERROR"
+        Set-RunStatusStep -StatusPath $statusPath -StepName "SmokeTest" -Status "failed" -Error "ScriptRoot not found"
+        Complete-RunStatus -StatusPath $statusPath -Status "failed" -ExitCode 1 -TopError "ScriptRoot not found" -LogFile $LogFile
         exit 1
     }
+
     Write-Log "Smoke Test Passed"
+    Set-RunStatusStep -StatusPath $statusPath -StepName "SmokeTest" -Status "completed"
+    Complete-RunStatus -StatusPath $statusPath -Status "success" -ExitCode 0 -LogFile $LogFile
     exit 0
 }
 

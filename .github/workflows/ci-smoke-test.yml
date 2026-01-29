@@ -23,6 +23,11 @@ jobs:
           pwsh -Version
           pwsh -Command '$PSVersionTable.PSVersion'
 
+      - name: Create output directories
+        run: |
+          mkdir -p out/logs out/json test/integration/results
+          echo "Created required directories for test outputs"
+
       - name: Run unit tests (RunStatus library)
         run: |
           pwsh -File test/integration/Test-RunStatus.ps1
