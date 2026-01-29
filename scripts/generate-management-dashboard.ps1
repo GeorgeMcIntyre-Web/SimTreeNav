@@ -328,6 +328,51 @@ $html = @"
             color: #084298;
         }
 
+        .badge-confirmed {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .badge-likely {
+            background: #d1ecf1;
+            color: #0c5460;
+        }
+
+        .badge-checkout {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .badge-unattributed {
+            background: #e2e3e5;
+            color: #6c757d;
+        }
+
+        .evidence-details {
+            margin-top: 8px;
+            font-size: 0.85em;
+            color: #555;
+        }
+
+        .evidence-details summary {
+            cursor: pointer;
+            color: var(--secondary-color);
+            font-weight: 600;
+            margin-bottom: 6px;
+        }
+
+        .evidence-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 8px;
+        }
+
+        .context-line {
+            font-size: 12px;
+            color: #6b7280;
+            margin-top: 6px;
+        }
+
         /* Movement type indicators */
         .movement-simple {
             color: var(--success-color);
@@ -691,6 +736,21 @@ $html = @"
         .scrollable {
             overflow-x: auto;
         }
+
+        .checkbox-group {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            align-items: center;
+            font-size: 0.9em;
+        }
+
+        .checkbox-group label {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            cursor: pointer;
+        }
     </style>
 </head>
 <body>
@@ -807,10 +867,27 @@ $html = @"
                     <option value="">All Work Types</option>
                     <!-- Populated by JavaScript -->
                 </select>
+                <select class="filter-select" id="timelinePhaseFilter" onchange="filterTimeline()">
+                    <option value="">All Workflow Phases</option>
+                    <!-- Populated by JavaScript -->
+                </select>
                 <select class="filter-select" id="timelineUserFilter" onchange="filterTimeline()">
                     <option value="">All Users</option>
                     <!-- Populated by JavaScript -->
                 </select>
+                <!-- TODO: Enable when context.allocationState is populated in events
+                <select class="filter-select" id="timelineAllocationStateFilter" onchange="filterTimeline()">
+                    <option value="">All Allocation States</option>
+                    <! Populated by JavaScript >
+                </select>
+                -->
+                <div class="checkbox-group" id="timelineConfidenceFilters">
+                    <span style="font-weight: 600;">Confidence:</span>
+                    <label><input type="checkbox" value="confirmed" checked onchange="filterTimeline()"> Confirmed</label>
+                    <label><input type="checkbox" value="likely" checked onchange="filterTimeline()"> Likely</label>
+                    <label><input type="checkbox" value="checkout_only" checked onchange="filterTimeline()"> Checkout Only</label>
+                    <label><input type="checkbox" value="unattributed" checked onchange="filterTimeline()"> Unattributed</label>
+                </div>
             </div>
             <div class="timeline" id="timelineContainer">
                 <!-- Populated by JavaScript -->
@@ -829,10 +906,27 @@ $html = @"
                     <option value="">All Work Types</option>
                     <!-- Populated by JavaScript -->
                 </select>
+                <select class="filter-select" id="logPhaseFilter" onchange="filterActivityLog()">
+                    <option value="">All Workflow Phases</option>
+                    <!-- Populated by JavaScript -->
+                </select>
                 <select class="filter-select" id="logUserFilter" onchange="filterActivityLog()">
                     <option value="">All Users</option>
                     <!-- Populated by JavaScript -->
                 </select>
+                <!-- TODO: Enable when context.allocationState is populated in events
+                <select class="filter-select" id="logAllocationStateFilter" onchange="filterActivityLog()">
+                    <option value="">All Allocation States</option>
+                    <! Populated by JavaScript >
+                </select>
+                -->
+                <div class="checkbox-group" id="logConfidenceFilters">
+                    <span style="font-weight: 600;">Confidence:</span>
+                    <label><input type="checkbox" value="confirmed" checked onchange="filterActivityLog()"> Confirmed</label>
+                    <label><input type="checkbox" value="likely" checked onchange="filterActivityLog()"> Likely</label>
+                    <label><input type="checkbox" value="checkout_only" checked onchange="filterActivityLog()"> Checkout Only</label>
+                    <label><input type="checkbox" value="unattributed" checked onchange="filterActivityLog()"> Unattributed</label>
+                </div>
                 <button class="btn btn-success" onclick="exportToCSV()">Export CSV</button>
             </div>
             <div class="scrollable">
@@ -843,7 +937,7 @@ $html = @"
                             <th class="sortable" onclick="sortTable('activityLogTable', 1)">User</th>
                             <th class="sortable" onclick="sortTable('activityLogTable', 2)">Work Type</th>
                             <th>Object Name</th>
-                            <th>Status</th>
+                            <th>Details</th>
                         </tr>
                     </thead>
                     <tbody id="activityLogBody">
@@ -921,6 +1015,9 @@ $html = @"
                         <!-- Populated by JavaScript -->
                     </tbody>
                 </table>
+            </div>
+        </div>
+
         <!-- View 8: Resource Conflicts & Stale Checkouts -->
         <div id="view8" class="view-container">
             <div class="view-header">
@@ -1085,6 +1182,269 @@ $html = @"
 
             // Re-append rows
             rows.forEach(row => tbody.appendChild(row));
+        }
+
+        // ========================================
+        // EVENT + EVIDENCE HELPERS
+        // ========================================
+        function buildLegacyEvents() {
+            const events = [];
+
+            (dashboardData.projectDatabase || []).forEach(item => {
+                events.push({
+                    timestamp: item.last_modified || '',
+                    user: item.modified_by || item.checked_out_by_user_name,
+                    workType: 'Project Database',
+                    description: (item.object_name || 'Unknown') + ' - ' + (item.status || 'Available'),
+                    objectName: item.object_name,
+                    objectId: item.object_id,
+                    objectType: item.object_type,
+                    evidence: item.evidence || null
+                });
+            });
+
+            (dashboardData.resourceLibrary || []).forEach(item => {
+                events.push({
+                    timestamp: item.last_modified || '',
+                    user: item.modified_by || item.checked_out_by_user_name,
+                    workType: 'Resource Library',
+                    description: (item.object_name || 'Unknown') + ' (' + (item.object_type || 'Resource') + ') - ' + (item.status || 'Available'),
+                    objectName: item.object_name,
+                    objectId: item.object_id,
+                    objectType: item.object_type,
+                    evidence: item.evidence || null
+                });
+            });
+
+            (dashboardData.partLibrary || []).forEach(item => {
+                events.push({
+                    timestamp: item.last_modified || '',
+                    user: item.modified_by || item.checked_out_by_user_name,
+                    workType: 'Part/MFG Library',
+                    description: (item.object_name || 'Unknown') + ' (' + (item.category || 'Part') + ') - ' + (item.status || 'Available'),
+                    objectName: item.object_name,
+                    objectId: item.object_id,
+                    objectType: item.object_type,
+                    evidence: item.evidence || null
+                });
+            });
+
+            (dashboardData.ipaAssembly || []).forEach(item => {
+                events.push({
+                    timestamp: item.last_modified || '',
+                    user: item.modified_by || item.checked_out_by_user_name,
+                    workType: 'IPA Assembly',
+                    description: (item.object_name || 'Unknown') + ' - ' + (item.status || 'Available'),
+                    objectName: item.object_name,
+                    objectId: item.object_id,
+                    objectType: item.object_type,
+                    evidence: item.evidence || null
+                });
+            });
+
+            (dashboardData.studySummary || []).forEach(item => {
+                events.push({
+                    timestamp: item.last_modified || '',
+                    user: item.modified_by || item.checked_out_by_user_name,
+                    workType: 'Study Nodes',
+                    description: (item.study_name || 'Unnamed Study') + ' (' + (item.study_type || 'Study') + ') - ' + (item.status || 'Idle'),
+                    objectName: item.study_name,
+                    objectId: item.study_id,
+                    objectType: item.study_type,
+                    evidence: item.evidence || null
+                });
+            });
+
+            return events;
+        }
+
+        function getEventList() {
+            if (Array.isArray(dashboardData.events) && dashboardData.events.length > 0) {
+                return dashboardData.events.map(e => ({
+                    timestamp: e.timestamp || '',
+                    user: e.user || '',
+                    workType: e.workType || 'Unknown',
+                    description: e.description || '',
+                    objectName: e.objectName || '',
+                    objectId: e.objectId || '',
+                    objectType: e.objectType || '',
+                    evidence: e.evidence || null,
+                    context: e.context || null
+                }));
+            }
+
+            return buildLegacyEvents();
+        }
+
+        function normalizeEvidence(evidence) {
+            const defaults = {
+                hasCheckout: false,
+                hasWrite: false,
+                hasDelta: false,
+                attributionStrength: 'weak',
+                confidence: 'unattributed'
+            };
+
+            if (!evidence || typeof evidence !== 'object') {
+                return defaults;
+            }
+
+            return Object.assign({}, defaults, evidence);
+        }
+
+        function normalizeContext(context) {
+            if (!context || typeof context !== 'object') {
+                return null;
+            }
+            return context;
+        }
+
+        function getAllocationState(activity) {
+            if (!activity || !activity.context || !activity.context.allocationState) {
+                return 'unknown';
+            }
+            return activity.context.allocationState;
+        }
+
+        function getWorkflowPhase(workType) {
+            if (!workType) return '';
+            const parts = workType.split('.');
+            return parts[0] || '';
+        }
+
+        function formatPhaseLabel(phase) {
+            if (!phase) return '';
+            return phase.charAt(0).toUpperCase() + phase.slice(1);
+        }
+
+        function formatWorkTypeLabel(workType) {
+            if (!workType) return 'Unknown';
+            if (workType.indexOf('.') === -1) return workType;
+            const parts = workType.split('.');
+            return parts.map(part => part.replace(/([a-z])([A-Z])/g, '$1 $2')).join(' / ');
+        }
+
+        function formatContextObjectType(value) {
+            if (!value) return '';
+            return value.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/\b\w/g, l => l.toUpperCase());
+        }
+
+        function renderContextLine(activity) {
+            const context = normalizeContext(activity.context);
+            const parts = [];
+
+            if (context && context.station) {
+                parts.push('Station: ' + context.station);
+            }
+
+            if (context && context.objectType) {
+                parts.push('Type: ' + formatContextObjectType(context.objectType));
+            }
+
+            if (activity.objectId) {
+                parts.push('ID: ' + activity.objectId);
+            }
+
+            const allocationState = getAllocationState(activity);
+            if (allocationState && allocationState !== 'unknown') {
+                parts.push('Allocation: ' + allocationState);
+            }
+
+            if (parts.length === 0) {
+                return '';
+            }
+
+            return '<div class="context-line">' + parts.join(' / ') + '</div>';
+        }
+
+        function getSelectedConfidenceFilters(containerId) {
+            const container = document.getElementById(containerId);
+            if (!container) {
+                return null;
+            }
+
+            const checked = Array.from(container.querySelectorAll('input[type="checkbox"]:checked'))
+                .map(input => input.value);
+
+            if (checked.length === 0) {
+                return null;
+            }
+
+            return checked;
+        }
+
+        function getConfidenceValue(evidence) {
+            return normalizeEvidence(evidence).confidence;
+        }
+
+        function getConfidenceBadgeClass(confidence) {
+            if (confidence === 'confirmed') return 'badge-confirmed';
+            if (confidence === 'likely') return 'badge-likely';
+            if (confidence === 'checkout_only') return 'badge-checkout';
+            if (confidence === 'unattributed') return 'badge-unattributed';
+            return 'badge-primary';
+        }
+
+        function formatConfidenceLabel(confidence) {
+            if (!confidence) return '';
+            return confidence.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+        }
+
+        function renderConfidenceBadge(evidence) {
+            const confidence = getConfidenceValue(evidence);
+            const badgeClass = getConfidenceBadgeClass(confidence);
+            const label = formatConfidenceLabel(confidence) || 'Unattributed';
+            return '<span class="badge ' + badgeClass + '">' + label + '</span>';
+        }
+
+        function renderEvidenceDetails(evidence) {
+            const normalized = normalizeEvidence(evidence);
+
+            const items = [];
+            items.push('<div><strong>Confidence:</strong> ' + (formatConfidenceLabel(normalized.confidence) || 'Unattributed') + '</div>');
+            items.push('<div><strong>Attribution:</strong> ' + (normalized.attributionStrength || 'weak') + '</div>');
+            items.push('<div><strong>Checkout:</strong> ' + (normalized.hasCheckout ? 'Yes' : 'No') + '</div>');
+            items.push('<div><strong>Write:</strong> ' + (normalized.hasWrite ? 'Yes' : 'No') + '</div>');
+            items.push('<div><strong>Delta:</strong> ' + (normalized.hasDelta ? 'Yes' : 'No') + '</div>');
+
+            if (normalized.proxyOwnerName) {
+                items.push('<div><strong>Proxy Owner:</strong> ' + normalized.proxyOwnerName + '</div>');
+            }
+
+            if (normalized.lastModifiedBy) {
+                items.push('<div><strong>Last Modified By:</strong> ' + normalized.lastModifiedBy + '</div>');
+            }
+
+            if (normalized.checkoutWorkingVersionId) {
+                items.push('<div><strong>Working Version:</strong> ' + normalized.checkoutWorkingVersionId + '</div>');
+            }
+
+            if (normalized.writeSources && normalized.writeSources.length) {
+                items.push('<div><strong>Write proof:</strong> ' + normalized.writeSources.join(', ') + '</div>');
+            }
+
+            if (normalized.joinSources && normalized.joinSources.length) {
+                items.push('<div><strong>Relationships checked:</strong> ' + normalized.joinSources.join(', ') + '</div>');
+            }
+
+            if (normalized.deltaSummary) {
+                const summary = normalized.deltaSummary;
+                const fields = summary.fields ? summary.fields.join(', ') : '';
+                let deltaText = summary.kind || 'delta';
+                if (summary.maxAbsDelta !== undefined) {
+                    deltaText += ' (max ' + summary.maxAbsDelta + ')';
+                }
+                if (fields) {
+                    deltaText += ' [' + fields + ']';
+                }
+                items.push('<div><strong>Delta Summary:</strong> ' + deltaText + '</div>');
+            }
+
+            if (normalized.snapshotComparison && normalized.snapshotComparison.changes && normalized.snapshotComparison.changes.length) {
+                items.push('<div><strong>Changes:</strong> ' + normalized.snapshotComparison.changes.join('; ') + '</div>');
+            }
+
+            return '<details class="evidence-details"><summary>Evidence</summary><div class="evidence-grid">' + items.join('') + '</div></details>';
         }
 
         // ========================================
@@ -1356,10 +1716,14 @@ $html = @"
                 }
             });
 
+            const eventUsers = getEventList().map(a => a.user).filter(Boolean);
+            eventUsers.forEach(user => allUsers.add(user));
+
             const sortedUsers = Array.from(allUsers).sort();
 
             // Populate user selector for View 4
             const userSelector = document.getElementById('userSelector');
+            userSelector.innerHTML = '<option value="">Select a user...</option>';
             sortedUsers.forEach(user => {
                 const option = document.createElement('option');
                 option.value = user;
@@ -1370,6 +1734,8 @@ $html = @"
             // Populate user filters for Views 5 and 6
             const timelineUserFilter = document.getElementById('timelineUserFilter');
             const logUserFilter = document.getElementById('logUserFilter');
+            timelineUserFilter.innerHTML = '<option value="">All Users</option>';
+            logUserFilter.innerHTML = '<option value="">All Users</option>';
 
             sortedUsers.forEach(user => {
                 const option1 = document.createElement('option');
@@ -1388,114 +1754,90 @@ $html = @"
         // VIEW 5: TIMELINE
         // ========================================
         function renderTimeline() {
-            const container = document.getElementById('timelineContainer');
+            const allActivities = getEventList();
 
-            // Combine all activities into a timeline
-            const allActivities = [];
-
-            // Add activities from each work type
-            (dashboardData.projectDatabase || []).forEach(item => {
-                allActivities.push({
-                    timestamp: item.last_modified || item.created_by,
-                    user: item.modified_by || item.created_by,
-                    workType: 'Project Database',
-                    description: `${item.object_name} - ${item.status}`,
-                    objectName: item.object_name
-                });
-            });
-
-            (dashboardData.resourceLibrary || []).forEach(item => {
-                allActivities.push({
-                    timestamp: item.last_modified,
-                    user: item.modified_by || item.checked_out_by_user_name,
-                    workType: 'Resource Library',
-                    description: `${item.object_name} (${item.object_type}) - ${item.status}`,
-                    objectName: item.object_name
-                });
-            });
-
-            (dashboardData.partLibrary || []).forEach(item => {
-                allActivities.push({
-                    timestamp: item.last_modified,
-                    user: item.modified_by || item.checked_out_by_user_name,
-                    workType: 'Part/MFG Library',
-                    description: `${item.object_name} (${item.category}) - ${item.status}`,
-                    objectName: item.object_name
-                });
-            });
-
-            (dashboardData.ipaAssembly || []).forEach(item => {
-                allActivities.push({
-                    timestamp: item.last_modified,
-                    user: item.modified_by || item.checked_out_by_user_name,
-                    workType: 'IPA Assembly',
-                    description: `${item.object_name} - ${item.status}`,
-                    objectName: item.object_name
-                });
-            });
-
-            (dashboardData.studySummary || []).forEach(item => {
-                allActivities.push({
-                    timestamp: item.last_modified,
-                    user: item.modified_by || item.checked_out_by_user_name,
-                    workType: 'Study Nodes',
-                    description: `${item.study_name} (${item.study_type}) - ${item.status}`,
-                    objectName: item.study_name
-                });
-            });
-
-            // Sort by timestamp (newest first)
             allActivities.sort((a, b) => {
-                const dateA = new Date(a.timestamp);
-                const dateB = new Date(b.timestamp);
+                const dateA = new Date(a.timestamp || 0);
+                const dateB = new Date(b.timestamp || 0);
                 return dateB - dateA;
             });
 
-            // Store for filtering
             window.timelineData = allActivities;
-
             renderFilteredTimeline(allActivities);
 
-            // Populate work type filter
-            const workTypes = [...new Set(allActivities.map(a => a.workType))];
             const workTypeFilter = document.getElementById('timelineWorkTypeFilter');
+            workTypeFilter.innerHTML = '<option value="">All Work Types</option>';
+            const workTypes = [...new Set(allActivities.map(a => a.workType))].filter(Boolean);
             workTypes.forEach(wt => {
                 const option = document.createElement('option');
                 option.value = wt;
-                option.textContent = wt;
+                option.textContent = formatWorkTypeLabel(wt);
                 workTypeFilter.appendChild(option);
             });
+
+            const phaseFilter = document.getElementById('timelinePhaseFilter');
+            phaseFilter.innerHTML = '<option value="">All Workflow Phases</option>';
+            const phases = [...new Set(allActivities.map(a => getWorkflowPhase(a.workType)).filter(Boolean))].sort();
+            phases.forEach(phase => {
+                const option = document.createElement('option');
+                option.value = phase;
+                option.textContent = formatPhaseLabel(phase);
+                phaseFilter.appendChild(option);
+            });
+
+            /* TODO: Enable when context.allocationState is populated in events
+            const allocationStateFilter = document.getElementById('timelineAllocationStateFilter');
+            allocationStateFilter.innerHTML = '<option value="">All Allocation States</option>';
+            const allocationStates = [...new Set(allActivities.map(a => getAllocationState(a)).filter(Boolean))];
+            allocationStates.sort((a, b) => {
+                if (a === 'unknown' && b !== 'unknown') return 1;
+                if (b === 'unknown' && a !== 'unknown') return -1;
+                return a.localeCompare(b);
+            });
+            allocationStates.forEach(state => {
+                const option = document.createElement('option');
+                option.value = state;
+                option.textContent = state;
+                allocationStateFilter.appendChild(option);
+            });
+            */
         }
 
         function renderFilteredTimeline(activities) {
             const container = document.getElementById('timelineContainer');
 
-            if (activities.length === 0) {
+            if (!activities || activities.length === 0) {
                 container.innerHTML = '<div class="empty-state"><p>No activity to display</p></div>';
                 return;
             }
 
             container.innerHTML = '';
 
-            // Limit to first 100 for performance
             activities.slice(0, 100).forEach(activity => {
                 const item = document.createElement('div');
                 item.className = 'timeline-item';
-                item.innerHTML = `
-                    <div class="timeline-time">`${activity.timestamp || 'N/A'}</div>
-                    <div class="timeline-content">
-                        <span class="timeline-user">`${activity.user || 'Unknown'}</span> -
-                        <span class="badge badge-info">`${activity.workType}</span><br>
-                        `${activity.description}
-                    </div>
-                `;
+                const confidenceBadge = renderConfidenceBadge(activity.evidence);
+                const evidenceDetails = renderEvidenceDetails(activity.evidence);
+                const contextLine = renderContextLine(activity);
+                const workTypeLabel = formatWorkTypeLabel(activity.workType || 'Unknown');
+
+                item.innerHTML =
+                    '<div class="timeline-time">' + (activity.timestamp || 'N/A') + '</div>' +
+                    '<div class="timeline-content">' +
+                        '<span class="timeline-user">' + (activity.user || 'Unknown') + '</span> - ' +
+                        '<span class="badge badge-info">' + workTypeLabel + '</span> ' +
+                        confidenceBadge + '<br>' +
+                        (activity.description || '') +
+                        contextLine +
+                        evidenceDetails +
+                    '</div>';
                 container.appendChild(item);
             });
 
             if (activities.length > 100) {
                 const moreItem = document.createElement('div');
                 moreItem.className = 'timeline-item';
-                moreItem.innerHTML = `<div class="text-center" style="color: #7f8c8d;">...and `${activities.length - 100} more activities</div>`;
+                moreItem.innerHTML = '<div class="text-center" style="color: #7f8c8d;">...and ' + (activities.length - 100) + ' more activities</div>';
                 container.appendChild(moreItem);
             }
         }
@@ -1503,7 +1845,10 @@ $html = @"
         function filterTimeline() {
             const searchTerm = document.getElementById('timelineSearch').value.toLowerCase();
             const workTypeFilter = document.getElementById('timelineWorkTypeFilter').value;
+            const phaseFilter = document.getElementById('timelinePhaseFilter').value;
             const userFilter = document.getElementById('timelineUserFilter').value;
+            // const allocationStateFilter = document.getElementById('timelineAllocationStateFilter').value; // TODO: Enable when context.allocationState is populated
+            const confidenceFilters = getSelectedConfidenceFilters('timelineConfidenceFilters');
 
             let filtered = window.timelineData || [];
 
@@ -1511,7 +1856,9 @@ $html = @"
                 filtered = filtered.filter(a =>
                     (a.description && a.description.toLowerCase().includes(searchTerm)) ||
                     (a.user && a.user.toLowerCase().includes(searchTerm)) ||
-                    (a.workType && a.workType.toLowerCase().includes(searchTerm))
+                    (a.workType && a.workType.toLowerCase().includes(searchTerm)) ||
+                    (a.objectName && a.objectName.toLowerCase().includes(searchTerm)) ||
+                    (a.timestamp && a.timestamp.toLowerCase().includes(searchTerm))
                 );
             }
 
@@ -1519,8 +1866,22 @@ $html = @"
                 filtered = filtered.filter(a => a.workType === workTypeFilter);
             }
 
+            if (phaseFilter) {
+                filtered = filtered.filter(a => getWorkflowPhase(a.workType) === phaseFilter);
+            }
+
             if (userFilter) {
                 filtered = filtered.filter(a => a.user === userFilter);
+            }
+
+            /* TODO: Enable when context.allocationState is populated
+            if (allocationStateFilter) {
+                filtered = filtered.filter(a => getAllocationState(a) === allocationStateFilter);
+            }
+            */
+
+            if (confidenceFilters && confidenceFilters.length) {
+                filtered = filtered.filter(a => confidenceFilters.includes(getConfidenceValue(a.evidence)));
             }
 
             renderFilteredTimeline(filtered);
@@ -1530,60 +1891,89 @@ $html = @"
         // VIEW 6: ACTIVITY LOG
         // ========================================
         function renderActivityLog() {
-            const tbody = document.getElementById('activityLogBody');
-
-            // Reuse timeline data
             if (!window.timelineData) {
                 renderTimeline();
             }
 
             window.activityLogData = window.timelineData || [];
-
             renderFilteredActivityLog(window.activityLogData);
 
-            // Populate filters
-            const workTypes = [...new Set(window.activityLogData.map(a => a.workType))];
             const logWorkTypeFilter = document.getElementById('logWorkTypeFilter');
+            logWorkTypeFilter.innerHTML = '<option value="">All Work Types</option>';
+            const workTypes = [...new Set(window.activityLogData.map(a => a.workType))].filter(Boolean);
             workTypes.forEach(wt => {
                 const option = document.createElement('option');
                 option.value = wt;
-                option.textContent = wt;
+                option.textContent = formatWorkTypeLabel(wt);
                 logWorkTypeFilter.appendChild(option);
             });
+
+            const logPhaseFilter = document.getElementById('logPhaseFilter');
+            logPhaseFilter.innerHTML = '<option value="">All Workflow Phases</option>';
+            const phases = [...new Set(window.activityLogData.map(a => getWorkflowPhase(a.workType)).filter(Boolean))].sort();
+            phases.forEach(phase => {
+                const option = document.createElement('option');
+                option.value = phase;
+                option.textContent = formatPhaseLabel(phase);
+                logPhaseFilter.appendChild(option);
+            });
+
+            /* TODO: Enable when context.allocationState is populated in events
+            const logAllocationStateFilter = document.getElementById('logAllocationStateFilter');
+            logAllocationStateFilter.innerHTML = '<option value="">All Allocation States</option>';
+            const allocationStates = [...new Set(window.activityLogData.map(a => getAllocationState(a)).filter(Boolean))];
+            allocationStates.sort((a, b) => {
+                if (a === 'unknown' && b !== 'unknown') return 1;
+                if (b === 'unknown' && a !== 'unknown') return -1;
+                return a.localeCompare(b);
+            });
+            allocationStates.forEach(state => {
+                const option = document.createElement('option');
+                option.value = state;
+                option.textContent = state;
+                logAllocationStateFilter.appendChild(option);
+            });
+            */
         }
 
         function renderFilteredActivityLog(activities) {
             const tbody = document.getElementById('activityLogBody');
 
-            if (activities.length === 0) {
+            if (!activities || activities.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="5" class="text-center">No activity found</td></tr>';
                 return;
             }
 
             tbody.innerHTML = '';
 
-            // Limit to 200 rows for performance
             activities.slice(0, 200).forEach(activity => {
                 const row = tbody.insertRow();
-                row.innerHTML = `
-                    <td>`${activity.timestamp || 'N/A'}</td>
-                    <td>`${activity.user || 'Unknown'}</td>
-                    <td><span class="badge badge-info">`${activity.workType}</span></td>
-                    <td>`${activity.objectName || 'N/A'}</td>
-                    <td>`${activity.description}</td>
-                `;
+                const confidenceBadge = renderConfidenceBadge(activity.evidence);
+                const evidenceDetails = renderEvidenceDetails(activity.evidence);
+                const contextLine = renderContextLine(activity);
+                const workTypeLabel = formatWorkTypeLabel(activity.workType || 'Unknown');
+
+                row.innerHTML =
+                    '<td>' + (activity.timestamp || 'N/A') + '</td>' +
+                    '<td>' + (activity.user || 'Unknown') + '</td>' +
+                    '<td><span class="badge badge-info">' + workTypeLabel + '</span> ' + confidenceBadge + '</td>' +
+                    '<td>' + (activity.objectName || 'N/A') + '</td>' +
+                    '<td>' + (activity.description || '') + contextLine + evidenceDetails + '</td>';
             });
 
             if (activities.length > 200) {
                 const row = tbody.insertRow();
-                row.innerHTML = `<td colspan="5" class="text-center" style="color: #7f8c8d;">Showing first 200 of `${activities.length} activities. Use filters to narrow results.</td>`;
+                row.innerHTML = '<td colspan="5" class="text-center" style="color: #7f8c8d;">Showing first 200 of ' + activities.length + ' activities. Use filters to narrow results.</td>';
             }
         }
 
         function filterActivityLog() {
             const searchTerm = document.getElementById('logSearch').value.toLowerCase();
             const workTypeFilter = document.getElementById('logWorkTypeFilter').value;
+            const phaseFilter = document.getElementById('logPhaseFilter').value;
             const userFilter = document.getElementById('logUserFilter').value;
+            // const allocationStateFilter = document.getElementById('logAllocationStateFilter').value; // TODO: Enable when context.allocationState is populated
+            const confidenceFilters = getSelectedConfidenceFilters('logConfidenceFilters');
 
             let filtered = window.activityLogData || [];
 
@@ -1601,8 +1991,22 @@ $html = @"
                 filtered = filtered.filter(a => a.workType === workTypeFilter);
             }
 
+            if (phaseFilter) {
+                filtered = filtered.filter(a => getWorkflowPhase(a.workType) === phaseFilter);
+            }
+
             if (userFilter) {
                 filtered = filtered.filter(a => a.user === userFilter);
+            }
+
+            /* TODO: Enable when context.allocationState is populated
+            if (allocationStateFilter) {
+                filtered = filtered.filter(a => getAllocationState(a) === allocationStateFilter);
+            }
+            */
+
+            if (confidenceFilters && confidenceFilters.length) {
+                filtered = filtered.filter(a => confidenceFilters.includes(getConfidenceValue(a.evidence)));
             }
 
             renderFilteredActivityLog(filtered);
@@ -1610,32 +2014,29 @@ $html = @"
 
         // ========================================
         // VIEW 7: STUDY HEALTH
-        // =================================        function renderStudyHealth() {
+        // ========================================
+        function renderStudyHealth() {
             const healthData = dashboardData.studyHealth || {};
             const summary = healthData.summary || {};
             const issues = healthData.issues || [];
 
-            // Update summary cards
             document.getElementById('totalStudiesCount').textContent = summary.totalStudies || 0;
             document.getElementById('criticalIssuesCount').textContent = summary.criticalIssues || 0;
             document.getElementById('highIssuesCount').textContent = summary.highIssues || 0;
             document.getElementById('mediumIssuesCount').textContent = summary.mediumIssues || 0;
             document.getElementById('lowIssuesCount').textContent = summary.lowIssues || 0;
 
-            // Calculate health score (% of studies without issues)
             const totalStudies = summary.totalStudies || 1;
-            const totalIssues = summary.totalIssues || 0;
             const studiesWithIssues = new Set(issues.map(i => i.node_id)).size;
             const healthyStudies = totalStudies - studiesWithIssues;
             const healthScore = Math.round((healthyStudies / totalStudies) * 100);
             document.getElementById('healthScorePercent').textContent = healthScore + '%';
 
-            // Store for filtering
             window.healthIssuesData = issues;
 
-            // Populate issue type filter
-            const issueTypes = [...new Set(issues.map(i => i.issue))].sort();
+            const issueTypes = [...new Set(issues.map(i => i.issue))].filter(Boolean).sort();
             const issueTypeFilter = document.getElementById('healthIssueTypeFilter');
+            issueTypeFilter.innerHTML = '<option value="">All Issue Types</option>';
             issueTypes.forEach(type => {
                 const option = document.createElement('option');
                 option.value = type;
@@ -1649,100 +2050,34 @@ $html = @"
         function renderFilteredHealthIssues(issues) {
             const tbody = document.getElementById('healthIssuesBody');
 
-            if (issues.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="5" class="text-center">No issues found - all studies are healthy! 🎉</td></tr>';
-=======
-        // VIEW 8: RESOURCE CONFLICTS & STALE CHECKOUTS
-        // ========================================
-        function renderResourceConflicts() {
-            const conflicts = dashboardData.resourceConflicts || [];
-            const staleCheckouts = dashboardData.staleCheckouts || [];
-            const bottleneckQueue = dashboardData.bottleneckQueue || [];
-
-            // Update summary cards
-            document.getElementById('conflictCount').textContent = conflicts.length;
-            document.getElementById('staleCheckoutCount').textContent = staleCheckouts.filter(c => c.flagged).length;
-            document.getElementById('bottleneckUserCount').textContent = bottleneckQueue.length;
-
-            // Render resource conflicts table
-            renderConflictsTable(conflicts);
-
-            // Store stale checkouts for filtering
-            window.staleCheckoutsData = staleCheckouts.filter(c => c.flagged);
-            renderFilteredStaleCheckouts(window.staleCheckoutsData);
-
-            // Render bottleneck queue
-            renderBottleneckQueue(bottleneckQueue);
-        }
-
-        function renderConflictsTable(conflicts) {
-            const tbody = document.getElementById('conflictsBody');
-
-            if (conflicts.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="5" class="text-center">No resource conflicts detected</td></tr>';
-
+            if (!issues || issues.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" class="text-center">No issues found - all studies are healthy.</td></tr>';
                 return;
             }
 
             tbody.innerHTML = '';
 
-            // Limit to 500 rows for performance
             issues.slice(0, 500).forEach(issue => {
-            conflicts.forEach(conflict => {
                 const row = tbody.insertRow();
-
-                // Risk level badge
-                let riskBadge = 'badge-info';
-                if (conflict.risk_level === 'Critical') riskBadge = 'badge-danger';
-                else if (conflict.risk_level === 'High') riskBadge = 'badge-warning';
-                else if (conflict.risk_level === 'Medium') riskBadge = 'badge-info';
-
-                row.innerHTML = `
-                    <td><strong>${conflict.resource_name || 'N/A'}</strong></td>
-                    <td>${conflict.resource_type || 'N/A'}</td>
-                    <td><span class="badge ${riskBadge}">${conflict.study_count}</span></td>
-                    <td>${conflict.studies || 'N/A'}</td>
-                    <td><span class="badge ${riskBadge}">${conflict.risk_level}</span></td>
-                `;
-            });
-        }
-
-        function renderFilteredStaleCheckouts(checkouts) {
-            const tbody = document.getElementById('staleCheckoutsBody');
-
-            if (checkouts.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="6" class="text-center">No stale checkouts detected</td></tr>';
-                return;
-            }
-
-            tbody.innerHTML = '';
-
-            checkouts.forEach(checkout => {
-
-                const row = tbody.insertRow();
-
-                // Severity badge
                 let severityBadge = 'badge-info';
                 if (issue.severity === 'Critical') severityBadge = 'badge-danger';
                 else if (issue.severity === 'High') severityBadge = 'badge-warning';
                 else if (issue.severity === 'Medium') severityBadge = 'badge-info';
                 else if (issue.severity === 'Low') severityBadge = 'badge-primary';
 
-                // Issue type readable
                 const issueTypeReadable = (issue.issue || '').replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
 
-                row.innerHTML = `
-                    <td><span class="badge ${severityBadge}">${issue.severity || 'N/A'}</span></td>
-                    <td><strong>${issue.study_name || 'N/A'}</strong></td>
-                    <td>${issueTypeReadable}</td>
-                    <td>${issue.details || 'No details'}</td>
-                    <td>${issue.node_id || 'N/A'}</td>
-                `;
+                row.innerHTML =
+                    '<td><span class="badge ' + severityBadge + '">' + (issue.severity || 'N/A') + '</span></td>' +
+                    '<td><strong>' + (issue.study_name || 'N/A') + '</strong></td>' +
+                    '<td>' + issueTypeReadable + '</td>' +
+                    '<td>' + (issue.details || 'No details') + '</td>' +
+                    '<td>' + (issue.node_id || 'N/A') + '</td>';
             });
 
             if (issues.length > 500) {
                 const row = tbody.insertRow();
-                row.innerHTML = `<td colspan="5" class="text-center" style="color: #7f8c8d;">Showing first 500 of ${issues.length} issues. Use filters to narrow results.</td>`;
+                row.innerHTML = '<td colspan="5" class="text-center" style="color: #7f8c8d;">Showing first 500 of ' + issues.length + ' issues. Use filters to narrow results.</td>';
             }
         }
 
@@ -1759,38 +2094,6 @@ $html = @"
                     (i.issue && i.issue.toLowerCase().includes(searchTerm)) ||
                     (i.details && i.details.toLowerCase().includes(searchTerm)) ||
                     (i.node_id && i.node_id.toString().includes(searchTerm))
-                if (checkout.severity === 'Critical') severityBadge = 'badge-danger';
-                else if (checkout.severity === 'High') severityBadge = 'badge-warning';
-                else if (checkout.severity === 'Medium') severityBadge = 'badge-info';
-
-                // Format duration
-                const durationText = checkout.checkout_duration_days >= 1
-                    ? `${checkout.checkout_duration_days.toFixed(1)} days`
-                    : `${checkout.checkout_duration_hours.toFixed(1)} hours`;
-
-                row.innerHTML = `
-                    <td><strong>${checkout.object_name || 'N/A'}</strong></td>
-                    <td>${checkout.object_type || 'N/A'}</td>
-                    <td>${checkout.checked_out_by || 'Unknown'}</td>
-                    <td><span class="badge ${severityBadge}">${durationText}</span></td>
-                    <td>${checkout.last_modified || 'N/A'}</td>
-                    <td><span class="badge ${severityBadge}">${checkout.severity}</span></td>
-                `;
-            });
-        }
-
-        function filterStaleCheckouts() {
-            const searchTerm = document.getElementById('staleSearch').value.toLowerCase();
-            const severityFilter = document.getElementById('staleSeverityFilter').value;
-
-            let filtered = window.staleCheckoutsData || [];
-
-            if (searchTerm) {
-                filtered = filtered.filter(c =>
-                    (c.object_name && c.object_name.toLowerCase().includes(searchTerm)) ||
-                    (c.object_type && c.object_type.toLowerCase().includes(searchTerm)) ||
-                    (c.checked_out_by && c.checked_out_by.toLowerCase().includes(searchTerm))
-
                 );
             }
 
@@ -1810,6 +2113,122 @@ $html = @"
 
             if (data.length === 0) {
                 alert('No health issues to export');
+                return;
+            }
+
+            let csv = 'Severity,Study Name,Issue Type,Details,Node ID\n';
+            data.forEach(row => {
+                const severity = (row.severity || '').replace(/,/g, ' ');
+                const studyName = (row.study_name || '').replace(/,/g, ' ');
+                const issue = (row.issue || '').replace(/,/g, ' ');
+                const details = (row.details || '').replace(/,/g, ' ');
+                const nodeId = (row.node_id || '').toString();
+                csv += '"' + severity + '","' + studyName + '","' + issue + '","' + details + '","' + nodeId + '"\n';
+            });
+
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+
+            link.setAttribute('href', url);
+            link.setAttribute('download', 'study-health-issues-export.csv');
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        // ========================================
+        // VIEW 8: RESOURCE CONFLICTS & STALE CHECKOUTS
+        // ========================================
+        function renderResourceConflicts() {
+            const conflicts = dashboardData.resourceConflicts || [];
+            const staleCheckouts = dashboardData.staleCheckouts || [];
+            const bottleneckQueue = dashboardData.bottleneckQueue || [];
+
+            document.getElementById('conflictCount').textContent = conflicts.length;
+            document.getElementById('staleCheckoutCount').textContent = staleCheckouts.filter(c => c.flagged).length;
+            document.getElementById('bottleneckUserCount').textContent = bottleneckQueue.length;
+
+            renderConflictsTable(conflicts);
+
+            window.staleCheckoutsData = staleCheckouts.filter(c => c.flagged);
+            renderFilteredStaleCheckouts(window.staleCheckoutsData);
+            renderBottleneckQueue(bottleneckQueue);
+        }
+
+        function renderConflictsTable(conflicts) {
+            const tbody = document.getElementById('conflictsBody');
+
+            if (!conflicts || conflicts.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" class="text-center">No resource conflicts detected</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = '';
+
+            conflicts.forEach(conflict => {
+                const row = tbody.insertRow();
+                let riskBadge = 'badge-info';
+                if (conflict.risk_level === 'Critical') riskBadge = 'badge-danger';
+                else if (conflict.risk_level === 'High') riskBadge = 'badge-warning';
+                else if (conflict.risk_level === 'Medium') riskBadge = 'badge-info';
+
+                row.innerHTML =
+                    '<td><strong>' + (conflict.resource_name || 'N/A') + '</strong></td>' +
+                    '<td>' + (conflict.resource_type || 'N/A') + '</td>' +
+                    '<td><span class="badge ' + riskBadge + '">' + (conflict.study_count || 0) + '</span></td>' +
+                    '<td>' + (conflict.studies || 'N/A') + '</td>' +
+                    '<td><span class="badge ' + riskBadge + '">' + (conflict.risk_level || 'N/A') + '</span></td>';
+            });
+        }
+
+        function renderFilteredStaleCheckouts(checkouts) {
+            const tbody = document.getElementById('staleCheckoutsBody');
+
+            if (!checkouts || checkouts.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" class="text-center">No stale checkouts detected</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = '';
+
+            checkouts.forEach(checkout => {
+                const row = tbody.insertRow();
+                let severityBadge = 'badge-info';
+                if (checkout.severity === 'Critical') severityBadge = 'badge-danger';
+                else if (checkout.severity === 'High') severityBadge = 'badge-warning';
+                else if (checkout.severity === 'Medium') severityBadge = 'badge-info';
+
+                const durationText = (checkout.checkout_duration_days >= 1)
+                    ? checkout.checkout_duration_days.toFixed(1) + ' days'
+                    : checkout.checkout_duration_hours.toFixed(1) + ' hours';
+
+                row.innerHTML =
+                    '<td><strong>' + (checkout.object_name || 'N/A') + '</strong></td>' +
+                    '<td>' + (checkout.object_type || 'N/A') + '</td>' +
+                    '<td>' + (checkout.checked_out_by || 'Unknown') + '</td>' +
+                    '<td><span class="badge ' + severityBadge + '">' + durationText + '</span></td>' +
+                    '<td>' + (checkout.last_modified || 'N/A') + '</td>' +
+                    '<td><span class="badge ' + severityBadge + '">' + (checkout.severity || 'N/A') + '</span></td>';
+            });
+        }
+
+        function filterStaleCheckouts() {
+            const searchTerm = document.getElementById('staleSearch').value.toLowerCase();
+            const severityFilter = document.getElementById('staleSeverityFilter').value;
+
+            let filtered = window.staleCheckoutsData || [];
+
+            if (searchTerm) {
+                filtered = filtered.filter(c =>
+                    (c.object_name && c.object_name.toLowerCase().includes(searchTerm)) ||
+                    (c.object_type && c.object_type.toLowerCase().includes(searchTerm)) ||
+                    (c.checked_out_by && c.checked_out_by.toLowerCase().includes(searchTerm))
+                );
+            }
+
+            if (severityFilter) {
                 filtered = filtered.filter(c => c.severity === severityFilter);
             }
 
@@ -1819,14 +2238,12 @@ $html = @"
         function renderBottleneckQueue(queue) {
             const container = document.getElementById('bottleneckQueueContainer');
 
-            if (queue.length === 0) {
+            if (!queue || queue.length === 0) {
                 container.innerHTML = '<div class="empty-state"><p>No bottlenecks detected</p></div>';
                 return;
             }
 
-            // Find max hours for scaling
-            const maxHours = Math.max(...queue.map(q => q.total_hours));
-
+            const maxHours = Math.max(...queue.map(q => q.total_hours || 0), 1);
             container.innerHTML = '';
 
             queue.forEach(user => {
@@ -1836,18 +2253,17 @@ $html = @"
                 const userItem = document.createElement('div');
                 userItem.className = 'bar-item';
                 userItem.style.marginBottom = '20px';
-                userItem.innerHTML = `
-                    <div class="bar-label">
-                        <span class="name">${user.user_name || 'Unknown'}</span>
-                        <span class="value">${user.checkout_count} checkouts (${daysText} days total)</span>
-                    </div>
-                    <div class="bar-track">
-                        <div class="bar-fill" style="width: ${percentage}%">${user.checkout_count}</div>
-                    </div>
-                    <div style="margin-top: 5px; font-size: 0.85em; color: #7f8c8d;">
-                        ${user.items.map(item => `${item.object_name} (${(item.duration_hours / 24).toFixed(1)}d)`).join(', ')}
-                    </div>
-                `;
+                userItem.innerHTML =
+                    '<div class="bar-label">' +
+                        '<span class="name">' + (user.user_name || 'Unknown') + '</span>' +
+                        '<span class="value">' + (user.checkout_count || 0) + ' checkouts (' + daysText + ' days total)</span>' +
+                    '</div>' +
+                    '<div class="bar-track">' +
+                        '<div class="bar-fill" style="width: ' + percentage + '%">' + (user.checkout_count || 0) + '</div>' +
+                    '</div>' +
+                    '<div style="margin-top: 5px; font-size: 0.85em; color: #7f8c8d;">' +
+                        (user.items || []).map(item => item.object_name + ' (' + (item.duration_hours / 24).toFixed(1) + 'd)').join(', ') +
+                    '</div>';
                 container.appendChild(userItem);
             });
         }
@@ -1857,25 +2273,10 @@ $html = @"
 
             if (data.length === 0) {
                 alert('No stale checkouts to export');
-
                 return;
             }
 
-            // Create CSV header
-            let csv = 'Severity,Study Name,Issue Type,Details,Node ID\n';
-
-            // Add data rows
-            data.forEach(row => {
-                const severity = (row.severity || '').replace(/,/g, ' ');
-                const studyName = (row.study_name || '').replace(/,/g, ' ');
-                const issue = (row.issue || '').replace(/,/g, ' ');
-                const details = (row.details || '').replace(/,/g, ' ');
-                const nodeId = (row.node_id || '').toString();
-
-                csv += `"${severity}","${studyName}","${issue}","${details}","${nodeId}"\n`;
             let csv = 'Object,Type,Checked Out By,Duration (hours),Duration (days),Last Modified,Severity\n';
-
-            // Add data rows
             data.forEach(row => {
                 const objectName = (row.object_name || '').replace(/,/g, ' ');
                 const objectType = (row.object_type || '').replace(/,/g, ' ');
@@ -1884,22 +2285,16 @@ $html = @"
                 const durationDays = row.checkout_duration_days || 0;
                 const lastModified = (row.last_modified || '').replace(/,/g, ' ');
                 const severity = (row.severity || '').replace(/,/g, ' ');
-
-                csv += `"${objectName}","${objectType}","${checkedOutBy}",${durationHours},${durationDays},"${lastModified}","${severity}"\n`;
-
+                csv += '"' + objectName + '","' + objectType + '","' + checkedOutBy + '",' + durationHours + ',' + durationDays + ',"' + lastModified + '","' + severity + '"\n';
             });
 
-            // Create download link
             const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
             const link = document.createElement('a');
             const url = URL.createObjectURL(blob);
 
             link.setAttribute('href', url);
-            link.setAttribute('download', 'study-health-issues-export.csv');
             link.setAttribute('download', 'stale-checkouts-export.csv');
-
             link.style.visibility = 'hidden';
-
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
@@ -1917,7 +2312,7 @@ $html = @"
             }
 
             // Create CSV header
-            let csv = 'Timestamp,User,Work Type,Object Name,Description\n';
+            let csv = 'Timestamp,User,Work Type,Object Name,Description,Confidence\n';
 
             // Add data rows
             data.forEach(row => {
@@ -1926,8 +2321,9 @@ $html = @"
                 const workType = (row.workType || '').replace(/,/g, ' ');
                 const objectName = (row.objectName || '').replace(/,/g, ' ');
                 const description = (row.description || '').replace(/,/g, ' ');
+                const confidence = getConfidenceValue(row.evidence) || '';
 
-                csv += `"${timestamp}","${user}","${workType}","${objectName}","${description}"\n`;
+                csv += `"${timestamp}","${user}","${workType}","${objectName}","${description}","${confidence}"\n`;
             });
 
             // Create download link
