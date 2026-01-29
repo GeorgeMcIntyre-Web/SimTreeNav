@@ -25,12 +25,17 @@ jobs:
 
       - name: Create output directories
         run: |
-          mkdir -p out/logs out/json test/integration/results
+          mkdir -p out/logs out/json test/integration/results test/unit/results
           echo "Created required directories for test outputs"
 
       - name: Run unit tests (RunStatus library)
         run: |
           pwsh -File test/integration/Test-RunStatus.ps1
+        continue-on-error: false
+
+      - name: Run library coverage tests
+        run: |
+          pwsh -File test/unit/Invoke-CoverageTests.ps1 -CI
         continue-on-error: false
 
       - name: Run integration smoke test
@@ -55,6 +60,8 @@ jobs:
           name: test-results
           path: |
             test/integration/results/*.json
+            test/unit/results/*.json
+            test/unit/results/*.xml
             out/logs/*.log
             out/json/run-status.json
           retention-days: 30
@@ -80,38 +87,11 @@ jobs:
 
       - name: Scan for hardcoded secrets
         run: |
-          echo "Scanning for hardcoded secrets..."
+          # Make scanner executable
+          chmod +x scripts/security/scan-secrets.sh
 
-          # Define patterns - focus on actual secrets (assignment patterns)
-          # Not just any occurrence of these words
-          PATTERNS="password\s*=|password\s*:|token\s*=|token\s*:|secret\s*=|secret\s*:|apikey\s*=|api_key\s*=|PRIVATE_KEY|BEGIN RSA|BEGIN OPENSSH"
-
-          echo "Searching for potential secrets (excluding PowerShell scripts)..."
-
-          # Exclude PowerShell files (have legitimate "credential" module names, "token" variables)
-          # Exclude SQL files (only have example passwords in comments)
-          # Focus on config files, shell scripts, and other files that shouldn't have secrets
-          MATCHES=$(grep -rni -E "$PATTERNS" . \
-            --exclude-dir={.git,node_modules,.vscode,.claude,out,test} \
-            --exclude="*.md" \
-            --exclude="*.json" \
-            --exclude="*.log" \
-            --exclude="*.ps1" \
-            --exclude="*.sql" \
-            --exclude=".secretsignore" \
-            --exclude="ci-smoke-test.yml" \
-            || true)
-
-          if [ -n "$MATCHES" ]; then
-            echo "⚠️  WARNING: Potential secrets found:"
-            echo "$MATCHES"
-            echo ""
-            echo "If these are false positives, add them to .secretsignore"
-            exit 1
-          else
-            echo "✓ No hardcoded secrets detected"
-            echo "Note: PowerShell and SQL files excluded (use code review for these)"
-          fi
+          # Run the enhanced secret scanner
+          bash scripts/security/scan-secrets.sh
 
   test-summary:
     name: Test Summary

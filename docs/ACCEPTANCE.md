@@ -16,14 +16,17 @@ All three CI jobs must complete with **exit code 0**:
 
 1. **Run Smoke Tests** ✅
    - `test/integration/Test-RunStatus.ps1` - All 6 unit tests pass
+   - `test/unit/Invoke-CoverageTests.ps1 -CI` - All Pester tests pass, coverage measured
    - `test/integration/Test-ReleaseSmoke.ps1 -OutDir ./out -SkipFullRun` - All 5 integration tests pass
    - No PowerShell errors or exceptions
    - Exit code: 0
 
 2. **Scan for Secrets** ✅
-   - No hardcoded secrets detected (passwords, tokens, API keys)
-   - Patterns checked: `password=`, `token=`, `api_key=`, `secret=` in assignment context
-   - Excludes: `*.ps1`, `*.sql`, `*.md`, test fixtures
+   - Enhanced multi-tier secret scanner with severity levels
+   - Scans high-risk files: `.env`, `.ini`, `.conf`, `.yaml`, `.xml`, `.psd1`
+   - Scans medium-risk files: JSON files with credential-like names
+   - Extended patterns: passwords, tokens, API keys, AWS keys, GitHub PATs, private keys
+   - Fails on high/medium risk findings, warns on low risk
    - Exit code: 0
 
 3. **Test Summary** ✅
@@ -37,7 +40,7 @@ The workflow must upload artifacts even on failure:
 
 | Artifact Name | Contents | Required |
 |---------------|----------|----------|
-| `test-results` | `test/integration/results/*.json`<br>`out/logs/*.log`<br>`out/json/run-status.json` | Yes |
+| `test-results` | `test/integration/results/*.json`<br>`test/unit/results/*.json`<br>`test/unit/results/*.xml`<br>`out/logs/*.log`<br>`out/json/run-status.json` | Yes |
 
 **Upload Behavior:**
 - `if-no-files-found: warn` - Log warning but don't fail if files missing
@@ -77,6 +80,7 @@ Use this checklist before requesting PR review:
 - [ ] **All tests pass locally**
   ```powershell
   pwsh test/integration/Test-RunStatus.ps1
+  pwsh test/unit/Invoke-CoverageTests.ps1
   pwsh test/integration/Test-ReleaseSmoke.ps1 -OutDir ./out -SkipFullRun
   ```
 
@@ -129,57 +133,96 @@ If your PR introduces breaking changes:
 
 ## Secret Scan Rules
 
-### ✅ What Gets Scanned
+The CI uses an **enhanced multi-tier secret scanner** (`scripts/security/scan-secrets.sh`) that categorizes findings by risk level.
 
-**File types checked:**
-- `.env`, `.ini`, `.conf`, `.config`
-- `.yml`, `.yaml` (workflow files)
-- `.json` (config files)
-- `.xml` (credential configs)
+### 🔴 High Risk Scan
+
+**Files that should NEVER contain secrets:**
+- `.env`, `.env.*` (environment files)
+- `*.ini`, `*.conf`, `*.config` (configuration files)
+- `*.yaml`, `*.yml` (except CI workflows)
+- `*.xml` (credential configs)
+- `*.psd1` (PowerShell data files)
 
 **Patterns detected:**
-```bash
-password\\s*=
-password\\s*:
-token\\s*=
-token\\s*:
-api_key\\s*=
-api_key\\s*:
-secret\\s*=
-secret\\s*:
+- Password assignments: `password=`, `password:`
+- Token assignments: `token=`, `token:`, `apikey=`, `api_key=`, `access_key=`
+- Private keys: `PRIVATE_KEY`, `BEGIN RSA PRIVATE KEY`, `BEGIN OPENSSH PRIVATE KEY`
+- Cloud credentials: `AKIA[A-Z0-9]{16}` (AWS), `github_pat_[a-zA-Z0-9]{36}`, `ghp_[a-zA-Z0-9]{36}`
+- Payment keys: `sk_live_[a-zA-Z0-9]{24}` (Stripe)
+
+**Result:** ❌ **FAILS** if any high-risk findings detected
+
+### 🟡 Medium Risk Scan
+
+**JSON files with credential-like names:**
+- `*credential*.json`, `*secret*.json`, `*password*.json`
+- `*token*.json`, `*auth*.json`, `*key*.json`
+- `appsettings*.json`, `config*.json`
+
+**Filtering:** Excludes placeholder values:
+- `CHANGEME`, `YOUR_*_HERE`, `<...>`, `null`, `""`
+
+**Result:** ⚠️ **FAILS** if non-placeholder values detected
+
+### ℹ️ Low Risk Scan
+
+**Everything else with safe exclusions:**
+
+**Excluded file types** (legitimate use of "password" keyword):
+- `*.ps1`, `*.psm1` (PowerShell - credential modules, token variables)
+- `*.sql` (SQL - "password" as column name)
+- `*.md` (Documentation - conceptual discussion)
+- `*.log` (Log files)
+
+**Excluded directories:**
+- `.git/`, `node_modules/`, `.vscode/`, `.claude/`, `out/`
+
+**Result:** ✅ **PASSES** with informational warnings
+
+### 📋 Scanner Output Format
+
 ```
+=== SimTreeNav Secret Scanner ===
 
-### ⏭️ What Gets Excluded
+🔴 HIGH RISK: Scanning files that should never contain secrets...
+❌ HIGH RISK: config/production.env
+3:DB_PASSWORD=MySecretPassword123
+5:API_TOKEN=ghp_abc123...
 
-**File types excluded:**
-- `*.ps1`, `*.psm1`, `*.psd1` (PowerShell code - strings like "password" are legitimate)
-- `*.sql` (SQL scripts - strings like "token" are column names)
-- `*.md` (Documentation - discusses credentials conceptually)
+🟡 MEDIUM RISK: Scanning JSON files with credential-like names...
+⚠️  MEDIUM RISK: config/credentials.json
+12:  "apiKey": "real-key-value"
 
-**Directories excluded:**
-- `test/fixtures/` (Sample data, not real credentials)
-- `docs/` (Documentation)
-- `.git/` (Version control metadata)
+ℹ️  LOW RISK: Scanning remaining files (with exclusions)...
+✓ No secrets in low-risk files
+
+=== Scan Summary ===
+High-risk findings:   1
+Medium-risk findings: 1
+Low-risk findings:    0
+
+❌ FAILED: Secrets detected in high-risk files
+
+📖 Remediation steps:
+   1. Remove hardcoded secrets immediately
+   2. Add files to .gitignore
+   3. Rotate compromised credentials
+   4. Use environment variables or credential managers
+```
 
 ### 🔐 Legitimate Exceptions
 
-Some patterns are acceptable:
-
-✅ **Config templates:**
+✅ **Config templates with placeholders:**
 ```json
 {
   "password": "<YOUR_PASSWORD_HERE>",
-  "token": null
+  "token": "CHANGEME",
+  "apiKey": null
 }
 ```
 
-✅ **Placeholder values:**
-```ini
-DB_PASSWORD=CHANGEME
-API_TOKEN=<replace-with-actual-token>
-```
-
-✅ **Test fixtures:**
+✅ **Test fixtures** (in `test/fixtures/`):
 ```json
 {
   "testUser": {
@@ -188,10 +231,27 @@ API_TOKEN=<replace-with-actual-token>
 }
 ```
 
-❌ **NEVER ACCEPTABLE:**
+✅ **PowerShell code with credential modules:**
+```powershell
+$cred = Get-Credential  # "credential" is legitimate
+$token = $env:API_TOKEN # "token" is legitimate variable name
 ```
+
+❌ **NEVER ACCEPTABLE:**
+```ini
 DB_PASSWORD=MyRealPassword123!
 API_TOKEN=ghp_1234567890abcdefghijklmnopqrstuvwxyz
+AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE
+```
+
+### 🛠️ Running Locally
+
+```bash
+# Run the secret scanner
+bash scripts/security/scan-secrets.sh
+
+# Expected output if clean
+✅ PASSED: No secrets detected
 ```
 
 ---
@@ -301,7 +361,7 @@ The CI workflow ensures predictable, testable outputs even when tests fail:
 ### Directory Creation
 **Before tests run**, the workflow creates all required directories:
 ```bash
-mkdir -p out/logs out/json test/integration/results
+mkdir -p out/logs out/json test/integration/results test/unit/results
 ```
 
 **Benefits:**
@@ -333,11 +393,14 @@ mkdir -p out/logs out/json test/integration/results
 ```
 
 ### Test Results JSON
-**All test scripts** produce results JSON in `test/integration/results/`:
-- `test-runstatus.json` - Unit test results
-- `test-release-smoke.json` - Integration test results
+**All test scripts** produce results JSON:
+- `test/integration/results/test-runstatus.json` - Unit test results
+- `test/integration/results/test-release-smoke.json` - Integration test results
+- `test/unit/results/coverage-summary.json` - Code coverage summary
+- `test/unit/results/coverage.xml` - JaCoCo coverage data
+- `test/unit/results/test-results.xml` - Pester test results
 
-**Schema:**
+**Legacy test schema:**
 ```json
 {
   "test": "test-name",
@@ -345,6 +408,25 @@ mkdir -p out/logs out/json test/integration/results
   "status": "pass|fail",
   "issues": [ /* array of failure reasons */ ],
   "endedAt": "ISO8601"
+}
+```
+
+**Coverage summary schema:**
+```json
+{
+  "totalFiles": 3,
+  "coveredFiles": 2,
+  "totalLines": 90,
+  "coveredLines": 68,
+  "percentCoverage": 75.5,
+  "fileDetails": [
+    {
+      "file": "scripts/lib/RunStatus.ps1",
+      "lines": 51,
+      "covered": 42,
+      "percent": 82.4
+    }
+  ]
 }
 ```
 
@@ -356,12 +438,174 @@ mkdir -p out/logs out/json test/integration/results
 
 ---
 
+## Code Coverage Measurement
+
+The CI workflow measures code coverage for the PowerShell library layer to ensure critical infrastructure code is well-tested.
+
+### Coverage Boundary
+
+**What is measured:**
+- `scripts/lib/RunStatus.ps1` - Run diagnostics and status tracking
+- `scripts/lib/EnvChecks.ps1` - Environment validation functions
+- `scripts/lib/RunManifest.ps1` - Artifact manifest management
+
+**What is NOT measured:**
+- `scripts/ops/*` - Operational scripts (tested via integration tests)
+- `scripts/debug/*` - Debug utilities (not production code)
+- `test/*` - Test code itself
+- Generated code or third-party libraries
+
+**Rationale:** The library layer (`scripts/lib/`) contains reusable functions used across multiple operational scripts. High coverage here ensures reliability of the entire system.
+
+### Coverage Metric
+
+**Line Coverage** is used as the primary metric:
+- Measures percentage of executable lines executed during tests
+- More granular than function coverage
+- Industry standard for PowerShell modules
+- Supported natively by Pester framework
+
+**Formula:**
+```
+Coverage % = (Lines Executed / Lines Analyzed) × 100
+```
+
+### Coverage Targets
+
+| File | Target | Status | Notes |
+|------|--------|--------|-------|
+| `RunStatus.ps1` | 80%+ | ✅ Active | Has comprehensive Pester tests |
+| `EnvChecks.ps1` | 70%+ | ✅ Active | Has comprehensive Pester tests |
+| `RunManifest.ps1` | Baseline | 📊 Measuring | Tests to be added later |
+
+**Overall library target:** 70%+ line coverage
+
+### Running Coverage Locally
+
+```powershell
+# Run coverage tests with report
+pwsh test/unit/Invoke-CoverageTests.ps1
+
+# Run with CI mode and threshold check
+pwsh test/unit/Invoke-CoverageTests.ps1 -CI -CoverageThreshold 70
+```
+
+**Output includes:**
+- Per-file coverage percentages
+- Lines covered vs total lines
+- List of untested files
+- Coverage summary JSON at `test/unit/results/coverage-summary.json`
+- JaCoCo XML at `test/unit/results/coverage.xml` (for CI integration)
+
+### CI Coverage Workflow
+
+The CI pipeline includes a "Run library coverage tests" step that:
+
+1. **Installs Pester 5** (if not present)
+2. **Runs all `*.Tests.ps1`** files in `test/unit/`
+3. **Measures coverage** for `scripts/lib/*.ps1`
+4. **Generates reports:**
+   - `test-results.xml` - NUnit format test results
+   - `coverage.xml` - JaCoCo format coverage data
+   - `coverage-summary.json` - Human-readable summary
+5. **Uploads artifacts** to GitHub Actions
+
+**Example coverage output:**
+```
+=== Coverage Summary ===
+Coverage Boundary: scripts/lib/*.ps1 (library layer only)
+Coverage Metric: Line Coverage
+
+Overall Coverage: 75.5%
+Lines Covered: 68 / 90
+Files Covered: 2 / 3
+
+=== Per-File Coverage ===
+scripts/lib/RunStatus.ps1      82.4%  (42/51 lines)
+scripts/lib/EnvChecks.ps1      71.0%  (22/31 lines)
+scripts/lib/RunManifest.ps1     0.0%  (0/8 lines)
+```
+
+### Coverage Enforcement
+
+**Current policy:** Coverage measurement is **informational only** and does not block merges.
+
+**Future policy (when library stabilizes):**
+- PRs that modify `scripts/lib/*.ps1` must maintain or improve coverage
+- Overall library coverage must stay above 70%
+- New library functions require tests before merge
+
+### Test Framework: Pester
+
+**Why Pester:**
+- Industry-standard PowerShell testing framework
+- Built-in code coverage support
+- Descriptive test syntax (`Describe`, `Context`, `It`)
+- Integration with CI/CD pipelines
+- Cross-platform support (Windows, Linux, macOS)
+
+**Test organization:**
+- Unit tests: `test/unit/*.Tests.ps1`
+- Test helper script: `test/unit/Invoke-CoverageTests.ps1`
+- Coverage reports: `test/unit/results/`
+
+**Pester version:** 5.x (latest stable)
+
+### Coverage Report Artifacts
+
+After each CI run, coverage reports are available in the `test-results` artifact:
+
+| File | Format | Purpose |
+|------|--------|---------|
+| `coverage.xml` | JaCoCo XML | Machine-readable for CI tools |
+| `coverage-summary.json` | JSON | Structured data for dashboards |
+| `test-results.xml` | NUnit XML | Test results for CI integration |
+
+**Accessing reports:**
+1. Go to PR "Checks" tab
+2. Click "Run Smoke Tests" job
+3. Download "test-results" artifact
+4. Open `test/unit/results/coverage-summary.json`
+
+### Improving Coverage
+
+**To add tests for uncovered code:**
+
+1. Identify untested functions (check coverage report)
+2. Create or update `test/unit/{Module}.Tests.ps1`
+3. Add `Describe` block for the function
+4. Write `It` blocks for each code path
+5. Run locally: `pwsh test/unit/Invoke-CoverageTests.ps1`
+6. Verify coverage increased
+
+**Example test structure:**
+```powershell
+Describe 'MyFunction' {
+    Context 'When parameter is valid' {
+        It 'returns expected result' {
+            $result = MyFunction -Param "value"
+            $result | Should -Be "expected"
+        }
+    }
+
+    Context 'When parameter is invalid' {
+        It 'throws error' {
+            { MyFunction -Param $null } | Should -Throw
+        }
+    }
+}
+```
+
+---
+
 ## Acceptance Gates Summary
 
 | Gate | Criteria | Failure Action |
 |------|----------|----------------|
 | **Unit Tests** | All 6 RunStatus tests pass | Block merge |
+| **Pester Tests** | All library unit tests pass | Block merge |
 | **Integration Tests** | All 5 smoke tests pass | Block merge |
+| **Code Coverage** | 70%+ library coverage | Informational only |
 | **Secret Scan** | No hardcoded secrets detected | Block merge |
 | **Artifacts** | Test results uploaded | Warn only |
 | **Documentation** | PR description explains changes | Review guideline |
