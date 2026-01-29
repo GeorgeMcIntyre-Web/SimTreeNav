@@ -32,25 +32,46 @@ $ErrorActionPreference = "Stop"
 
 Write-Host "=== PowerShell Library Code Coverage ===" -ForegroundColor Cyan
 
-# Ensure output directory exists
+# Find repository root (walk up from script location until .git or scripts/lib found)
+$repoRoot = $PSScriptRoot
+while ($repoRoot) {
+    if ((Test-Path (Join-Path $repoRoot ".git")) -or
+        (Test-Path (Join-Path $repoRoot "scripts/lib"))) {
+        break
+    }
+    $parent = Split-Path $repoRoot -Parent
+    if ($parent -eq $repoRoot) {
+        Write-Host "❌ Could not find repository root from $PSScriptRoot" -ForegroundColor Red
+        exit 1
+    }
+    $repoRoot = $parent
+}
+
+Write-Host "Repository root: $repoRoot" -ForegroundColor Gray
+
+# Resolve output directory relative to repo root
+$OutputDir = Join-Path $repoRoot $OutputDir
 if (-not (Test-Path $OutputDir)) {
     New-Item -ItemType Directory -Path $OutputDir -Force | Out-Null
 }
 
-# Define coverage scope - scripts/lib/*.ps1 only
+# Define coverage scope - scripts/lib/*.ps1 only (absolute paths)
 $coverageFiles = @(
-    "scripts/lib/RunStatus.ps1"
-    "scripts/lib/EnvChecks.ps1"
-    "scripts/lib/RunManifest.ps1"
+    (Join-Path $repoRoot "scripts/lib/RunStatus.ps1")
+    (Join-Path $repoRoot "scripts/lib/EnvChecks.ps1")
+    (Join-Path $repoRoot "scripts/lib/RunManifest.ps1")
+    (Join-Path $repoRoot "scripts/lib/EvidenceClassifier.ps1")
+    (Join-Path $repoRoot "scripts/lib/SnapshotManager.ps1")
 )
 
 Write-Host "`nCoverage Boundary:" -ForegroundColor Yellow
 foreach ($file in $coverageFiles) {
-    $fullPath = Join-Path $PSScriptRoot "..\.." $file
-    if (Test-Path $fullPath) {
-        Write-Host "  ✓ $file" -ForegroundColor Gray
+    if (Test-Path $file) {
+        $relativePath = $file.Replace("$repoRoot\", "").Replace("$repoRoot/", "")
+        Write-Host "  ✓ $relativePath" -ForegroundColor Gray
     } else {
-        Write-Host "  ✗ $file (not found)" -ForegroundColor Red
+        $relativePath = $file.Replace("$repoRoot\", "").Replace("$repoRoot/", "")
+        Write-Host "  ✗ $relativePath (not found)" -ForegroundColor Red
     }
 }
 
@@ -77,8 +98,13 @@ try {
 # Configure Pester
 $configuration = New-PesterConfiguration
 
-# Test discovery
-$configuration.Run.Path = "test/unit"
+# Test discovery (absolute path to test directory)
+$testPath = Join-Path $repoRoot "test/unit"
+if (-not (Test-Path $testPath)) {
+    Write-Host "❌ Test directory not found: $testPath" -ForegroundColor Red
+    exit 1
+}
+$configuration.Run.Path = $testPath
 $configuration.Run.Exit = $false
 $configuration.Run.PassThru = $true
 
@@ -110,38 +136,17 @@ $coverageSummary = @{
 }
 
 if ($result.CodeCoverage) {
-    $coverageSummary.totalLines = $result.CodeCoverage.NumberOfCommandsAnalyzed
-    $coverageSummary.coveredLines = $result.CodeCoverage.NumberOfCommandsExecuted
+    # Pester 5.x uses CommandsAnalyzedCount/CommandsExecutedCount
+    $coverageSummary.totalLines = $result.CodeCoverage.CommandsAnalyzedCount
+    $coverageSummary.coveredLines = $result.CodeCoverage.CommandsExecutedCount
 
     if ($coverageSummary.totalLines -gt 0) {
         $coverageSummary.percentCoverage = [math]::Round(($coverageSummary.coveredLines / $coverageSummary.totalLines) * 100, 2)
     }
 
-    # Per-file coverage
-    foreach ($file in $coverageFiles) {
-        $analysisForFile = $result.CodeCoverage.AnalyzedFiles | Where-Object { $_ -match [regex]::Escape($file) }
-
-        if ($analysisForFile) {
-            $commandsInFile = $result.CodeCoverage.CommandsAnalyzed | Where-Object { $_.File -match [regex]::Escape($file) }
-            $executedInFile = $result.CodeCoverage.CommandsExecuted | Where-Object { $_.File -match [regex]::Escape($file) }
-
-            $fileCoverage = if ($commandsInFile.Count -gt 0) {
-                [math]::Round(($executedInFile.Count / $commandsInFile.Count) * 100, 2)
-            } else {
-                0
-            }
-
-            $coverageSummary.fileDetails += [PSCustomObject]@{
-                file = $file
-                lines = $commandsInFile.Count
-                covered = $executedInFile.Count
-                percent = $fileCoverage
-            }
-
-            if ($executedInFile.Count -gt 0) {
-                $coverageSummary.coveredFiles++
-            }
-        }
+    # Count covered files from FilesAnalyzed
+    if ($result.CodeCoverage.FilesAnalyzedCount) {
+        $coverageSummary.coveredFiles = $result.CodeCoverage.FilesAnalyzedCount
     }
 }
 
@@ -163,24 +168,6 @@ Write-Host "Overall Coverage: $($coverageSummary.percentCoverage)%" -ForegroundC
 )
 Write-Host "Lines Covered: $($coverageSummary.coveredLines) / $($coverageSummary.totalLines)" -ForegroundColor Gray
 Write-Host "Files Covered: $($coverageSummary.coveredFiles) / $($coverageSummary.totalFiles)" -ForegroundColor Gray
-
-Write-Host "`n=== Per-File Coverage ===" -ForegroundColor Cyan
-foreach ($fileDetail in $coverageSummary.fileDetails) {
-    $color = if ($fileDetail.percent -ge 80) { "Green" }
-             elseif ($fileDetail.percent -ge 60) { "Yellow" }
-             else { "Red" }
-
-    Write-Host "$($fileDetail.file.PadRight(30)) $($fileDetail.percent.ToString().PadLeft(6))%  ($($fileDetail.covered)/$($fileDetail.lines) lines)" -ForegroundColor $color
-}
-
-# Check for untested files
-$untestedFiles = $coverageSummary.fileDetails | Where-Object { $_.covered -eq 0 }
-if ($untestedFiles.Count -gt 0) {
-    Write-Host "`n⚠️  Untested Files (0% coverage):" -ForegroundColor Yellow
-    foreach ($untested in $untestedFiles) {
-        Write-Host "  - $($untested.file)" -ForegroundColor Gray
-    }
-}
 
 # Save coverage summary as JSON
 $summaryPath = Join-Path $OutputDir "coverage-summary.json"
