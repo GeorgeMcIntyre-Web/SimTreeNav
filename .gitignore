@@ -70,3 +70,6 @@ config/pc-profiles.json
 # Investigation files
 investigate-*.sql
 management-data-*.json
+
+# Generated test artifacts (uploaded to CI, not committed)
+test/unit/results/
