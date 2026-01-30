@@ -407,12 +407,13 @@ function Execute-Query {
         # Wrap query with SQL*Plus settings
         $sqlScript = @'
 SET PAGESIZE 50000
-SET LINESIZE 500
+SET LINESIZE 32767
 SET FEEDBACK OFF
 SET HEADING ON
 SET VERIFY OFF
 SET COLSEP '|'
 SET TRIMSPOOL ON
+SET WRAP OFF
 
 ##QUERY##
 
@@ -612,15 +613,28 @@ SELECT
     CASE WHEN p.WORKING_VERSION_ID > 0 THEN 'Active' ELSE 'Idle' END as status,
     NVL(p.WORKING_VERSION_ID, 0) as checkout_working_version_id
 FROM ##SCHEMA##.ROBCADSTUDY_ rs
+INNER JOIN ##SCHEMA##.REL_COMMON r ON rs.OBJECT_ID = r.OBJECT_ID
 LEFT JOIN ##SCHEMA##.CLASS_DEFINITIONS cd ON rs.CLASS_ID = cd.TYPE_ID
 LEFT JOIN ##SCHEMA##.PROXY p ON rs.OBJECT_ID = p.OBJECT_ID
 LEFT JOIN ##SCHEMA##.USER_ u ON p.OWNER_ID = u.OBJECT_ID
-WHERE (rs.MODIFICATIONDATE_DA_ > TO_DATE('##STARTDATE##', 'YYYY-MM-DD')
-  OR p.WORKING_VERSION_ID > 0)
+WHERE EXISTS (
+    SELECT 1 FROM ##SCHEMA##.REL_COMMON r2
+    INNER JOIN ##SCHEMA##.COLLECTION_ c2 ON r2.OBJECT_ID = c2.OBJECT_ID
+    WHERE c2.OBJECT_ID = r.FORWARD_OBJECT_ID
+      AND c2.OBJECT_ID IN (
+        SELECT c3.OBJECT_ID
+        FROM ##SCHEMA##.REL_COMMON r3
+        INNER JOIN ##SCHEMA##.COLLECTION_ c3 ON r3.OBJECT_ID = c3.OBJECT_ID
+        START WITH r3.FORWARD_OBJECT_ID = ##PROJECTID##
+        CONNECT BY NOCYCLE PRIOR r3.OBJECT_ID = r3.FORWARD_OBJECT_ID
+      )
+  )
+  AND (rs.MODIFICATIONDATE_DA_ > TO_DATE('##STARTDATE##', 'YYYY-MM-DD')
+    OR p.WORKING_VERSION_ID > 0)
   AND ROWNUM <= 50
 ORDER BY rs.MODIFICATIONDATE_DA_ DESC;
 '@
-$query5a = $query5a.Replace('##SCHEMA##', $Schema).Replace('##STARTDATE##', $startDateStr)
+$query5a = $query5a.Replace('##SCHEMA##', $Schema).Replace('##PROJECTID##', $ProjectId).Replace('##STARTDATE##', $startDateStr)
 $results.studySummary = Execute-Query -QueryName "StudySummary" -Query $query5a
 
 # QUERY 5B: Study Resources
@@ -644,15 +658,30 @@ SELECT
         ELSE 'Other'
     END as allocation_type
 FROM ##SCHEMA##.ROBCADSTUDY_ rs
+INNER JOIN ##SCHEMA##.REL_COMMON r_study ON rs.OBJECT_ID = r_study.OBJECT_ID
 INNER JOIN ##SCHEMA##.REL_COMMON r ON rs.OBJECT_ID = r.FORWARD_OBJECT_ID
 INNER JOIN ##SCHEMA##.SHORTCUT_ s ON r.OBJECT_ID = s.OBJECT_ID
-LEFT JOIN ##SCHEMA##.RESOURCE_ res ON s.NAME_S_ = res.NAME_S_
+LEFT JOIN ##SCHEMA##.RESOURCE_ res
+    ON (s.LINKEXTERNALID_S_ IS NOT NULL AND s.LINKEXTERNALID_S_ = res.EXTERNALID_S_)
+    OR (s.LINKEXTERNALID_S_ IS NULL AND s.NAME_S_ = res.NAME_S_)
 LEFT JOIN ##SCHEMA##.CLASS_DEFINITIONS cd ON res.CLASS_ID = cd.TYPE_ID
-WHERE rs.MODIFICATIONDATE_DA_ > TO_DATE('##STARTDATE##', 'YYYY-MM-DD')
+WHERE EXISTS (
+    SELECT 1 FROM ##SCHEMA##.REL_COMMON r2
+    INNER JOIN ##SCHEMA##.COLLECTION_ c2 ON r2.OBJECT_ID = c2.OBJECT_ID
+    WHERE c2.OBJECT_ID = r_study.FORWARD_OBJECT_ID
+      AND c2.OBJECT_ID IN (
+        SELECT c3.OBJECT_ID
+        FROM ##SCHEMA##.REL_COMMON r3
+        INNER JOIN ##SCHEMA##.COLLECTION_ c3 ON r3.OBJECT_ID = c3.OBJECT_ID
+        START WITH r3.FORWARD_OBJECT_ID = ##PROJECTID##
+        CONNECT BY NOCYCLE PRIOR r3.OBJECT_ID = r3.FORWARD_OBJECT_ID
+      )
+  )
+  AND rs.MODIFICATIONDATE_DA_ > TO_DATE('##STARTDATE##', 'YYYY-MM-DD')
   AND ROWNUM <= 200
 ORDER BY rs.NAME_S_, r.SEQ_NUMBER;
 '@
-$query5b = $query5b.Replace('##SCHEMA##', $Schema).Replace('##STARTDATE##', $startDateStr)
+$query5b = $query5b.Replace('##SCHEMA##', $Schema).Replace('##PROJECTID##', $ProjectId).Replace('##STARTDATE##', $startDateStr)
 $results.studyResources = Execute-Query -QueryName "StudyResources" -Query $query5b
 
 # QUERY 5C: Study Panels
@@ -673,14 +702,27 @@ SELECT
     END as panel_code,
     SUBSTR(s.NAME_S_, 1, INSTR(s.NAME_S_, '_') - 1) as station
 FROM ##SCHEMA##.ROBCADSTUDY_ rs
+INNER JOIN ##SCHEMA##.REL_COMMON r_study ON rs.OBJECT_ID = r_study.OBJECT_ID
 INNER JOIN ##SCHEMA##.REL_COMMON r ON rs.OBJECT_ID = r.FORWARD_OBJECT_ID
 INNER JOIN ##SCHEMA##.SHORTCUT_ s ON r.OBJECT_ID = s.OBJECT_ID
-WHERE s.NAME_S_ LIKE '%\_%' ESCAPE '\'
+WHERE EXISTS (
+    SELECT 1 FROM ##SCHEMA##.REL_COMMON r2
+    INNER JOIN ##SCHEMA##.COLLECTION_ c2 ON r2.OBJECT_ID = c2.OBJECT_ID
+    WHERE c2.OBJECT_ID = r_study.FORWARD_OBJECT_ID
+      AND c2.OBJECT_ID IN (
+        SELECT c3.OBJECT_ID
+        FROM ##SCHEMA##.REL_COMMON r3
+        INNER JOIN ##SCHEMA##.COLLECTION_ c3 ON r3.OBJECT_ID = c3.OBJECT_ID
+        START WITH r3.FORWARD_OBJECT_ID = ##PROJECTID##
+        CONNECT BY NOCYCLE PRIOR r3.OBJECT_ID = r3.FORWARD_OBJECT_ID
+      )
+  )
+  AND s.NAME_S_ LIKE '%\_%' ESCAPE '\'
   AND rs.MODIFICATIONDATE_DA_ > TO_DATE('##STARTDATE##', 'YYYY-MM-DD')
   AND ROWNUM <= 200
 ORDER BY rs.NAME_S_, s.NAME_S_;
 '@
-$query5c = $query5c.Replace('##SCHEMA##', $Schema).Replace('##STARTDATE##', $startDateStr)
+$query5c = $query5c.Replace('##SCHEMA##', $Schema).Replace('##PROJECTID##', $ProjectId).Replace('##STARTDATE##', $startDateStr)
 $results.studyPanels = Execute-Query -QueryName "StudyPanels" -Query $query5c
 
 # QUERY 5D: Study Operations
@@ -729,30 +771,45 @@ SELECT
     sl.STUDYINFO_SR_ as studyinfo_id,
     TO_CHAR(sl.MODIFICATIONDATE_DA_, 'YYYY-MM-DD HH24:MI:SS') as last_modified,
     NVL(sl.LASTMODIFIEDBY_S_, '') as modified_by,
-    sl.LOCATION_V_ as location_vector_id,
-    sl.ROTATION_V_ as rotation_vector_id,
+    sl.OBJECT_ID as location_vector_id,
+    sl.OBJECT_ID as rotation_vector_id,
     (SELECT MAX(CASE WHEN vl.SEQ_NUMBER = 0 THEN TO_NUMBER(vl.DATA) END)
         FROM ##SCHEMA##.VEC_LOCATION_ vl
-        WHERE vl.OBJECT_ID = sl.LOCATION_V_) as x_coord,
+        WHERE vl.OBJECT_ID = sl.OBJECT_ID) as x_coord,
     (SELECT MAX(CASE WHEN vl.SEQ_NUMBER = 1 THEN TO_NUMBER(vl.DATA) END)
         FROM ##SCHEMA##.VEC_LOCATION_ vl
-        WHERE vl.OBJECT_ID = sl.LOCATION_V_) as y_coord,
+        WHERE vl.OBJECT_ID = sl.OBJECT_ID) as y_coord,
     (SELECT MAX(CASE WHEN vl.SEQ_NUMBER = 2 THEN TO_NUMBER(vl.DATA) END)
         FROM ##SCHEMA##.VEC_LOCATION_ vl
-        WHERE vl.OBJECT_ID = sl.LOCATION_V_) as z_coord,
+        WHERE vl.OBJECT_ID = sl.OBJECT_ID) as z_coord,
     NVL(p.OWNER_ID, 0) as checked_out_by_user_id,
     NVL(u.CAPTION_S_, '') as checked_out_by_user_name,
     CASE WHEN p.WORKING_VERSION_ID > 0 THEN 'Checked Out' ELSE 'Available' END as status,
     NVL(p.WORKING_VERSION_ID, 0) as checkout_working_version_id
-FROM ##SCHEMA##.STUDYLAYOUT_ sl
+FROM ##SCHEMA##.ROBCADSTUDY_ rs
+INNER JOIN ##SCHEMA##.REL_COMMON r_info ON r_info.FORWARD_OBJECT_ID = rs.OBJECT_ID AND r_info.CLASS_ID = 71
+INNER JOIN ##SCHEMA##.STUDYLAYOUT_ sl ON sl.STUDYINFO_SR_ = r_info.OBJECT_ID
+INNER JOIN ##SCHEMA##.REL_COMMON r ON rs.OBJECT_ID = r.OBJECT_ID
 LEFT JOIN ##SCHEMA##.PROXY p ON sl.OBJECT_ID = p.OBJECT_ID
 LEFT JOIN ##SCHEMA##.USER_ u ON p.OWNER_ID = u.OBJECT_ID
-WHERE (sl.MODIFICATIONDATE_DA_ > TO_DATE('##STARTDATE##', 'YYYY-MM-DD')
-  OR p.WORKING_VERSION_ID > 0)
+WHERE EXISTS (
+    SELECT 1 FROM ##SCHEMA##.REL_COMMON r2
+    INNER JOIN ##SCHEMA##.COLLECTION_ c2 ON r2.OBJECT_ID = c2.OBJECT_ID
+    WHERE c2.OBJECT_ID = r.FORWARD_OBJECT_ID
+      AND c2.OBJECT_ID IN (
+        SELECT c3.OBJECT_ID
+        FROM ##SCHEMA##.REL_COMMON r3
+        INNER JOIN ##SCHEMA##.COLLECTION_ c3 ON r3.OBJECT_ID = c3.OBJECT_ID
+        START WITH r3.FORWARD_OBJECT_ID = ##PROJECTID##
+        CONNECT BY NOCYCLE PRIOR r3.OBJECT_ID = r3.FORWARD_OBJECT_ID
+      )
+  )
+  AND (sl.MODIFICATIONDATE_DA_ > TO_DATE('##STARTDATE##', 'YYYY-MM-DD')
+    OR p.WORKING_VERSION_ID > 0)
   AND ROWNUM <= 100
 ORDER BY sl.MODIFICATIONDATE_DA_ DESC;
 '@
-$query5e = $query5e.Replace('##SCHEMA##', $Schema).Replace('##STARTDATE##', $startDateStr)
+$query5e = $query5e.Replace('##SCHEMA##', $Schema).Replace('##PROJECTID##', $ProjectId).Replace('##STARTDATE##', $startDateStr)
 $results.studyMovements = Execute-Query -QueryName "StudyMovements" -Query $query5e
 
 # QUERY 5F: Study Welds
@@ -812,11 +869,24 @@ SELECT
     NVL(rs.LASTMODIFIEDBY_S_, '') as modified_by,
     rs.CLASS_ID as class_id
 FROM ##SCHEMA##.ROBCADSTUDY_ rs
+INNER JOIN ##SCHEMA##.REL_COMMON r ON rs.OBJECT_ID = r.OBJECT_ID
 LEFT JOIN ##SCHEMA##.CLASS_DEFINITIONS cd ON rs.CLASS_ID = cd.TYPE_ID
-WHERE rs.NAME_S_ IS NOT NULL
+WHERE EXISTS (
+    SELECT 1 FROM ##SCHEMA##.REL_COMMON r2
+    INNER JOIN ##SCHEMA##.COLLECTION_ c2 ON r2.OBJECT_ID = c2.OBJECT_ID
+    WHERE c2.OBJECT_ID = r.FORWARD_OBJECT_ID
+      AND c2.OBJECT_ID IN (
+        SELECT c3.OBJECT_ID
+        FROM ##SCHEMA##.REL_COMMON r3
+        INNER JOIN ##SCHEMA##.COLLECTION_ c3 ON r3.OBJECT_ID = c3.OBJECT_ID
+        START WITH r3.FORWARD_OBJECT_ID = ##PROJECTID##
+        CONNECT BY NOCYCLE PRIOR r3.OBJECT_ID = r3.FORWARD_OBJECT_ID
+      )
+  )
+  AND rs.NAME_S_ IS NOT NULL
 ORDER BY rs.NAME_S_;
 '@
-$query7 = $query7.Replace('##SCHEMA##', $Schema)
+$query7 = $query7.Replace('##SCHEMA##', $Schema).Replace('##PROJECTID##', $ProjectId)
 $allStudies = Execute-Query -QueryName "StudyHealthData" -Query $query7
 
 # Perform health checks on studies
@@ -1708,8 +1778,12 @@ foreach ($item in $results.studyMovements) {
     $snapshotEvidence = New-SnapshotEvidence -SnapshotComparison $snapshotComparison
 
     $deltaSummary = $null
-    if ($snapshotComparison -and $snapshotComparison.previousRecord -and $snapshotComparison.hasDelta) {
-        $deltaSummary = New-CoordinateDeltaSummary -NewRecord $snapshotRecord -PreviousRecord $snapshotComparison.previousRecord
+    $previousRecordTable = $null
+    if ($snapshotComparison -and $snapshotComparison.previousRecord) {
+        $previousRecordTable = Convert-PSObjectToHashtable -InputObject $snapshotComparison.previousRecord
+    }
+    if ($snapshotComparison -and $previousRecordTable -and $snapshotComparison.hasDelta) {
+        $deltaSummary = New-CoordinateDeltaSummary -NewRecord $snapshotRecord -PreviousRecord $previousRecordTable
     }
 
     $evidence = @{}
