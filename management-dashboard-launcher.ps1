@@ -187,6 +187,7 @@ try {
     # Count movements
     $simpleMovements = @($data.studyMovements | Where-Object { $_.location_vector_id -and !$_.rotation_vector_id }).Count
     $worldLocationChanges = @($data.studyMovements | Where-Object { $_.location_vector_id -and $_.rotation_vector_id }).Count
+    $treeChanges = @($data.treeChanges).Count
 
     Write-Host "  Activity Summary:" -ForegroundColor Cyan
     Write-Host "    - Project Database:  $projectDbActive active, $projectDbModified modified" -ForegroundColor Gray
@@ -195,6 +196,7 @@ try {
     Write-Host "    - IPA Assemblies:    $ipaActive active, $ipaModified modified" -ForegroundColor Gray
     Write-Host "    - Study Nodes:       $studyActive active, $studyModified modified" -ForegroundColor Gray
     Write-Host "    - Movements:         $simpleMovements simple, $worldLocationChanges world location changes" -ForegroundColor Gray
+    Write-Host "    - Tree Changes:      $treeChanges total" -ForegroundColor Gray
     Write-Host ""
 
 } catch {

@@ -46,6 +46,13 @@ if (Test-Path $evidenceLibPath) {
     Write-Warning "Evidence classifier not found: $evidenceLibPath"
 }
 
+$treeEvidenceLibPath = Join-Path $PSScriptRoot "..\utilities\TreeEvidenceClassifier.ps1"
+if (Test-Path $treeEvidenceLibPath) {
+    . $treeEvidenceLibPath
+} else {
+    Write-Warning "Tree evidence classifier not found: $treeEvidenceLibPath"
+}
+
 $snapshotLibPath = Join-Path $PSScriptRoot "..\..\..\scripts\lib\SnapshotManager.ps1"
 if (Test-Path $snapshotLibPath) {
     . $snapshotLibPath
@@ -67,7 +74,7 @@ $endDateStr = $EndDate.ToString('yyyy-MM-dd')
 # Initialize results object
 $results = @{
     metadata = @{
-        schemaVersion = "1.2.0"
+        schemaVersion = "1.3.0"
         schema = $Schema
         projectId = $ProjectId
         startDate = $startDateStr
@@ -86,6 +93,7 @@ $results = @{
     studyWelds = @()
     userActivity = @()
     events = @()
+    treeChanges = @()
     studyHealth = @{
         summary = @{
             totalStudies = 0
@@ -407,12 +415,13 @@ function Execute-Query {
         # Wrap query with SQL*Plus settings
         $sqlScript = @'
 SET PAGESIZE 50000
-SET LINESIZE 500
+SET LINESIZE 32767
 SET FEEDBACK OFF
 SET HEADING ON
 SET VERIFY OFF
 SET COLSEP '|'
 SET TRIMSPOOL ON
+SET WRAP OFF
 
 ##QUERY##
 
@@ -612,15 +621,28 @@ SELECT
     CASE WHEN p.WORKING_VERSION_ID > 0 THEN 'Active' ELSE 'Idle' END as status,
     NVL(p.WORKING_VERSION_ID, 0) as checkout_working_version_id
 FROM ##SCHEMA##.ROBCADSTUDY_ rs
+INNER JOIN ##SCHEMA##.REL_COMMON r ON rs.OBJECT_ID = r.OBJECT_ID
 LEFT JOIN ##SCHEMA##.CLASS_DEFINITIONS cd ON rs.CLASS_ID = cd.TYPE_ID
 LEFT JOIN ##SCHEMA##.PROXY p ON rs.OBJECT_ID = p.OBJECT_ID
 LEFT JOIN ##SCHEMA##.USER_ u ON p.OWNER_ID = u.OBJECT_ID
-WHERE (rs.MODIFICATIONDATE_DA_ > TO_DATE('##STARTDATE##', 'YYYY-MM-DD')
-  OR p.WORKING_VERSION_ID > 0)
+WHERE EXISTS (
+    SELECT 1 FROM ##SCHEMA##.REL_COMMON r2
+    INNER JOIN ##SCHEMA##.COLLECTION_ c2 ON r2.OBJECT_ID = c2.OBJECT_ID
+    WHERE c2.OBJECT_ID = r.FORWARD_OBJECT_ID
+      AND c2.OBJECT_ID IN (
+        SELECT c3.OBJECT_ID
+        FROM ##SCHEMA##.REL_COMMON r3
+        INNER JOIN ##SCHEMA##.COLLECTION_ c3 ON r3.OBJECT_ID = c3.OBJECT_ID
+        START WITH r3.FORWARD_OBJECT_ID = ##PROJECTID##
+        CONNECT BY NOCYCLE PRIOR r3.OBJECT_ID = r3.FORWARD_OBJECT_ID
+      )
+  )
+  AND (rs.MODIFICATIONDATE_DA_ > TO_DATE('##STARTDATE##', 'YYYY-MM-DD')
+    OR p.WORKING_VERSION_ID > 0)
   AND ROWNUM <= 50
 ORDER BY rs.MODIFICATIONDATE_DA_ DESC;
 '@
-$query5a = $query5a.Replace('##SCHEMA##', $Schema).Replace('##STARTDATE##', $startDateStr)
+$query5a = $query5a.Replace('##SCHEMA##', $Schema).Replace('##PROJECTID##', $ProjectId).Replace('##STARTDATE##', $startDateStr)
 $results.studySummary = Execute-Query -QueryName "StudySummary" -Query $query5a
 
 # QUERY 5B: Study Resources
@@ -644,15 +666,30 @@ SELECT
         ELSE 'Other'
     END as allocation_type
 FROM ##SCHEMA##.ROBCADSTUDY_ rs
+INNER JOIN ##SCHEMA##.REL_COMMON r_study ON rs.OBJECT_ID = r_study.OBJECT_ID
 INNER JOIN ##SCHEMA##.REL_COMMON r ON rs.OBJECT_ID = r.FORWARD_OBJECT_ID
 INNER JOIN ##SCHEMA##.SHORTCUT_ s ON r.OBJECT_ID = s.OBJECT_ID
-LEFT JOIN ##SCHEMA##.RESOURCE_ res ON s.NAME_S_ = res.NAME_S_
+LEFT JOIN ##SCHEMA##.RESOURCE_ res
+    ON (s.LINKEXTERNALID_S_ IS NOT NULL AND s.LINKEXTERNALID_S_ = res.EXTERNALID_S_)
+    OR (s.LINKEXTERNALID_S_ IS NULL AND s.NAME_S_ = res.NAME_S_)
 LEFT JOIN ##SCHEMA##.CLASS_DEFINITIONS cd ON res.CLASS_ID = cd.TYPE_ID
-WHERE rs.MODIFICATIONDATE_DA_ > TO_DATE('##STARTDATE##', 'YYYY-MM-DD')
+WHERE EXISTS (
+    SELECT 1 FROM ##SCHEMA##.REL_COMMON r2
+    INNER JOIN ##SCHEMA##.COLLECTION_ c2 ON r2.OBJECT_ID = c2.OBJECT_ID
+    WHERE c2.OBJECT_ID = r_study.FORWARD_OBJECT_ID
+      AND c2.OBJECT_ID IN (
+        SELECT c3.OBJECT_ID
+        FROM ##SCHEMA##.REL_COMMON r3
+        INNER JOIN ##SCHEMA##.COLLECTION_ c3 ON r3.OBJECT_ID = c3.OBJECT_ID
+        START WITH r3.FORWARD_OBJECT_ID = ##PROJECTID##
+        CONNECT BY NOCYCLE PRIOR r3.OBJECT_ID = r3.FORWARD_OBJECT_ID
+      )
+  )
+  AND rs.MODIFICATIONDATE_DA_ > TO_DATE('##STARTDATE##', 'YYYY-MM-DD')
   AND ROWNUM <= 200
 ORDER BY rs.NAME_S_, r.SEQ_NUMBER;
 '@
-$query5b = $query5b.Replace('##SCHEMA##', $Schema).Replace('##STARTDATE##', $startDateStr)
+$query5b = $query5b.Replace('##SCHEMA##', $Schema).Replace('##PROJECTID##', $ProjectId).Replace('##STARTDATE##', $startDateStr)
 $results.studyResources = Execute-Query -QueryName "StudyResources" -Query $query5b
 
 # QUERY 5C: Study Panels
@@ -673,14 +710,27 @@ SELECT
     END as panel_code,
     SUBSTR(s.NAME_S_, 1, INSTR(s.NAME_S_, '_') - 1) as station
 FROM ##SCHEMA##.ROBCADSTUDY_ rs
+INNER JOIN ##SCHEMA##.REL_COMMON r_study ON rs.OBJECT_ID = r_study.OBJECT_ID
 INNER JOIN ##SCHEMA##.REL_COMMON r ON rs.OBJECT_ID = r.FORWARD_OBJECT_ID
 INNER JOIN ##SCHEMA##.SHORTCUT_ s ON r.OBJECT_ID = s.OBJECT_ID
-WHERE s.NAME_S_ LIKE '%\_%' ESCAPE '\'
+WHERE EXISTS (
+    SELECT 1 FROM ##SCHEMA##.REL_COMMON r2
+    INNER JOIN ##SCHEMA##.COLLECTION_ c2 ON r2.OBJECT_ID = c2.OBJECT_ID
+    WHERE c2.OBJECT_ID = r_study.FORWARD_OBJECT_ID
+      AND c2.OBJECT_ID IN (
+        SELECT c3.OBJECT_ID
+        FROM ##SCHEMA##.REL_COMMON r3
+        INNER JOIN ##SCHEMA##.COLLECTION_ c3 ON r3.OBJECT_ID = c3.OBJECT_ID
+        START WITH r3.FORWARD_OBJECT_ID = ##PROJECTID##
+        CONNECT BY NOCYCLE PRIOR r3.OBJECT_ID = r3.FORWARD_OBJECT_ID
+      )
+  )
+  AND s.NAME_S_ LIKE '%\_%' ESCAPE '\'
   AND rs.MODIFICATIONDATE_DA_ > TO_DATE('##STARTDATE##', 'YYYY-MM-DD')
   AND ROWNUM <= 200
 ORDER BY rs.NAME_S_, s.NAME_S_;
 '@
-$query5c = $query5c.Replace('##SCHEMA##', $Schema).Replace('##STARTDATE##', $startDateStr)
+$query5c = $query5c.Replace('##SCHEMA##', $Schema).Replace('##PROJECTID##', $ProjectId).Replace('##STARTDATE##', $startDateStr)
 $results.studyPanels = Execute-Query -QueryName "StudyPanels" -Query $query5c
 
 # QUERY 5D: Study Operations
@@ -729,30 +779,45 @@ SELECT
     sl.STUDYINFO_SR_ as studyinfo_id,
     TO_CHAR(sl.MODIFICATIONDATE_DA_, 'YYYY-MM-DD HH24:MI:SS') as last_modified,
     NVL(sl.LASTMODIFIEDBY_S_, '') as modified_by,
-    sl.LOCATION_V_ as location_vector_id,
-    sl.ROTATION_V_ as rotation_vector_id,
+    sl.OBJECT_ID as location_vector_id,
+    sl.OBJECT_ID as rotation_vector_id,
     (SELECT MAX(CASE WHEN vl.SEQ_NUMBER = 0 THEN TO_NUMBER(vl.DATA) END)
         FROM ##SCHEMA##.VEC_LOCATION_ vl
-        WHERE vl.OBJECT_ID = sl.LOCATION_V_) as x_coord,
+        WHERE vl.OBJECT_ID = sl.OBJECT_ID) as x_coord,
     (SELECT MAX(CASE WHEN vl.SEQ_NUMBER = 1 THEN TO_NUMBER(vl.DATA) END)
         FROM ##SCHEMA##.VEC_LOCATION_ vl
-        WHERE vl.OBJECT_ID = sl.LOCATION_V_) as y_coord,
+        WHERE vl.OBJECT_ID = sl.OBJECT_ID) as y_coord,
     (SELECT MAX(CASE WHEN vl.SEQ_NUMBER = 2 THEN TO_NUMBER(vl.DATA) END)
         FROM ##SCHEMA##.VEC_LOCATION_ vl
-        WHERE vl.OBJECT_ID = sl.LOCATION_V_) as z_coord,
+        WHERE vl.OBJECT_ID = sl.OBJECT_ID) as z_coord,
     NVL(p.OWNER_ID, 0) as checked_out_by_user_id,
     NVL(u.CAPTION_S_, '') as checked_out_by_user_name,
     CASE WHEN p.WORKING_VERSION_ID > 0 THEN 'Checked Out' ELSE 'Available' END as status,
     NVL(p.WORKING_VERSION_ID, 0) as checkout_working_version_id
-FROM ##SCHEMA##.STUDYLAYOUT_ sl
+FROM ##SCHEMA##.ROBCADSTUDY_ rs
+INNER JOIN ##SCHEMA##.REL_COMMON r_info ON r_info.FORWARD_OBJECT_ID = rs.OBJECT_ID AND r_info.CLASS_ID = 71
+INNER JOIN ##SCHEMA##.STUDYLAYOUT_ sl ON sl.STUDYINFO_SR_ = r_info.OBJECT_ID
+INNER JOIN ##SCHEMA##.REL_COMMON r ON rs.OBJECT_ID = r.OBJECT_ID
 LEFT JOIN ##SCHEMA##.PROXY p ON sl.OBJECT_ID = p.OBJECT_ID
 LEFT JOIN ##SCHEMA##.USER_ u ON p.OWNER_ID = u.OBJECT_ID
-WHERE (sl.MODIFICATIONDATE_DA_ > TO_DATE('##STARTDATE##', 'YYYY-MM-DD')
-  OR p.WORKING_VERSION_ID > 0)
+WHERE EXISTS (
+    SELECT 1 FROM ##SCHEMA##.REL_COMMON r2
+    INNER JOIN ##SCHEMA##.COLLECTION_ c2 ON r2.OBJECT_ID = c2.OBJECT_ID
+    WHERE c2.OBJECT_ID = r.FORWARD_OBJECT_ID
+      AND c2.OBJECT_ID IN (
+        SELECT c3.OBJECT_ID
+        FROM ##SCHEMA##.REL_COMMON r3
+        INNER JOIN ##SCHEMA##.COLLECTION_ c3 ON r3.OBJECT_ID = c3.OBJECT_ID
+        START WITH r3.FORWARD_OBJECT_ID = ##PROJECTID##
+        CONNECT BY NOCYCLE PRIOR r3.OBJECT_ID = r3.FORWARD_OBJECT_ID
+      )
+  )
+  AND (sl.MODIFICATIONDATE_DA_ > TO_DATE('##STARTDATE##', 'YYYY-MM-DD')
+    OR p.WORKING_VERSION_ID > 0)
   AND ROWNUM <= 100
 ORDER BY sl.MODIFICATIONDATE_DA_ DESC;
 '@
-$query5e = $query5e.Replace('##SCHEMA##', $Schema).Replace('##STARTDATE##', $startDateStr)
+$query5e = $query5e.Replace('##SCHEMA##', $Schema).Replace('##PROJECTID##', $ProjectId).Replace('##STARTDATE##', $startDateStr)
 $results.studyMovements = Execute-Query -QueryName "StudyMovements" -Query $query5e
 
 # QUERY 5F: Study Welds
@@ -812,11 +877,24 @@ SELECT
     NVL(rs.LASTMODIFIEDBY_S_, '') as modified_by,
     rs.CLASS_ID as class_id
 FROM ##SCHEMA##.ROBCADSTUDY_ rs
+INNER JOIN ##SCHEMA##.REL_COMMON r ON rs.OBJECT_ID = r.OBJECT_ID
 LEFT JOIN ##SCHEMA##.CLASS_DEFINITIONS cd ON rs.CLASS_ID = cd.TYPE_ID
-WHERE rs.NAME_S_ IS NOT NULL
+WHERE EXISTS (
+    SELECT 1 FROM ##SCHEMA##.REL_COMMON r2
+    INNER JOIN ##SCHEMA##.COLLECTION_ c2 ON r2.OBJECT_ID = c2.OBJECT_ID
+    WHERE c2.OBJECT_ID = r.FORWARD_OBJECT_ID
+      AND c2.OBJECT_ID IN (
+        SELECT c3.OBJECT_ID
+        FROM ##SCHEMA##.REL_COMMON r3
+        INNER JOIN ##SCHEMA##.COLLECTION_ c3 ON r3.OBJECT_ID = c3.OBJECT_ID
+        START WITH r3.FORWARD_OBJECT_ID = ##PROJECTID##
+        CONNECT BY NOCYCLE PRIOR r3.OBJECT_ID = r3.FORWARD_OBJECT_ID
+      )
+  )
+  AND rs.NAME_S_ IS NOT NULL
 ORDER BY rs.NAME_S_;
 '@
-$query7 = $query7.Replace('##SCHEMA##', $Schema)
+$query7 = $query7.Replace('##SCHEMA##', $Schema).Replace('##PROJECTID##', $ProjectId)
 $allStudies = Execute-Query -QueryName "StudyHealthData" -Query $query7
 
 # Perform health checks on studies
@@ -1127,6 +1205,339 @@ $results.bottleneckQueue = $results.staleCheckouts |
 Write-Host "    ✓ Found $($results.resourceConflicts.Count) resource conflicts" -ForegroundColor Green
 Write-Host "    ✓ Found $($results.staleCheckouts.Count) stale checkouts (>72 hours)" -ForegroundColor Green
 Write-Host "    ✓ Identified $($results.bottleneckQueue.Count) users with stale checkouts" -ForegroundColor Green
+
+# ========================================
+# Tree Snapshot Collection
+# ========================================
+Write-Host "`n========================================" -ForegroundColor Cyan
+Write-Host "  Tree Snapshot Collection" -ForegroundColor Cyan
+Write-Host "========================================" -ForegroundColor Cyan
+
+$treeEvidence = @()
+$treeEvidenceEnabled = $false
+if (Get-Command -Name New-TreeEvidenceBlock -ErrorAction SilentlyContinue) {
+    $treeEvidenceEnabled = $true
+} else {
+    Write-Warning "Tree evidence classifier not available; tree changes will be raw."
+}
+
+$treeSnapshotDir = Join-Path (Get-Location).Path "data\\tree-snapshots"
+if (-not (Test-Path $treeSnapshotDir)) {
+    New-Item -ItemType Directory -Path $treeSnapshotDir -Force | Out-Null
+}
+
+$treeExportScript = Join-Path $PSScriptRoot "..\..\..\scripts\debug\export-study-tree-snapshot.ps1"
+$treeDiffScript = Join-Path $PSScriptRoot "..\..\..\scripts\debug\compare-study-tree-snapshots.ps1"
+
+if (-not (Test-Path $treeExportScript) -or -not (Test-Path $treeDiffScript)) {
+    Write-Warning "Tree snapshot scripts not found; skipping tree change collection."
+} else {
+    $treeCheckoutMap = @{}
+    $treeWriteMap = @{}
+    foreach ($study in $results.studySummary) {
+        $studyId = [string]$study.study_id
+        if ([int]$study.checkout_working_version_id -gt 0) {
+            $treeCheckoutMap[$studyId] = $true
+        }
+
+        $lastModifiedDate = Convert-StringToDateTime -Value $study.last_modified
+        if (Test-DateInRange -Value $lastModifiedDate -Start $StartDate -End $EndDate) {
+            $treeWriteMap[$studyId] = $true
+        }
+    }
+
+    foreach ($study in $results.studySummary) {
+        $studyId = [string]$study.study_id
+        $studyName = $study.study_name
+
+        Write-Host "  Processing: $studyName (ID: $studyId)" -ForegroundColor Gray
+
+        $baselineFile = Join-Path $treeSnapshotDir "study-$studyId-baseline.json"
+        $currentFile = Join-Path $treeSnapshotDir "study-$studyId-current.json"
+        $diffFile = Join-Path $treeSnapshotDir "study-$studyId-diff.json"
+
+        try {
+            & $treeExportScript `
+                -TNSName $TNSName `
+                -Schema $Schema `
+                -ProjectId $ProjectId `
+                -StudyId $studyId `
+                -OutputDir $treeSnapshotDir | Out-Null
+        } catch {
+            Write-Warning "    Snapshot export failed for study ${studyId}: $_"
+            continue
+        }
+
+        $latestSnapshot = Get-ChildItem -Path $treeSnapshotDir -Filter "study-tree-snapshot-$Schema-$studyId-*.json" |
+            Sort-Object -Property LastWriteTime -Descending |
+            Select-Object -First 1
+
+        if (-not $latestSnapshot) {
+            Write-Warning "    Snapshot export did not produce output for study ${studyId}"
+            continue
+        }
+
+        try {
+            Copy-Item -Path $latestSnapshot.FullName -Destination $currentFile -Force
+        } catch {
+            Write-Warning "    Failed to store current snapshot for study ${studyId}: $_"
+            continue
+        }
+
+        if (-not (Test-Path $baselineFile)) {
+            try {
+                Copy-Item -Path $currentFile -Destination $baselineFile -Force
+                Write-Host "    Created baseline snapshot" -ForegroundColor Yellow
+            } catch {
+                Write-Warning "    Failed to create baseline snapshot for study ${studyId}: $_"
+            }
+            continue
+        }
+
+        try {
+            & $treeDiffScript `
+                -BaselineSnapshot $baselineFile `
+                -CurrentSnapshot $currentFile `
+                -OutputFile $diffFile | Out-Null
+        } catch {
+            Write-Warning "    Snapshot diff failed for study ${studyId}: $_"
+            continue
+        }
+
+        if (-not (Test-Path $diffFile)) {
+            Write-Warning "    Diff output missing for study ${studyId}"
+            continue
+        }
+
+        $diff = $null
+        try {
+            $diff = Get-Content $diffFile -Raw | ConvertFrom-Json
+        } catch {
+            Write-Warning "    Failed to parse diff for study ${studyId}: $_"
+            continue
+        }
+
+        if (-not $diff -or -not $diff.changes) {
+            continue
+        }
+
+        $baselineSnapshot = $null
+        $currentSnapshot = $null
+        try {
+            $baselineSnapshot = Get-Content $baselineFile -Raw | ConvertFrom-Json
+            $currentSnapshot = Get-Content $currentFile -Raw | ConvertFrom-Json
+        } catch {
+            # Snapshot parsing is optional for provenance lookups
+        }
+
+        $baselineNodeMap = @{}
+        if ($baselineSnapshot -and $baselineSnapshot.nodes) {
+            foreach ($node in $baselineSnapshot.nodes) {
+                $baselineNodeMap[$node.node_id] = $node
+            }
+        }
+
+        $currentNodeMap = @{}
+        if ($currentSnapshot -and $currentSnapshot.nodes) {
+            foreach ($node in $currentSnapshot.nodes) {
+                $currentNodeMap[$node.node_id] = $node
+            }
+        }
+
+        $snapshotFiles = @{
+            baseline = [System.IO.Path]::GetFileName($baselineFile)
+            current = [System.IO.Path]::GetFileName($currentFile)
+            diff = [System.IO.Path]::GetFileName($diffFile)
+        }
+
+        $detectedAt = if ($diff.meta -and $diff.meta.comparedAt) { $diff.meta.comparedAt } else { (Get-Date).ToString('yyyy-MM-dd HH:mm:ss') }
+
+        foreach ($rename in $diff.changes.renamed) {
+            $treeChange = @{
+                evidence_type = "rename"
+                study_id = $studyId
+                study_name = $studyName
+                node_id = $rename.node_id
+                node_type = $rename.node_type
+                old_name = $rename.old_name
+                new_name = $rename.new_name
+                old_provenance = $rename.old_provenance
+                new_provenance = $rename.new_provenance
+                detected_at = $detectedAt
+                snapshot_files = $snapshotFiles
+            }
+
+            if ($treeEvidenceEnabled) {
+                $block = New-TreeEvidenceBlock -TreeChange $treeChange -CheckoutData $treeCheckoutMap -WriteData $treeWriteMap
+                if ($block) {
+                    $treeEvidence += [PSCustomObject]$block
+                }
+            } else {
+                $treeEvidence += [PSCustomObject]$treeChange
+            }
+        }
+
+        foreach ($move in $diff.changes.moved) {
+            $coordProvenance = $null
+            if ($currentNodeMap.ContainsKey($move.node_id) -and $currentNodeMap[$move.node_id].coord_provenance) {
+                $coordProvenance = $currentNodeMap[$move.node_id].coord_provenance
+            }
+
+            $treeChange = @{
+                evidence_type = "movement"
+                study_id = $studyId
+                study_name = $studyName
+                node_id = $move.node_id
+                node_name = $move.display_name
+                node_type = $move.node_type
+                old_x = $move.old_x
+                old_y = $move.old_y
+                old_z = $move.old_z
+                new_x = $move.new_x
+                new_y = $move.new_y
+                new_z = $move.new_z
+                delta_x = $move.delta_x
+                delta_y = $move.delta_y
+                delta_z = $move.delta_z
+                delta_mm = $move.delta_mm
+                movement_type = $move.movement_type
+                mapping_type = $move.mapping_type
+                coord_provenance = $coordProvenance
+                detected_at = $detectedAt
+                snapshot_files = $snapshotFiles
+            }
+
+            if ($treeEvidenceEnabled) {
+                $block = New-TreeEvidenceBlock -TreeChange $treeChange -CheckoutData $treeCheckoutMap -WriteData $treeWriteMap
+                if ($block) {
+                    $treeEvidence += [PSCustomObject]$block
+                }
+            } else {
+                $treeEvidence += [PSCustomObject]$treeChange
+            }
+        }
+
+        foreach ($structChange in $diff.changes.structuralChanges) {
+            $nameProvenance = $null
+            if ($currentNodeMap.ContainsKey($structChange.node_id) -and $currentNodeMap[$structChange.node_id].name_provenance) {
+                $nameProvenance = $currentNodeMap[$structChange.node_id].name_provenance
+            }
+
+            $treeChange = @{
+                evidence_type = "structure"
+                change_type = $structChange.change_type
+                study_id = $studyId
+                study_name = $studyName
+                node_id = $structChange.node_id
+                node_name = $structChange.display_name
+                node_type = $structChange.node_type
+                old_parent_id = $structChange.old_parent_id
+                new_parent_id = $structChange.new_parent_id
+                name_provenance = $nameProvenance
+                detected_at = $detectedAt
+                snapshot_files = $snapshotFiles
+            }
+
+            if ($treeEvidenceEnabled) {
+                $block = New-TreeEvidenceBlock -TreeChange $treeChange -CheckoutData $treeCheckoutMap -WriteData $treeWriteMap
+                if ($block) {
+                    $treeEvidence += [PSCustomObject]$block
+                }
+            } else {
+                $treeEvidence += [PSCustomObject]$treeChange
+            }
+        }
+
+        foreach ($mappingChange in $diff.changes.resourceMappingChanges) {
+            $treeChange = @{
+                evidence_type = "resource_mapping"
+                study_id = $studyId
+                study_name = $studyName
+                node_id = $mappingChange.node_id
+                node_name = $mappingChange.shortcut_name
+                node_type = "Shortcut"
+                old_resource_id = $mappingChange.old_resource_id
+                old_resource_name = $mappingChange.old_resource_name
+                new_resource_id = $mappingChange.new_resource_id
+                new_resource_name = $mappingChange.new_resource_name
+                detected_at = $detectedAt
+                snapshot_files = $snapshotFiles
+            }
+
+            if ($treeEvidenceEnabled) {
+                $block = New-TreeEvidenceBlock -TreeChange $treeChange -CheckoutData $treeCheckoutMap -WriteData $treeWriteMap
+                if ($block) {
+                    $treeEvidence += [PSCustomObject]$block
+                }
+            } else {
+                $treeEvidence += [PSCustomObject]$treeChange
+            }
+        }
+
+        foreach ($added in $diff.changes.nodesAdded) {
+            $nameProvenance = $null
+            if ($currentNodeMap.ContainsKey($added.node_id) -and $currentNodeMap[$added.node_id].name_provenance) {
+                $nameProvenance = $currentNodeMap[$added.node_id].name_provenance
+            }
+
+            $treeChange = @{
+                evidence_type = "node_added"
+                study_id = $studyId
+                study_name = $studyName
+                node_id = $added.node_id
+                node_name = $added.display_name
+                node_type = $added.node_type
+                parent_node_id = $added.parent_node_id
+                resource_name = $added.resource_name
+                name_provenance = $nameProvenance
+                detected_at = $detectedAt
+                snapshot_files = $snapshotFiles
+            }
+
+            if ($treeEvidenceEnabled) {
+                $block = New-TreeEvidenceBlock -TreeChange $treeChange -CheckoutData $treeCheckoutMap -WriteData $treeWriteMap
+                if ($block) {
+                    $treeEvidence += [PSCustomObject]$block
+                }
+            } else {
+                $treeEvidence += [PSCustomObject]$treeChange
+            }
+        }
+
+        foreach ($removed in $diff.changes.nodesRemoved) {
+            $nameProvenance = $null
+            if ($baselineNodeMap.ContainsKey($removed.node_id) -and $baselineNodeMap[$removed.node_id].name_provenance) {
+                $nameProvenance = $baselineNodeMap[$removed.node_id].name_provenance
+            }
+
+            $treeChange = @{
+                evidence_type = "node_removed"
+                study_id = $studyId
+                study_name = $studyName
+                node_id = $removed.node_id
+                node_name = $removed.display_name
+                node_type = $removed.node_type
+                parent_node_id = $removed.parent_node_id
+                resource_name = $removed.resource_name
+                name_provenance = $nameProvenance
+                detected_at = $detectedAt
+                snapshot_files = $snapshotFiles
+            }
+
+            if ($treeEvidenceEnabled) {
+                $block = New-TreeEvidenceBlock -TreeChange $treeChange -CheckoutData $treeCheckoutMap -WriteData $treeWriteMap
+                if ($block) {
+                    $treeEvidence += [PSCustomObject]$block
+                }
+            } else {
+                $treeEvidence += [PSCustomObject]$treeChange
+            }
+        }
+    }
+}
+
+$results.treeChanges = $treeEvidence
+Write-Host "  Tree evidence collected: $($results.treeChanges.Count) changes" -ForegroundColor Green
 
 # ========================================
 # Evidence & Snapshot Processing
@@ -1708,8 +2119,12 @@ foreach ($item in $results.studyMovements) {
     $snapshotEvidence = New-SnapshotEvidence -SnapshotComparison $snapshotComparison
 
     $deltaSummary = $null
-    if ($snapshotComparison -and $snapshotComparison.previousRecord -and $snapshotComparison.hasDelta) {
-        $deltaSummary = New-CoordinateDeltaSummary -NewRecord $snapshotRecord -PreviousRecord $snapshotComparison.previousRecord
+    $previousRecordTable = $null
+    if ($snapshotComparison -and $snapshotComparison.previousRecord) {
+        $previousRecordTable = Convert-PSObjectToHashtable -InputObject $snapshotComparison.previousRecord
+    }
+    if ($snapshotComparison -and $previousRecordTable -and $snapshotComparison.hasDelta) {
+        $deltaSummary = New-CoordinateDeltaSummary -NewRecord $snapshotRecord -PreviousRecord $previousRecordTable
     }
 
     $evidence = @{}

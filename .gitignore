@@ -13,6 +13,7 @@ out/
 tree-data-*.txt
 navigation-tree-*.html
 missing-icons-*.txt
+management-dashboard-*.html
 
 # Performance caches
 icon-cache-*.json

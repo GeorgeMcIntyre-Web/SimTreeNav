@@ -202,10 +202,19 @@ SET HEADING ON
 SELECT
     sl.OBJECT_ID as studylayout_id,
     sl.STUDYINFO_SR_ as studyinfo_ref,
-    sl.LOCATION_V_ as location_vector_id,
-    sl.ROTATION_V_ as rotation_vector_id,
+    sl.OBJECT_ID as location_vector_id,
+    sl.OBJECT_ID as rotation_vector_id,
     TO_CHAR(sl.MODIFICATIONDATE_DA_, 'YYYY-MM-DD HH24:MI:SS') as modified_date,
-    sl.LASTMODIFIEDBY_S_ as modified_by
+    sl.LASTMODIFIEDBY_S_ as modified_by,
+    (SELECT MAX(CASE WHEN vl.SEQ_NUMBER = 0 THEN TO_NUMBER(vl.DATA) END)
+        FROM $Schema.VEC_LOCATION_ vl
+        WHERE vl.OBJECT_ID = sl.OBJECT_ID) as x_coord,
+    (SELECT MAX(CASE WHEN vl.SEQ_NUMBER = 1 THEN TO_NUMBER(vl.DATA) END)
+        FROM $Schema.VEC_LOCATION_ vl
+        WHERE vl.OBJECT_ID = sl.OBJECT_ID) as y_coord,
+    (SELECT MAX(CASE WHEN vl.SEQ_NUMBER = 2 THEN TO_NUMBER(vl.DATA) END)
+        FROM $Schema.VEC_LOCATION_ vl
+        WHERE vl.OBJECT_ID = sl.OBJECT_ID) as z_coord
 FROM $Schema.ROBCADSTUDY_ rs
 LEFT JOIN $Schema.ROBCADSTUDYINFO_ rsi ON rs.OBJECT_ID = rsi.STUDY_SR_
 LEFT JOIN $Schema.STUDYLAYOUT_ sl ON rsi.OBJECT_ID = sl.STUDYINFO_SR_
