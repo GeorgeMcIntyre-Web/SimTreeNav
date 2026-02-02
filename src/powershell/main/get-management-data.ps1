@@ -2342,6 +2342,47 @@ if ($snapshotAvailable -and $newSnapshotRecords.Count -gt 0) {
     }
 }
 
+# Normalize property names to lowercase for JavaScript compatibility
+Write-Host "`n========================================" -ForegroundColor Cyan
+Write-Host "  Normalizing Data" -ForegroundColor Cyan
+Write-Host "========================================" -ForegroundColor Cyan
+
+function ConvertTo-LowercaseProperties {
+    param($InputObject)
+
+    if ($null -eq $InputObject) {
+        return $null
+    }
+
+    if ($InputObject -is [System.Array]) {
+        return @($InputObject | ForEach-Object { ConvertTo-LowercaseProperties $_ })
+    }
+
+    if ($InputObject -is [System.Collections.IDictionary]) {
+        $newObj = @{}
+        foreach ($key in $InputObject.Keys) {
+            $lowercaseKey = $key.ToString().ToLower()
+            $newObj[$lowercaseKey] = ConvertTo-LowercaseProperties $InputObject[$key]
+        }
+        return $newObj
+    }
+
+    if ($InputObject -is [PSCustomObject]) {
+        $newObj = @{}
+        $InputObject.PSObject.Properties | ForEach-Object {
+            $lowercaseKey = $_.Name.ToLower()
+            $newObj[$lowercaseKey] = ConvertTo-LowercaseProperties $_.Value
+        }
+        return [PSCustomObject]$newObj
+    }
+
+    return $InputObject
+}
+
+Write-Host "  Converting property names to lowercase..." -ForegroundColor Yellow
+$results = ConvertTo-LowercaseProperties $results
+Write-Host "  Normalization complete" -ForegroundColor Green
+
 # Save results to JSON
 Write-Host "`n========================================" -ForegroundColor Cyan
 Write-Host "  Saving Results" -ForegroundColor Cyan
