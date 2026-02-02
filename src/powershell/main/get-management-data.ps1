@@ -470,7 +470,7 @@ EXIT;
             # Cleanup
             Remove-Item $tempSqlFile -ErrorAction SilentlyContinue
 
-            Write-Host "    ??? Retrieved $($objects.Count) rows" -ForegroundColor Green
+            Write-Host "    Retrieved $($objects.Count) rows" -ForegroundColor Green
             return $objects
         } else {
             Write-Warning "    Failed to get connection string"
@@ -1099,7 +1099,7 @@ $results.studyHealth.issues = $issues
 $results.studyHealth.suspicious = $suspicious
 $results.studyHealth.renameSuggestions = $renameSuggestions
 
-Write-Host "    ✓ Analyzed $($allStudies.Count) studies, found $($issues.Count) issues" -ForegroundColor Green
+Write-Host "Analyzed $($allStudies.Count) studies, found $($issues.Count) issues" -ForegroundColor Green
 Write-Host "      Critical: $($results.studyHealth.summary.criticalIssues), High: $($results.studyHealth.summary.highIssues), Medium: $($results.studyHealth.summary.mediumIssues), Low: $($results.studyHealth.summary.lowIssues)" -ForegroundColor Gray
 # QUERY 7: Resource Conflicts
 Write-Host "`n[13/14] Resource Conflict Detection" -ForegroundColor Cyan
@@ -1202,9 +1202,9 @@ $results.bottleneckQueue = $results.staleCheckouts |
     } |
     Sort-Object -Property total_hours -Descending
 
-Write-Host "    ✓ Found $($results.resourceConflicts.Count) resource conflicts" -ForegroundColor Green
-Write-Host "    ✓ Found $($results.staleCheckouts.Count) stale checkouts (>72 hours)" -ForegroundColor Green
-Write-Host "    ✓ Identified $($results.bottleneckQueue.Count) users with stale checkouts" -ForegroundColor Green
+Write-Host "Found $($results.resourceConflicts.Count) resource conflicts" -ForegroundColor Green
+Write-Host "Found $($results.staleCheckouts.Count) stale checkouts (>72 hours)" -ForegroundColor Green
+Write-Host "Identified $($results.bottleneckQueue.Count) users with stale checkouts" -ForegroundColor Green
 
 # ========================================
 # Tree Snapshot Collection
@@ -2336,7 +2336,7 @@ foreach ($item in $results.studyWelds) {
 if ($snapshotAvailable -and $newSnapshotRecords.Count -gt 0) {
     try {
         Save-Snapshot -SnapshotRecords $newSnapshotRecords -OutputPath $snapshotPath -Schema $Schema -ProjectId $ProjectId | Out-Null
-        Write-Host "    ✓ Snapshot saved: $snapshotPath" -ForegroundColor Green
+        Write-Host "Snapshot saved: $snapshotPath" -ForegroundColor Green
     } catch {
         Write-Warning "    Failed to save snapshot: $_"
     }
@@ -2379,7 +2379,7 @@ try {
     Write-Warning "    Output file could not be replaced; keeping temp file instead."
 }
 
-Write-Host "  ??? Results saved to: $finalOutput" -ForegroundColor Green
+Write-Host "  Results saved to: $finalOutput" -ForegroundColor Green
 
 $scriptTimer.Stop()
 Write-Host "`n  Total time: $([math]::Round($scriptTimer.Elapsed.TotalSeconds, 2))s" -ForegroundColor Cyan
