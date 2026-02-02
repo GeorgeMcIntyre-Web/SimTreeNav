@@ -46,14 +46,48 @@ Write-Host "  Baseline: $($baseline.meta.nodeCount) nodes (captured $($baseline.
 Write-Host "  Current:  $($current.meta.nodeCount) nodes (captured $($current.meta.capturedAt))" -ForegroundColor Gray
 
 # Build node lookup maps by node_id
+# When duplicates exist (versioned tables), keep the most-populated entry
+function Get-NodePopulationScore {
+    param($node)
+    $score = 0
+    if ($node.display_name -and $node.display_name -ne 'Shortcut') { $score += 2 }
+    if ($node.resource_name) { $score += 2 }
+    if ($null -ne $node.x) { $score += 2 }
+    if ($node.name_provenance) { $score++ }
+    if ($node.mapping_type -and $node.mapping_type -ne 'none') { $score++ }
+    return $score
+}
+
 $baselineMap = @{}
+$baselineDupes = 0
 foreach ($node in $baseline.nodes) {
-    $baselineMap[$node.node_id] = $node
+    $id = "$($node.node_id)"
+    if (-not $baselineMap.ContainsKey($id)) {
+        $baselineMap[$id] = $node
+    } else {
+        $baselineDupes++
+        if ((Get-NodePopulationScore $node) -gt (Get-NodePopulationScore $baselineMap[$id])) {
+            $baselineMap[$id] = $node
+        }
+    }
 }
 
 $currentMap = @{}
+$currentDupes = 0
 foreach ($node in $current.nodes) {
-    $currentMap[$node.node_id] = $node
+    $id = "$($node.node_id)"
+    if (-not $currentMap.ContainsKey($id)) {
+        $currentMap[$id] = $node
+    } else {
+        $currentDupes++
+        if ((Get-NodePopulationScore $node) -gt (Get-NodePopulationScore $currentMap[$id])) {
+            $currentMap[$id] = $node
+        }
+    }
+}
+
+if ($baselineDupes -gt 0 -or $currentDupes -gt 0) {
+    Write-Host "  Note: Deduplicated $baselineDupes baseline / $currentDupes current duplicate entries" -ForegroundColor DarkYellow
 }
 
 # Initialize change tracking
@@ -130,8 +164,8 @@ foreach ($nodeId in $currentMap.Keys) {
     }
 }
 
-$simpleMove = $changes.moved | Where-Object { $_.movement_type -eq "SIMPLE" }
-$worldMove = $changes.moved | Where-Object { $_.movement_type -eq "WORLD" }
+$simpleMove = @($changes.moved | Where-Object { $_.movement_type -eq "SIMPLE" })
+$worldMove = @($changes.moved | Where-Object { $_.movement_type -eq "WORLD" })
 
 Write-Host "  Found $($changes.moved.Count) moved nodes" -ForegroundColor $(if ($changes.moved.Count -gt 0) { 'Green' } else { 'Gray' })
 if ($simpleMove.Count -gt 0) {

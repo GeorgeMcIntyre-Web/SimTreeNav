@@ -83,27 +83,25 @@ For each node, display_name is resolved using this precedence:
 
 All sources are documented in `name_provenance` field.
 
-### Coordinate Lookup (Deterministic + Heuristic)
+### Coordinate Lookup (Fully Deterministic)
 
-**Deterministic Path:**
-1. StudyInfo → StudyLayout (via STUDYINFO_SR_)
-2. StudyLayout.OBJECT_ID → VEC_LOCATION_ (SEQ_NUMBER 0/1/2 = X/Y/Z)
+**Deterministic Path (v1.1.0 — SEQ_NUMBER mapping):**
+1. Study REL_COMMON: `children[seq=N]` → Shortcut OBJECT_ID
+2. Study REL_COMMON: `info[seq=N]` → StudyInfo OBJECT_ID (matched by SEQ_NUMBER)
+3. StudyInfo → StudyLayout (via STUDYINFO_SR_)
+4. StudyLayout.OBJECT_ID → VEC_LOCATION_ (SEQ_NUMBER 0/1/2 = X/Y/Z)
 
-**Heuristic Path:**
-- Timestamp matching: StudyInfo.MODIFICATIONDATE_DA_ = Shortcut.MODIFICATIONDATE_DA_
-- Labeled as `mapping_type: "heuristic"`
-- Ambiguous when multiple robots created at same timestamp
+This replaces the previous timestamp-based heuristic. The `children` and `info` fields in
+REL_COMMON share a SEQ_NUMBER that provides a 1:1 deterministic mapping between shortcuts
+and their study info/layout entries.
 
 **Provenance Tracking:**
 - All coordinate sources documented in `coord_provenance` field
-- Example: `"STUDYLAYOUT_.OBJECT_ID -> VEC_LOCATION_ (heuristic timestamp match)"`
+- Example: `"REL_COMMON[seq] -> STUDYINFO -> STUDYLAYOUT -> VEC_LOCATION_ (deterministic)"`
 
 ### Mapping Classification
 
-- **deterministic:** Direct foreign key relationship (shortcut → resource via LINKEXTERNALID_S_)
-- **deterministic+heuristic_coords:** Resource link is deterministic, coordinates are heuristic
-- **heuristic:** Timestamp-based matching (StudyInfo ↔ Shortcut)
-- **heuristic_ambiguous:** Multiple candidates at same timestamp (flagged for review)
+- **deterministic:** Direct relationship confirmed (resource via LINKEXTERNALID_S_, coordinates via SEQ_NUMBER)
 - **none:** No mapping available
 
 ---
@@ -113,17 +111,17 @@ All sources are documented in `name_provenance` field.
 ```json
 {
   "meta": {
-    "schemaVersion": "1.0.0",
-    "capturedAt": "2026-01-30 14:30:00",
+    "schemaVersion": "1.1.0",
+    "capturedAt": "2026-02-02 07:37:38",
     "schema": "DESIGN12",
     "projectId": 18851221,
     "studyId": 18879453,
     "studyName": "RobcadStudy1_2",
-    "nodeCount": 42,
-    "nodesWithNames": 42,
+    "nodeCount": 70,
+    "nodesWithNames": 70,
     "nodesWithCoords": 5,
-    "deterministicMappings": 4,
-    "heuristicMappings": 1,
+    "deterministicMappings": 5,
+    "heuristicMappings": 0,
     "ambiguousMappings": 0
   },
   "treeCounts": {
@@ -322,23 +320,18 @@ pwsh scripts/debug/compare-study-tree-snapshots.ps1 `
 4. **Layout Coordinates (Direct):**
    - StudyLayout.OBJECT_ID → VEC_LOCATION_ direct lookup
 
-### ⚠️ Heuristic (Timestamp-Based Inference)
+### ✅ Layout-to-Shortcut Mapping (Deterministic via SEQ_NUMBER — v1.1.0)
 
-1. **Layout-to-Shortcut Mapping:**
-   - StudyInfo.MODIFICATIONDATE_DA_ = Shortcut.MODIFICATIONDATE_DA_
-   - Fails when multiple robots created at same timestamp
-   - Flagged as `heuristic` or `heuristic_ambiguous`
+**Resolved 2026-02-02:** The previous timestamp-based heuristic has been replaced with a
+deterministic approach using REL_COMMON SEQ_NUMBER correlation:
 
-2. **Why Heuristic is Needed:**
-   - No direct FK from StudyLayout → Shortcut in Oracle schema
-   - StudyInfo table links to layout but not to specific shortcut
-   - Best-effort matching based on timestamps
+- Study's REL_COMMON has paired entries: `children[seq=N]` and `info[seq=N]`
+- `children[seq=N].FORWARD_OBJECT_ID` = Shortcut OBJECT_ID
+- `info[seq=N].FORWARD_OBJECT_ID` = StudyInfo OBJECT_ID
+- StudyInfo → StudyLayout (STUDYINFO_SR_) → VEC_LOCATION_ (coordinates)
 
-3. **Mitigation:**
-   - Clear labeling in `mapping_type` field
-   - Provenance tracking in `coord_provenance`
-   - Ambiguity flagging when >1 candidate
-   - Workaround: Touch robots one-by-one to create unique timestamps
+This provides a 100% deterministic path from any shortcut to its coordinates,
+eliminating the previous ambiguity when multiple robots were created at the same timestamp.
 
 ---
 

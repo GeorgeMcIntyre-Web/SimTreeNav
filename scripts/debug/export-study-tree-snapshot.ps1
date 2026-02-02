@@ -218,7 +218,19 @@ foreach ($row in $treeRows) {
     }
 }
 
-Write-Host "  Found $($nodes.Count) nodes in tree" -ForegroundColor Green
+Write-Host "  Found $($nodes.Count) raw node entries" -ForegroundColor Gray
+
+# Deduplicate nodes by node_id (versioned tables return multiple rows per OBJECT_ID)
+$seen = @{}
+$uniqueNodes = @()
+foreach ($node in $nodes) {
+    if (-not $seen.ContainsKey($node.node_id)) {
+        $seen[$node.node_id] = $true
+        $uniqueNodes += $node
+    }
+}
+$nodes = $uniqueNodes
+Write-Host "  Unique nodes: $($nodes.Count)" -ForegroundColor Green
 
 Write-Host "`n[3/6] Resolving node names..." -ForegroundColor Yellow
 
@@ -239,7 +251,8 @@ SELECT
     NVL(s.NAME_S_, '') || '|' ||
     'SHORTCUT_.NAME_S_'
 FROM $Schema.SHORTCUT_ s
-WHERE s.OBJECT_ID IN ($shortcutNodeIds);
+WHERE s.OBJECT_ID IN ($shortcutNodeIds)
+  AND s.OBJECT_VERSION_ID = (SELECT MAX(s2.OBJECT_VERSION_ID) FROM $Schema.SHORTCUT_ s2 WHERE s2.OBJECT_ID = s.OBJECT_ID);
 
 EXIT;
 "@
@@ -260,7 +273,8 @@ SELECT
     NVL(c.CAPTION_S_, '') || '|' ||
     'COLLECTION_.CAPTION_S_'
 FROM $Schema.COLLECTION_ c
-WHERE c.OBJECT_ID IN ($collectionNodeIds);
+WHERE c.OBJECT_ID IN ($collectionNodeIds)
+  AND c.OBJECT_VERSION_ID = (SELECT MAX(c2.OBJECT_VERSION_ID) FROM $Schema.COLLECTION_ c2 WHERE c2.OBJECT_ID = c.OBJECT_ID);
 
 EXIT;
 "@
@@ -324,7 +338,9 @@ LEFT JOIN $Schema.RESOURCE_ res
     OR (s.LINKEXTERNALID_S_ IS NULL AND s.NAME_S_ = res.NAME_S_)
 LEFT JOIN $Schema.CLASS_DEFINITIONS cd ON res.CLASS_ID = cd.TYPE_ID
 WHERE s.OBJECT_ID IN ($shortcutNodeIds)
-  AND res.OBJECT_ID IS NOT NULL;
+  AND s.OBJECT_VERSION_ID = (SELECT MAX(s2.OBJECT_VERSION_ID) FROM $Schema.SHORTCUT_ s2 WHERE s2.OBJECT_ID = s.OBJECT_ID)
+  AND res.OBJECT_ID IS NOT NULL
+  AND res.OBJECT_VERSION_ID = (SELECT MAX(r2.OBJECT_VERSION_ID) FROM $Schema.RESOURCE_ r2 WHERE r2.OBJECT_ID = res.OBJECT_ID);
 
 EXIT;
 "@
@@ -371,22 +387,25 @@ SET FEEDBACK OFF
 SET HEADING OFF
 
 -- Deterministic mapping: StudyInfo -> StudyLayout -> VEC_LOCATION_
+-- Uses MAX(OBJECT_VERSION_ID) for version filtering across all versioned tables
 SELECT
     'LAYOUT|' || rsi.OBJECT_ID || '|' ||
     sl.OBJECT_ID || '|' ||
     TO_CHAR(sl.MODIFICATIONDATE_DA_, 'YYYY-MM-DD HH24:MI:SS') || '|' ||
-    NVL(TO_CHAR((SELECT MAX(CASE WHEN vl.SEQ_NUMBER = 0 THEN TO_NUMBER(vl.DATA) END)
-        FROM $Schema.VEC_LOCATION_ vl
-        WHERE vl.OBJECT_ID = sl.OBJECT_ID)), '') || '|' ||
-    NVL(TO_CHAR((SELECT MAX(CASE WHEN vl.SEQ_NUMBER = 1 THEN TO_NUMBER(vl.DATA) END)
-        FROM $Schema.VEC_LOCATION_ vl
-        WHERE vl.OBJECT_ID = sl.OBJECT_ID)), '') || '|' ||
-    NVL(TO_CHAR((SELECT MAX(CASE WHEN vl.SEQ_NUMBER = 2 THEN TO_NUMBER(vl.DATA) END)
-        FROM $Schema.VEC_LOCATION_ vl
-        WHERE vl.OBJECT_ID = sl.OBJECT_ID)), '')
+    NVL(TO_CHAR((SELECT vl.DATA FROM $Schema.VEC_LOCATION_ vl
+        WHERE vl.OBJECT_ID = sl.OBJECT_ID AND vl.SEQ_NUMBER = 0
+        AND vl.OBJECT_VERSION_ID = sl.OBJECT_VERSION_ID)), '') || '|' ||
+    NVL(TO_CHAR((SELECT vl.DATA FROM $Schema.VEC_LOCATION_ vl
+        WHERE vl.OBJECT_ID = sl.OBJECT_ID AND vl.SEQ_NUMBER = 1
+        AND vl.OBJECT_VERSION_ID = sl.OBJECT_VERSION_ID)), '') || '|' ||
+    NVL(TO_CHAR((SELECT vl.DATA FROM $Schema.VEC_LOCATION_ vl
+        WHERE vl.OBJECT_ID = sl.OBJECT_ID AND vl.SEQ_NUMBER = 2
+        AND vl.OBJECT_VERSION_ID = sl.OBJECT_VERSION_ID)), '')
 FROM $Schema.ROBCADSTUDYINFO_ rsi
 INNER JOIN $Schema.STUDYLAYOUT_ sl ON sl.STUDYINFO_SR_ = rsi.OBJECT_ID
-WHERE rsi.STUDY_SR_ = $StudyId;
+    AND sl.OBJECT_VERSION_ID = (SELECT MAX(sl2.OBJECT_VERSION_ID) FROM $Schema.STUDYLAYOUT_ sl2 WHERE sl2.OBJECT_ID = sl.OBJECT_ID)
+WHERE rsi.STUDY_SR_ = $StudyId
+  AND rsi.OBJECT_VERSION_ID = (SELECT MAX(rsi2.OBJECT_VERSION_ID) FROM $Schema.ROBCADSTUDYINFO_ rsi2 WHERE rsi2.OBJECT_ID = rsi.OBJECT_ID);
 
 EXIT;
 "@
@@ -419,108 +438,78 @@ foreach ($row in $layoutRows) {
 
 Write-Host "  Found $layoutCount layout coordinate entries" -ForegroundColor Green
 
-# Timestamp-based heuristic: match StudyInfo to Shortcuts by modification time
-# This is labeled as HEURISTIC mapping
-$sqlTimestampMatch = @"
+# Deterministic mapping: Match Shortcuts to StudyInfo via SEQ_NUMBER in REL_COMMON
+# The study's REL_COMMON has children[seq=N] -> shortcut and info[seq=N] -> studyinfo
+# Matching by seq_number gives a 1:1 deterministic mapping (no timestamp heuristic needed)
+$sqlSeqMatch = @"
 SET PAGESIZE 50000
 SET LINESIZE 500
 SET FEEDBACK OFF
 SET HEADING OFF
 
 SELECT
-    'MATCH|' || rsi.OBJECT_ID || '|' ||
-    TO_CHAR(rsi.MODIFICATIONDATE_DA_, 'YYYY-MM-DD HH24:MI:SS') || '|' ||
-    s.OBJECT_ID || '|' ||
-    s.NAME_S_
-FROM $Schema.ROBCADSTUDYINFO_ rsi
-INNER JOIN $Schema.SHORTCUT_ s ON TO_CHAR(s.MODIFICATIONDATE_DA_, 'YYYY-MM-DD HH24:MI:SS') = TO_CHAR(rsi.MODIFICATIONDATE_DA_, 'YYYY-MM-DD HH24:MI:SS')
-INNER JOIN $Schema.REL_COMMON r ON s.OBJECT_ID = r.OBJECT_ID
-WHERE rsi.STUDY_SR_ = $StudyId
-  AND r.FORWARD_OBJECT_ID = $StudyId
-ORDER BY rsi.MODIFICATIONDATE_DA_;
+    'SEQMAP|' || c.FORWARD_OBJECT_ID || '|' || i.FORWARD_OBJECT_ID || '|' || c.SEQ_NUMBER
+FROM $Schema.REL_COMMON c
+JOIN $Schema.REL_COMMON i ON c.OBJECT_VERSION_ID = i.OBJECT_VERSION_ID AND c.SEQ_NUMBER = i.SEQ_NUMBER
+WHERE c.OBJECT_VERSION_ID = (SELECT MAX(rs.OBJECT_VERSION_ID) FROM $Schema.ROBCADSTUDY_ rs WHERE rs.OBJECT_ID = $StudyId)
+  AND c.FIELD_NAME = 'children'
+  AND i.FIELD_NAME = 'info'
+ORDER BY c.SEQ_NUMBER;
 
 EXIT;
 "@
 
-$matchRows = Invoke-SqlLines -SqlText $sqlTimestampMatch
-$heuristicMatches = @{}
-$heuristicCount = 0
+$seqRows = Invoke-SqlLines -SqlText $sqlSeqMatch
+$seqMap = @{}  # shortcut_id -> studyinfo_id
 
-foreach ($row in $matchRows) {
-    if ($row -match '^MATCH\|') {
+foreach ($row in $seqRows) {
+    if ($row -match '^SEQMAP\|') {
         $parts = $row -split '\|'
-        $studyInfoId = $parts[1].Trim()
-        $timestamp = $parts[2].Trim()
-        $shortcutId = $parts[3].Trim()
-        $shortcutName = $parts[4].Trim()
-
-        if (-not $heuristicMatches.ContainsKey($studyInfoId)) {
-            $heuristicMatches[$studyInfoId] = @()
-        }
-        $heuristicMatches[$studyInfoId] += @{
-            shortcut_id = $shortcutId
-            shortcut_name = $shortcutName
-            timestamp = $timestamp
-        }
+        $shortcutId = $parts[1].Trim()
+        $studyInfoId = $parts[2].Trim()
+        $seqNum = $parts[3].Trim()
+        $seqMap[$shortcutId] = $studyInfoId
     }
 }
 
-# Apply layout data to nodes
+Write-Host "  Resolved $($seqMap.Count) shortcut-to-studyinfo mappings (deterministic via SEQ_NUMBER)" -ForegroundColor Green
+
+# Apply layout data to nodes using deterministic seq mapping
+$coordCount = 0
 foreach ($layoutId in $layoutMap.Keys) {
     $layout = $layoutMap[$layoutId]
     $studyInfoId = $layout.studyinfo_id
 
-    # Try to find matching shortcuts via heuristic
-    if ($heuristicMatches.ContainsKey($studyInfoId)) {
-        $candidates = $heuristicMatches[$studyInfoId]
+    # Find the shortcut that maps to this studyinfo via seq_number
+    $matchedShortcutId = $seqMap.GetEnumerator() | Where-Object { $_.Value -eq $studyInfoId } | Select-Object -First 1
 
-        if ($candidates.Count -eq 1) {
-            # Unambiguous match
-            $shortcutId = $candidates[0].shortcut_id
-            $node = $nodes | Where-Object { $_.node_id -eq $shortcutId } | Select-Object -First 1
-            if ($node) {
-                $node.layout_id = $layoutId
-                $node.x = $layout.x
-                $node.y = $layout.y
-                $node.z = $layout.z
-                $node.coord_provenance = "STUDYLAYOUT_.OBJECT_ID -> VEC_LOCATION_ (heuristic timestamp match)"
-                if ($node.mapping_type -eq "deterministic") {
-                    $node.mapping_type = "deterministic+heuristic_coords"
-                } else {
-                    $node.mapping_type = "heuristic"
-                }
-                $heuristicCount++
+    if ($matchedShortcutId) {
+        $shortcutId = $matchedShortcutId.Key
+        $node = $nodes | Where-Object { $_.node_id -eq $shortcutId } | Select-Object -First 1
+        if ($node) {
+            $node.layout_id = $layoutId
+            $node.x = $layout.x
+            $node.y = $layout.y
+            $node.z = $layout.z
+            $node.coord_provenance = "REL_COMMON[seq] -> STUDYINFO -> STUDYLAYOUT -> VEC_LOCATION_ (deterministic)"
+            if ($node.mapping_type -eq "none") {
+                $node.mapping_type = "deterministic"
+            } elseif ($node.mapping_type -notmatch "deterministic") {
+                $node.mapping_type = "deterministic+$($node.mapping_type)"
             }
-        } elseif ($candidates.Count -gt 1) {
-            # Ambiguous match - attach to all candidates with warning
-            foreach ($candidate in $candidates) {
-                $shortcutId = $candidate.shortcut_id
-                $node = $nodes | Where-Object { $_.node_id -eq $shortcutId } | Select-Object -First 1
-                if ($node) {
-                    $node.layout_id = "$layoutId (ambiguous)"
-                    $node.x = $layout.x
-                    $node.y = $layout.y
-                    $node.z = $layout.z
-                    $node.coord_provenance = "STUDYLAYOUT_.OBJECT_ID -> VEC_LOCATION_ (AMBIGUOUS - $($candidates.Count) candidates at same timestamp)"
-                    if ($node.mapping_type -eq "deterministic") {
-                        $node.mapping_type = "deterministic+heuristic_coords_ambiguous"
-                    } else {
-                        $node.mapping_type = "heuristic_ambiguous"
-                    }
-                }
-            }
+            $coordCount++
         }
     }
 }
 
-Write-Host "  Applied coordinates to $heuristicCount nodes (heuristic)" -ForegroundColor Yellow
+Write-Host "  Applied coordinates to $coordCount nodes (deterministic)" -ForegroundColor Green
 
 Write-Host "`n[6/6] Building snapshot output..." -ForegroundColor Yellow
 
 # Build snapshot object
 $snapshot = @{
     meta = @{
-        schemaVersion = "1.0.0"
+        schemaVersion = "1.1.0"
         capturedAt = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
         schema = $Schema
         projectId = $ProjectId
