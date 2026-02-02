@@ -232,18 +232,18 @@ SELECT
     sl.OBJECT_ID as studylayout_id,
     sl.STUDYINFO_SR_ as studyinfo_id,
     rsi.NAME_S_ as studyinfo_name,
-    sl.LOCATION_V_ as location_vector_id,
-    sl.ROTATION_V_ as rotation_vector_id,
+    sl.OBJECT_ID as location_vector_id,
+    sl.OBJECT_ID as rotation_vector_id,
     sl.MODIFICATIONDATE_DA_ as last_modified,
     sl.LASTMODIFIEDBY_S_ as modified_by,
     -- Get X, Y, Z coordinates
-    (SELECT vl.DATA FROM &Schema..VEC_LOCATION_ vl WHERE vl.OBJECT_ID = sl.LOCATION_V_ AND vl.SEQ_NUMBER = 0) as x_coord,
-    (SELECT vl.DATA FROM &Schema..VEC_LOCATION_ vl WHERE vl.OBJECT_ID = sl.LOCATION_V_ AND vl.SEQ_NUMBER = 1) as y_coord,
-    (SELECT vl.DATA FROM &Schema..VEC_LOCATION_ vl WHERE vl.OBJECT_ID = sl.LOCATION_V_ AND vl.SEQ_NUMBER = 2) as z_coord,
+    (SELECT vl.DATA FROM &Schema..VEC_LOCATION_ vl WHERE vl.OBJECT_ID = sl.OBJECT_ID AND vl.SEQ_NUMBER = 0) as x_coord,
+    (SELECT vl.DATA FROM &Schema..VEC_LOCATION_ vl WHERE vl.OBJECT_ID = sl.OBJECT_ID AND vl.SEQ_NUMBER = 1) as y_coord,
+    (SELECT vl.DATA FROM &Schema..VEC_LOCATION_ vl WHERE vl.OBJECT_ID = sl.OBJECT_ID AND vl.SEQ_NUMBER = 2) as z_coord,
     -- Get rotation angles
-    (SELECT vr.DATA FROM &Schema..VEC_ROTATION_ vr WHERE vr.OBJECT_ID = sl.ROTATION_V_ AND vr.SEQ_NUMBER = 0) as rx_angle,
-    (SELECT vr.DATA FROM &Schema..VEC_ROTATION_ vr WHERE vr.OBJECT_ID = sl.ROTATION_V_ AND vr.SEQ_NUMBER = 1) as ry_angle,
-    (SELECT vr.DATA FROM &Schema..VEC_ROTATION_ vr WHERE vr.OBJECT_ID = sl.ROTATION_V_ AND vr.SEQ_NUMBER = 2) as rz_angle
+    (SELECT vr.DATA FROM &Schema..VEC_ROTATION_ vr WHERE vr.OBJECT_ID = sl.OBJECT_ID AND vr.SEQ_NUMBER = 0) as rx_angle,
+    (SELECT vr.DATA FROM &Schema..VEC_ROTATION_ vr WHERE vr.OBJECT_ID = sl.OBJECT_ID AND vr.SEQ_NUMBER = 1) as ry_angle,
+    (SELECT vr.DATA FROM &Schema..VEC_ROTATION_ vr WHERE vr.OBJECT_ID = sl.OBJECT_ID AND vr.SEQ_NUMBER = 2) as rz_angle
 FROM &Schema..STUDYLAYOUT_ sl
 LEFT JOIN &Schema..ROBCADSTUDYINFO_ rsi ON sl.STUDYINFO_SR_ = rsi.OBJECT_ID
 WHERE sl.MODIFICATIONDATE_DA_ > TO_DATE('&StartDate', 'YYYY-MM-DD')

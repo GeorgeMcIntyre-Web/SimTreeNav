@@ -66,6 +66,7 @@ $stats = @{
     studyMovements = @($data.studyMovements).Count
     studyWelds = @($data.studyWelds).Count
     userActivity = @($data.userActivity).Count
+    treeChanges = @($data.treeChanges).Count
 }
 
 Write-Host "Data Summary:" -ForegroundColor Cyan
@@ -80,10 +81,11 @@ Write-Host "  Study Operations: $($stats.studyOperations) items" -ForegroundColo
 Write-Host "  Study Movements:  $($stats.studyMovements) items" -ForegroundColor Gray
 Write-Host "  Study Welds:      $($stats.studyWelds) items" -ForegroundColor Gray
 Write-Host "  User Activity:    $($stats.userActivity) users" -ForegroundColor Gray
+Write-Host "  Tree Changes:     $($stats.treeChanges) changes" -ForegroundColor Gray
 Write-Host ""
 
-# Embed JSON data directly as JavaScript object (no escaping needed)
-$jsonDataForJS = $jsonContent
+# Embed JSON safely inside an application/json script tag (escape '<' to avoid HTML parsing)
+$jsonDataForHtml = $jsonContent -replace '<', '\\u003c'
 
 # Generate HTML
 $html = @"
@@ -647,6 +649,117 @@ $html = @"
         }
 
         /* ========================================
+           TREE CHANGES
+           ======================================== */
+        .tree-change-layout {
+            display: grid;
+            grid-template-columns: 1.4fr 1fr;
+            gap: 20px;
+        }
+
+        .tree-change-list {
+            min-height: 300px;
+        }
+
+        .tree-change-item {
+            cursor: pointer;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .tree-change-item.selected {
+            border-color: var(--secondary-color);
+            box-shadow: var(--shadow-hover);
+        }
+
+        .tree-change-details {
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 15px;
+            background: #f9fafb;
+            box-shadow: var(--shadow);
+        }
+
+        .tree-change-details h3 {
+            margin-bottom: 10px;
+            color: var(--primary-color);
+        }
+
+        .tree-change-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 10px;
+            margin-bottom: 10px;
+            font-size: 0.9em;
+        }
+
+        .tree-change-badges {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-top: 6px;
+        }
+
+        .badge-rename {
+            background: #f1c40f;
+            color: #2c3e50;
+        }
+
+        .badge-move {
+            background: #3498db;
+            color: white;
+        }
+
+        .badge-add {
+            background: #27ae60;
+            color: white;
+        }
+
+        .badge-remove {
+            background: #e74c3c;
+            color: white;
+        }
+
+        .badge-structure {
+            background: #8e44ad;
+            color: white;
+        }
+
+        .badge-resource {
+            background: #16a085;
+            color: white;
+        }
+
+        .badge-possible {
+            background: #95a5a6;
+            color: white;
+        }
+
+        .tree-change-section {
+            margin-top: 12px;
+        }
+
+        .tree-change-section h4 {
+            margin-bottom: 6px;
+            color: var(--primary-color);
+            font-size: 0.95em;
+        }
+
+        .tree-change-coords {
+            font-family: Consolas, 'Courier New', monospace;
+            font-size: 0.9em;
+            background: #ffffff;
+            padding: 8px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+        }
+
+        @media (max-width: 1100px) {
+            .tree-change-layout {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* ========================================
            EMPTY STATE
            ======================================== */
         .empty-state {
@@ -771,6 +884,7 @@ $html = @"
             <button class="nav-tab active" onclick="showView('view1')">Work Type Summary</button>
             <button class="nav-tab" onclick="showView('view2')">Active Studies</button>
             <button class="nav-tab" onclick="showView('view3')">Movement Activity</button>
+            <button class="nav-tab" onclick="showView('view9')">Tree Changes</button>
             <button class="nav-tab" onclick="showView('view4')">User Activity</button>
             <button class="nav-tab" onclick="showView('view5')">Timeline</button>
             <button class="nav-tab" onclick="showView('view6')">Activity Log</button>
@@ -833,6 +947,51 @@ $html = @"
                         <!-- Populated by JavaScript -->
                     </tbody>
                 </table>
+            </div>
+        </div>
+
+        <!-- View 9: Tree Changes -->
+        <div id="view9" class="view-container">
+            <div class="view-header">
+                <h2>Tree Changes</h2>
+                <p>Renames, movements, structure, and topology changes from tree snapshots</p>
+            </div>
+            <div class="controls">
+                <input type="text" class="search-box" id="treeChangeSearch" placeholder="Search tree changes..." oninput="filterTreeChanges()">
+                <select class="filter-select" id="treeChangeTypeFilter" onchange="filterTreeChanges()">
+                    <option value="">All Change Types</option>
+                </select>
+                <select class="filter-select" id="treeChangeStudyFilter" onchange="filterTreeChanges()">
+                    <option value="">All Studies</option>
+                </select>
+                <select class="filter-select" id="treeChangeMovementFilter" onchange="filterTreeChanges()">
+                    <option value="">All Movement Classes</option>
+                    <option value="SIMPLE">Simple (&lt;1000mm)</option>
+                    <option value="WORLD">World (&gt;=1000mm)</option>
+                </select>
+                <select class="filter-select" id="treeChangeMappingFilter" onchange="filterTreeChanges()">
+                    <option value="">All Mapping Types</option>
+                </select>
+                <div class="checkbox-group" id="treeChangeConfidenceFilters">
+                    <span style="font-weight: 600;">Confidence:</span>
+                    <label><input type="checkbox" value="confirmed" checked onchange="filterTreeChanges()"> Confirmed</label>
+                    <label><input type="checkbox" value="likely" checked onchange="filterTreeChanges()"> Likely</label>
+                    <label><input type="checkbox" value="possible" checked onchange="filterTreeChanges()"> Possible</label>
+                    <label><input type="checkbox" value="unattributed" checked onchange="filterTreeChanges()"> Unattributed</label>
+                </div>
+            </div>
+            <div class="tree-change-layout">
+                <div class="tree-change-list">
+                    <div class="timeline" id="treeChangesTimeline">
+                        <!-- Populated by JavaScript -->
+                    </div>
+                </div>
+                <div class="tree-change-details" id="treeChangeDetails">
+                    <div class="empty-state">
+                        <p>Select a tree change to view details</p>
+                        <div class="hint">Details include evidence, provenance, and snapshot references.</div>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -1111,11 +1270,27 @@ $html = @"
         </div>
     </div>
 
+    <script id="dashboard-data" type="application/json">
+        $jsonDataForHtml
+    </script>
+
     <script>
         // ========================================
         // DATA LOADING
         // ========================================
-        const dashboardData = $jsonDataForJS;
+        const dashboardData = JSON.parse(document.getElementById('dashboard-data').textContent || '{}');
+
+        // Normalize data: ensure all expected arrays are actually arrays (handle single-object case)
+        const arrayFields = ['projectDatabase', 'resourceLibrary', 'partLibrary', 'ipaAssembly',
+                            'studySummary', 'studyResources', 'studyPanels', 'studyOperations',
+                            'studyMovements', 'studyWelds', 'userActivity', 'treeChanges'];
+        arrayFields.forEach(field => {
+            if (dashboardData[field] && !Array.isArray(dashboardData[field])) {
+                dashboardData[field] = [dashboardData[field]];
+            } else if (!dashboardData[field]) {
+                dashboardData[field] = [];
+            }
+        });
 
         if (!dashboardData || !dashboardData.metadata) {
             document.body.innerHTML = '<div class="error-state"><h3>Error Loading Dashboard</h3><p>Failed to load dashboard data. Please regenerate the data file.</p></div>';
@@ -1380,6 +1555,7 @@ $html = @"
         function getConfidenceBadgeClass(confidence) {
             if (confidence === 'confirmed') return 'badge-confirmed';
             if (confidence === 'likely') return 'badge-likely';
+            if (confidence === 'possible') return 'badge-possible';
             if (confidence === 'checkout_only') return 'badge-checkout';
             if (confidence === 'unattributed') return 'badge-unattributed';
             return 'badge-primary';
@@ -1469,13 +1645,13 @@ $html = @"
                 const uniqueUsers = [...new Set(items.map(item => item.modified_by || item.checked_out_by_user_name).filter(Boolean))];
 
                 const row = tbody.insertRow();
-                row.innerHTML = `
-                    <td><strong>$`${workType.name}</strong></td>
-                    <td><span class="badge badge-info">$`${activeCount}</span></td>
-                    <td><span class="badge badge-primary">$`${modifiedCount}</span></td>
-                    <td>$`${uniqueUsers.length}</td>
-                    <td>$`${modifiedCount > 0 ? modifiedCount + ' items' : 'No activity'}</td>
-                `;
+                row.innerHTML = ``
+                    <td><strong>`${workType.name}</strong></td>
+                    <td><span class="badge badge-info">`${activeCount}</span></td>
+                    <td><span class="badge badge-primary">`${modifiedCount}</span></td>
+                    <td>`${uniqueUsers.length}</td>
+                    <td>`${modifiedCount > 0 ? modifiedCount + ' items' : 'No activity'}</td>
+                ``;
             });
         }
 
@@ -1508,7 +1684,7 @@ $html = @"
 
                 const treeItem = document.createElement('div');
                 treeItem.className = 'tree-item';
-                treeItem.innerHTML = `
+                treeItem.innerHTML = ``
                     <div class="tree-header" onclick="toggleTreeItem(`${index})">
                         <div>
                             <div class="title">`${study.study_name || 'Unnamed Study'}</div>
@@ -1518,47 +1694,47 @@ $html = @"
                                 <span style="margin-left: 10px;">Last modified: `${study.last_modified || 'N/A'}</span>
                             </div>
                         </div>
-                        <div class="toggle" id="toggle-$`${index}">▶</div>
+                        <div class="toggle" id="toggle-`${index}">▶</div>
                     </div>
-                    <div class="tree-content" id="content-$`${index}">
-                        $`${resources.length > 0 ? ``
+                    <div class="tree-content" id="content-`${index}">
+                        `${resources.length > 0 ? ``
                         <div class="tree-section">
-                            <h4>Resources Allocated ($`${resources.length})</h4>
+                            <h4>Resources Allocated (`${resources.length})</h4>
                             <ul class="tree-list">
-                                $`${resources.map(r => ``<li>$`${r.shortcut_name || r.resource_name} - $`${r.allocation_type || r.resource_type}</li>``).join('')}
+                                `${resources.map(r => ``<li>`${r.shortcut_name || r.resource_name} - `${r.allocation_type || r.resource_type}</li>``).join('')}
                             </ul>
                         </div>
                         `` : ''}
-                        $`${panels.length > 0 ? ``
+                        `${panels.length > 0 ? ``
                         <div class="tree-section">
-                            <h4>Panels Used ($`${panels.length})</h4>
+                            <h4>Panels Used (`${panels.length})</h4>
                             <ul class="tree-list">
-                                $`${panels.map(p => ``<li>$`${p.shortcut_name} - $`${p.panel_code}</li>``).join('')}
+                                `${panels.map(p => ``<li>`${p.shortcut_name} - `${p.panel_code}</li>``).join('')}
                             </ul>
                         </div>
                         `` : ''}
-                        $`${operations.length > 0 ? ``
+                        `${operations.length > 0 ? ``
                         <div class="tree-section">
-                            <h4>Recent Operations ($`${operations.length})</h4>
+                            <h4>Recent Operations (`${operations.length})</h4>
                             <ul class="tree-list">
-                                $`${operations.map(o => ``<li>$`${o.operation_name} - $`${o.operation_category || o.operation_class}</li>``).join('')}
+                                `${operations.map(o => ``<li>`${o.operation_name} - `${o.operation_category || o.operation_class}</li>``).join('')}
                             </ul>
                         </div>
                         `` : ''}
-                        $`${resources.length === 0 && panels.length === 0 && operations.length === 0 ? ``
+                        `${resources.length === 0 && panels.length === 0 && operations.length === 0 ? ``
                         <div class="tree-section">
                             <p style="color: #7f8c8d;">No detailed information available for this study.</p>
                         </div>
-                        ` : ''}
+                        `` : ''}
                     </div>
-                `;
+                ``;
                 container.appendChild(treeItem);
             });
         }
 
         function toggleTreeItem(index) {
-            const content = document.getElementById(`content-${index}`);
-            const toggle = document.getElementById(`toggle-${index}`);
+            const content = document.getElementById(``content-`${index}``);
+            const toggle = document.getElementById(``toggle-`${index}``);
 
             if (content.classList.contains('expanded')) {
                 content.classList.remove('expanded');
@@ -1602,13 +1778,456 @@ $html = @"
                     movementClass = 'movement-rotation';
                 }
 
-                row.innerHTML = `
+                row.innerHTML = ``
                     <td>Study Layout `${movement.studylayout_id}</td>
                     <td><span class="`${movementClass}">`${movementType}</span></td>
                     <td>`${movement.modified_by || 'Unknown'}</td>
                     <td>`${movement.last_modified || 'N/A'}</td>
-                `;
+                ``;
             });
+        }
+
+        // ========================================
+        // VIEW 9: TREE CHANGES
+        // ========================================
+        function getTreeChangeConfidence(change) {
+            if (!change) return 'unattributed';
+            if (change.confidence) return change.confidence;
+            if (change.evidence && change.evidence.confidence) return change.evidence.confidence;
+
+            const evidence = change.evidence || null;
+            if (evidence) {
+                if (evidence.hasCheckout && evidence.hasWrite && evidence.hasDelta) return 'confirmed';
+                if (evidence.hasWrite && evidence.hasDelta) return 'likely';
+                if (evidence.hasCheckout || evidence.hasWrite || evidence.hasDelta) return 'possible';
+            }
+
+            return 'unattributed';
+        }
+
+        function normalizeTreeChange(change) {
+            if (!change || typeof change !== 'object') {
+                return null;
+            }
+
+            const evidence = change.evidence || null;
+            const context = change.context || {};
+            const deltaSummary = (evidence && evidence.deltaSummary) ? evidence.deltaSummary : (change.deltaSummary || change.delta_summary || null);
+
+            let changeType = change.evidence_type || change.changeType || change.change_type || context.changeType || null;
+            const kind = deltaSummary ? deltaSummary.kind : null;
+
+            if (!changeType && kind) {
+                if (kind === 'naming') changeType = 'rename';
+                else if (kind === 'movement') changeType = 'movement';
+                else if (kind === 'structure') changeType = 'structure';
+                else if (kind === 'resourceMapping') changeType = 'resource_mapping';
+                else if (kind === 'topology') changeType = 'topology';
+            }
+
+            if (changeType === 'resourceMapping') {
+                changeType = 'resource_mapping';
+            }
+
+            if (changeType === 'topology') {
+                const op = (deltaSummary && deltaSummary.operation) ? deltaSummary.operation : (context.changeType || null);
+                if (op && op.toLowerCase().indexOf('add') >= 0) {
+                    changeType = 'node_added';
+                } else if (op && op.toLowerCase().indexOf('remove') >= 0) {
+                    changeType = 'node_removed';
+                }
+            }
+
+            const detectedAt = context.detectedAt || change.detected_at || change.detectedAt || change.timestamp || '';
+            const studyId = context.studyId || change.study_id || '';
+            const studyName = context.studyName || change.study_name || '';
+            const nodeId = context.nodeId || change.node_id || '';
+            const nodeName = context.nodeName || change.node_name || change.display_name || change.new_name || '';
+            const nodeType = context.nodeType || change.node_type || '';
+            const movementClassification = context.movementClassification || change.movement_type || '';
+            const mappingType = (deltaSummary && deltaSummary.mapping_type) ? deltaSummary.mapping_type : (change.mapping_type || '');
+            const snapshotFiles = context.snapshotFiles || change.snapshot_files || null;
+
+            const oldName = change.old_name || (deltaSummary && deltaSummary.before ? deltaSummary.before.display_name : null);
+            const newName = change.new_name || (deltaSummary && deltaSummary.after ? deltaSummary.after.display_name : null);
+            const oldResourceName = change.old_resource_name || (deltaSummary && deltaSummary.before ? deltaSummary.before.resource_name : null);
+            const newResourceName = change.new_resource_name || (deltaSummary && deltaSummary.after ? deltaSummary.after.resource_name : null);
+            const oldParentId = change.old_parent_id || (deltaSummary && deltaSummary.before ? deltaSummary.before.parent_node_id : null);
+            const newParentId = change.new_parent_id || (deltaSummary && deltaSummary.after ? deltaSummary.after.parent_node_id : null);
+            const parentNodeId = change.parent_node_id || context.parentNodeId || null;
+            const resourceName = change.resource_name || context.resourceName || null;
+
+            const confidence = getTreeChangeConfidence({ evidence: evidence, confidence: change.confidence });
+
+            return {
+                raw: change,
+                evidence: evidence,
+                context: context,
+                deltaSummary: deltaSummary,
+                changeType: changeType,
+                detectedAt: detectedAt,
+                studyId: studyId,
+                studyName: studyName,
+                nodeId: nodeId,
+                nodeName: nodeName,
+                nodeType: nodeType,
+                movementClassification: movementClassification,
+                mappingType: mappingType,
+                snapshotFiles: snapshotFiles,
+                oldName: oldName,
+                newName: newName,
+                oldResourceName: oldResourceName,
+                newResourceName: newResourceName,
+                oldParentId: oldParentId,
+                newParentId: newParentId,
+                parentNodeId: parentNodeId,
+                resourceName: resourceName,
+                confidence: confidence
+            };
+        }
+
+        function getTreeChangeList() {
+            const raw = Array.isArray(dashboardData.treeChanges) ? dashboardData.treeChanges : [];
+            return raw.map(item => normalizeTreeChange(item)).filter(Boolean);
+        }
+
+        function getTreeChangeTypeLabel(type) {
+            switch (type) {
+                case 'rename':
+                    return 'Rename';
+                case 'movement':
+                    return 'Movement';
+                case 'structure':
+                    return 'Structure';
+                case 'resource_mapping':
+                    return 'Resource Mapping';
+                case 'node_added':
+                    return 'Node Added';
+                case 'node_removed':
+                    return 'Node Removed';
+                default:
+                    return type ? type.replace(/_/g, ' ') : 'Change';
+            }
+        }
+
+        function getTreeChangeBadgeClass(type) {
+            switch (type) {
+                case 'rename':
+                    return 'badge-rename';
+                case 'movement':
+                    return 'badge-move';
+                case 'structure':
+                    return 'badge-structure';
+                case 'resource_mapping':
+                    return 'badge-resource';
+                case 'node_added':
+                    return 'badge-add';
+                case 'node_removed':
+                    return 'badge-remove';
+                default:
+                    return 'badge-info';
+            }
+        }
+
+        function formatTreeChangeSummary(change) {
+            if (!change) return '';
+            if (change.changeType === 'rename') {
+                const beforeName = change.oldName || 'Unknown';
+                const afterName = change.newName || change.nodeName || 'Unknown';
+                return beforeName + ' -> ' + afterName;
+            }
+            if (change.changeType === 'movement') {
+                const deltaValue = (change.deltaSummary && change.deltaSummary.maxAbsDelta !== undefined) ? change.deltaSummary.maxAbsDelta : '';
+                const classification = change.movementClassification ? (' ' + change.movementClassification) : '';
+                return 'Moved ' + (deltaValue !== '' ? (deltaValue + 'mm') : '') + classification;
+            }
+            if (change.changeType === 'structure') {
+                return 'Parent ' + (change.oldParentId || 'N/A') + ' -> ' + (change.newParentId || 'N/A');
+            }
+            if (change.changeType === 'resource_mapping') {
+                return (change.oldResourceName || 'Unknown') + ' -> ' + (change.newResourceName || 'Unknown');
+            }
+            if (change.changeType === 'node_added') {
+                return 'Added node';
+            }
+            if (change.changeType === 'node_removed') {
+                return 'Removed node';
+            }
+            return '';
+        }
+
+        function formatCoordValue(value) {
+            if (value === null || value === undefined || value === '') return 'N/A';
+            const num = Number(value);
+            if (Number.isNaN(num)) return value;
+            return num.toFixed(2);
+        }
+
+        function formatCoordSet(coords) {
+            if (!coords) return 'N/A';
+            return '(' + formatCoordValue(coords.x) + ', ' + formatCoordValue(coords.y) + ', ' + formatCoordValue(coords.z) + ')';
+        }
+
+        function renderTreeChanges() {
+            const changes = getTreeChangeList();
+            window.treeChangeData = changes.sort((a, b) => (b.detectedAt || '').localeCompare(a.detectedAt || ''));
+            populateTreeChangeFilters(window.treeChangeData);
+            filterTreeChanges();
+        }
+
+        function populateTreeChangeFilters(changes) {
+            const typeFilter = document.getElementById('treeChangeTypeFilter');
+            const studyFilter = document.getElementById('treeChangeStudyFilter');
+            const mappingFilter = document.getElementById('treeChangeMappingFilter');
+
+            if (!typeFilter || !studyFilter || !mappingFilter) {
+                return;
+            }
+
+            const types = new Set();
+            const studies = new Set();
+            const mappings = new Set();
+
+            (changes || []).forEach(change => {
+                if (change.changeType) types.add(change.changeType);
+                if (change.studyName) studies.add(change.studyName);
+                if (change.mappingType) mappings.add(change.mappingType);
+            });
+
+            typeFilter.innerHTML = '<option value="">All Change Types</option>';
+            Array.from(types).sort().forEach(type => {
+                const option = document.createElement('option');
+                option.value = type;
+                option.textContent = getTreeChangeTypeLabel(type);
+                typeFilter.appendChild(option);
+            });
+
+            studyFilter.innerHTML = '<option value="">All Studies</option>';
+            Array.from(studies).sort().forEach(study => {
+                const option = document.createElement('option');
+                option.value = study;
+                option.textContent = study;
+                studyFilter.appendChild(option);
+            });
+
+            mappingFilter.innerHTML = '<option value="">All Mapping Types</option>';
+            Array.from(mappings).sort().forEach(mapping => {
+                const option = document.createElement('option');
+                option.value = mapping;
+                option.textContent = mapping;
+                mappingFilter.appendChild(option);
+            });
+        }
+
+        function filterTreeChanges() {
+            const searchTerm = (document.getElementById('treeChangeSearch') || {}).value || '';
+            const typeFilter = (document.getElementById('treeChangeTypeFilter') || {}).value || '';
+            const studyFilter = (document.getElementById('treeChangeStudyFilter') || {}).value || '';
+            const movementFilter = (document.getElementById('treeChangeMovementFilter') || {}).value || '';
+            const mappingFilter = (document.getElementById('treeChangeMappingFilter') || {}).value || '';
+            const confidenceFilters = getSelectedConfidenceFilters('treeChangeConfidenceFilters');
+
+            let filtered = window.treeChangeData || [];
+            const searchLower = searchTerm.toLowerCase();
+
+            filtered = filtered.filter(change => {
+                if (typeFilter && change.changeType !== typeFilter) return false;
+                if (studyFilter && change.studyName !== studyFilter) return false;
+                if (movementFilter) {
+                    if (change.changeType !== 'movement') return false;
+                    if (!change.movementClassification || change.movementClassification !== movementFilter) return false;
+                }
+                if (mappingFilter && change.mappingType !== mappingFilter) return false;
+                if (confidenceFilters && confidenceFilters.length > 0 && confidenceFilters.indexOf(change.confidence || 'unattributed') === -1) return false;
+
+                if (searchLower) {
+                    const summary = formatTreeChangeSummary(change);
+                    const haystack = ((change.studyName || '') + ' ' + (change.nodeName || '') + ' ' + (change.nodeId || '') + ' ' + summary).toLowerCase();
+                    if (haystack.indexOf(searchLower) === -1) return false;
+                }
+
+                return true;
+            });
+
+            renderTreeChangeTimeline(filtered);
+        }
+
+        function renderTreeChangeTimeline(changes) {
+            const container = document.getElementById('treeChangesTimeline');
+            const detailPanel = document.getElementById('treeChangeDetails');
+
+            if (!container) return;
+
+            container.innerHTML = '';
+            window.filteredTreeChangeData = changes || [];
+
+            if (!changes || changes.length === 0) {
+                container.innerHTML = '<div class="empty-state"><p>No tree changes detected</p><div class="hint">Run another snapshot after making changes to see results here.</div></div>';
+                if (detailPanel) {
+                    detailPanel.innerHTML = '<div class="empty-state"><p>Select a tree change to view details</p></div>';
+                }
+                return;
+            }
+
+            changes.forEach((change, index) => {
+                const item = document.createElement('div');
+                item.className = 'timeline-item tree-change-item';
+                item.dataset.index = index;
+
+                const typeLabel = getTreeChangeTypeLabel(change.changeType);
+                const badgeClass = getTreeChangeBadgeClass(change.changeType);
+                const confidenceBadge = renderConfidenceBadge({ confidence: change.confidence });
+                const summary = formatTreeChangeSummary(change);
+
+                let metaText = '';
+                if (change.studyName) metaText += change.studyName;
+                if (change.nodeType) metaText += (metaText ? ' | ' : '') + change.nodeType;
+
+                item.innerHTML =
+                    '<div class="timeline-time">' + (change.detectedAt || 'N/A') + '</div>' +
+                    '<div class="timeline-content">' +
+                        '<span class="badge ' + badgeClass + '">' + typeLabel + '</span> ' + confidenceBadge +
+                        '<div style="margin-top:6px;"><strong>' + (change.nodeName || 'Unnamed Node') + '</strong>' + (summary ? ' - ' + summary : '') + '</div>' +
+                        (metaText ? '<div class="context-line">' + metaText + '</div>' : '') +
+                    '</div>';
+
+                item.addEventListener('click', () => selectTreeChange(index));
+                container.appendChild(item);
+            });
+
+            selectTreeChange(0);
+        }
+
+        function selectTreeChange(index) {
+            const changes = window.filteredTreeChangeData || [];
+            if (!changes || changes.length === 0) {
+                renderTreeChangeDetails(null);
+                return;
+            }
+
+            const container = document.getElementById('treeChangesTimeline');
+            if (container) {
+                const items = container.querySelectorAll('.tree-change-item');
+                items.forEach((item, itemIndex) => {
+                    if (itemIndex === index) {
+                        item.classList.add('selected');
+                    } else {
+                        item.classList.remove('selected');
+                    }
+                });
+            }
+
+            renderTreeChangeDetails(changes[index]);
+        }
+
+        function renderTreeChangeDetails(change) {
+            const panel = document.getElementById('treeChangeDetails');
+            if (!panel) return;
+
+            if (!change) {
+                panel.innerHTML = '<div class="empty-state"><p>Select a tree change to view details</p></div>';
+                return;
+            }
+
+            const typeLabel = getTreeChangeTypeLabel(change.changeType);
+            const badgeClass = getTreeChangeBadgeClass(change.changeType);
+            const confidenceBadge = renderConfidenceBadge({ confidence: change.confidence });
+
+            const headerHtml = '<div class="tree-change-badges"><span class="badge ' + badgeClass + '">' + typeLabel + '</span>' + confidenceBadge + '</div>';
+
+            const gridItems = [];
+            gridItems.push('<div><strong>Study:</strong> ' + (change.studyName || 'N/A') + '</div>');
+            if (change.studyId) gridItems.push('<div><strong>Study ID:</strong> ' + change.studyId + '</div>');
+            if (change.nodeName) gridItems.push('<div><strong>Node:</strong> ' + change.nodeName + '</div>');
+            if (change.nodeId) gridItems.push('<div><strong>Node ID:</strong> ' + change.nodeId + '</div>');
+            if (change.nodeType) gridItems.push('<div><strong>Node Type:</strong> ' + change.nodeType + '</div>');
+            if (change.detectedAt) gridItems.push('<div><strong>Detected:</strong> ' + change.detectedAt + '</div>');
+            if (change.context && change.context.workType) gridItems.push('<div><strong>Work Type:</strong> ' + formatWorkTypeLabel(change.context.workType) + '</div>');
+            if (change.movementClassification) gridItems.push('<div><strong>Movement:</strong> ' + change.movementClassification + '</div>');
+            if (change.mappingType) gridItems.push('<div><strong>Mapping:</strong> ' + change.mappingType + '</div>');
+
+            let detailSection = '';
+
+            if (change.changeType === 'rename') {
+                const oldProv = change.deltaSummary && change.deltaSummary.before ? change.deltaSummary.before.name_provenance : null;
+                const newProv = change.deltaSummary && change.deltaSummary.after ? change.deltaSummary.after.name_provenance : null;
+                detailSection =
+                    '<div class="tree-change-section">' +
+                    '<h4>Naming Change</h4>' +
+                    '<div><strong>Before:</strong> ' + (change.oldName || 'N/A') + (oldProv ? ' <span class="context-line">(' + oldProv + ')</span>' : '') + '</div>' +
+                    '<div><strong>After:</strong> ' + (change.newName || 'N/A') + (newProv ? ' <span class="context-line">(' + newProv + ')</span>' : '') + '</div>' +
+                    '</div>';
+            } else if (change.changeType === 'movement') {
+                const beforeCoords = change.deltaSummary ? change.deltaSummary.before : null;
+                const afterCoords = change.deltaSummary ? change.deltaSummary.after : null;
+                const deltaCoords = change.deltaSummary ? change.deltaSummary.delta : null;
+                const maxDelta = (change.deltaSummary && change.deltaSummary.maxAbsDelta !== undefined) ? change.deltaSummary.maxAbsDelta : null;
+                const coordProv = (beforeCoords && beforeCoords.coord_provenance) ? beforeCoords.coord_provenance : (afterCoords && afterCoords.coord_provenance ? afterCoords.coord_provenance : null);
+
+                detailSection =
+                    '<div class="tree-change-section">' +
+                    '<h4>Movement Details</h4>' +
+                    '<div class="tree-change-coords">' +
+                    '<div><strong>Before:</strong> ' + formatCoordSet(beforeCoords) + '</div>' +
+                    '<div><strong>After:</strong> ' + formatCoordSet(afterCoords) + '</div>' +
+                    '<div><strong>Delta:</strong> ' + formatCoordSet(deltaCoords) + '</div>' +
+                    (maxDelta !== null ? '<div><strong>Max Δ:</strong> ' + maxDelta + 'mm</div>' : '') +
+                    '</div>' +
+                    (coordProv ? '<div class="context-line">Provenance: ' + coordProv + '</div>' : '') +
+                    '</div>';
+            } else if (change.changeType === 'structure') {
+                detailSection =
+                    '<div class="tree-change-section">' +
+                    '<h4>Parent Change</h4>' +
+                    '<div><strong>Before:</strong> ' + (change.oldParentId || 'N/A') + '</div>' +
+                    '<div><strong>After:</strong> ' + (change.newParentId || 'N/A') + '</div>' +
+                    '</div>';
+            } else if (change.changeType === 'resource_mapping') {
+                const beforeResId = change.deltaSummary && change.deltaSummary.before ? change.deltaSummary.before.resource_id : null;
+                const afterResId = change.deltaSummary && change.deltaSummary.after ? change.deltaSummary.after.resource_id : null;
+                detailSection =
+                    '<div class="tree-change-section">' +
+                    '<h4>Resource Mapping</h4>' +
+                    '<div><strong>Before:</strong> ' + (change.oldResourceName || 'N/A') + (beforeResId ? ' (ID ' + beforeResId + ')' : '') + '</div>' +
+                    '<div><strong>After:</strong> ' + (change.newResourceName || 'N/A') + (afterResId ? ' (ID ' + afterResId + ')' : '') + '</div>' +
+                    '</div>';
+            } else if (change.changeType === 'node_added' || change.changeType === 'node_removed') {
+                const actionLabel = change.changeType === 'node_added' ? 'Added' : 'Removed';
+                detailSection =
+                    '<div class="tree-change-section">' +
+                    '<h4>Topology Change</h4>' +
+                    '<div><strong>Action:</strong> ' + actionLabel + '</div>' +
+                    (change.parentNodeId ? '<div><strong>Parent ID:</strong> ' + change.parentNodeId + '</div>' : '') +
+                    (change.resourceName ? '<div><strong>Resource:</strong> ' + change.resourceName + '</div>' : '') +
+                    (change.context && change.context.nameProvenance ? '<div class="context-line">Name provenance: ' + change.context.nameProvenance + '</div>' : '') +
+                    '</div>';
+            }
+
+            let snapshotSection = '';
+            if (change.snapshotFiles) {
+                const baseline = change.snapshotFiles.baseline || '';
+                const current = change.snapshotFiles.current || '';
+                const diff = change.snapshotFiles.diff || '';
+                snapshotSection =
+                    '<div class="tree-change-section">' +
+                    '<h4>Snapshot Files</h4>' +
+                    '<div class="tree-change-coords">' +
+                    '<div><strong>Baseline:</strong> ' + baseline + '</div>' +
+                    '<div><strong>Current:</strong> ' + current + '</div>' +
+                    '<div><strong>Diff:</strong> ' + diff + '</div>' +
+                    '</div>' +
+                    '</div>';
+            }
+
+            const evidenceWithConfidence = Object.assign({}, change.evidence || {}, { confidence: change.confidence });
+
+            panel.innerHTML =
+                '<h3>Tree Change Details</h3>' +
+                headerHtml +
+                '<div class="tree-change-grid">' + gridItems.join('') + '</div>' +
+                (detailSection || '') +
+                (snapshotSection || '') +
+                renderEvidenceDetails(evidenceWithConfidence);
         }
 
         // ========================================
@@ -1680,7 +2299,7 @@ $html = @"
 
                 const barItem = document.createElement('div');
                 barItem.className = 'bar-item';
-                barItem.innerHTML = `
+                barItem.innerHTML = ``
                     <div class="bar-label">
                         <span class="name">`${name}</span>
                         <span class="value">`${count} items (`${percentage}%)</span>
@@ -1688,7 +2307,7 @@ $html = @"
                     <div class="bar-track">
                         <div class="bar-fill" style="width: `${percentage}%">`${percentage}%</div>
                     </div>
-                `;
+                ``;
                 barChart.appendChild(barItem);
             });
         }
@@ -2323,7 +2942,7 @@ $html = @"
                 const description = (row.description || '').replace(/,/g, ' ');
                 const confidence = getConfidenceValue(row.evidence) || '';
 
-                csv += `"${timestamp}","${user}","${workType}","${objectName}","${description}","${confidence}"\n`;
+                csv += ``"`${timestamp}","`${user}","`${workType}","`${objectName}","`${description}","`${confidence}"\n``;
             });
 
             // Create download link
@@ -2350,6 +2969,7 @@ $html = @"
                 renderWorkTypeSummary();
                 renderActiveStudies();
                 renderMovementActivity();
+                renderTreeChanges();
                 populateUserSelectors();
                 renderTimeline();
                 renderActivityLog();

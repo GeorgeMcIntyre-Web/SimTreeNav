@@ -298,8 +298,8 @@ SELECT
     rs.OBJECT_ID as study_id,
     rs.NAME_S_ as study_name,
     sl.STUDYINFO_SR_ as studyinfo_id,
-    sl.LOCATION_V_ as location_vector_id,
-    sl.ROTATION_V_ as rotation_vector_id,
+    sl.OBJECT_ID as location_vector_id,
+    sl.OBJECT_ID as rotation_vector_id,
     TO_CHAR(sl.MODIFICATIONDATE_DA_, 'YYYY-MM-DD HH24:MI:SS') as last_modified,
     TO_CHAR(vc.vec_modified_at, 'YYYY-MM-DD HH24:MI:SS') as vector_modified_at,
     sl.LASTMODIFIEDBY_S_ as modified_by,
@@ -318,7 +318,7 @@ SELECT
 FROM DESIGN12.STUDYLAYOUT_ sl
 LEFT JOIN DESIGN12.ROBCADSTUDYINFO_ rsi ON sl.STUDYINFO_SR_ = rsi.OBJECT_ID
 LEFT JOIN DESIGN12.ROBCADSTUDY_ rs ON rsi.STUDY_SR_ = rs.OBJECT_ID
-LEFT JOIN vec_classified vc ON sl.LOCATION_V_ = vc.OBJECT_ID
+LEFT JOIN vec_classified vc ON sl.OBJECT_ID = vc.OBJECT_ID
 LEFT JOIN DESIGN12.PROXY p ON sl.OBJECT_ID = p.OBJECT_ID AND p.WORKING_VERSION_ID > 0
 LEFT JOIN DESIGN12.USER_ u ON p.OWNER_ID = u.OBJECT_ID
 WHERE sl.MODIFICATIONDATE_DA_ >= TO_DATE('&StartDate', 'YYYY-MM-DD')
