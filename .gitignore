@@ -8,6 +8,7 @@ find-*.ps1
 *-output.txt
 *.html.backup
 out/
+*.log
 
 # Generated data
 tree-data-*.txt
@@ -25,6 +26,9 @@ user-activity-cache-*.js
 # Config
 tree-viewer-config.json
 extracted-type-ids.json
+config/enterprise-config.json
+config/servers.json
+config/dashboard-launcher-settings.json
 
 # Credentials (NEVER commit these!)
 config/.credentials/
@@ -33,6 +37,7 @@ config/credential-config.json
 
 # Icons directory (generated)
 icons/
+lib/
 
 # Claude settings
 .claude/settings.local.json
@@ -61,6 +66,7 @@ run-*.ps1
 
 # Data directories
 data/
+cache/
 config/
 tests/
 tnsnames.ora

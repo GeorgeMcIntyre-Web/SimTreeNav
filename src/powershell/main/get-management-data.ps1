@@ -1,34 +1,86 @@
-# Get Management Reporting Data
+# Get Management Reporting Data (Optimized)
 # Purpose: Query database for all management reporting data across 5 work types
-# Date: 2026-01-19
+# Date: 2026-02-02
+# Optimizations: DatabaseHelper, Parallelization, Caching, Performance Tracking
 
 param(
-    [Parameter(Mandatory=$true)]
+    [Parameter(Mandatory=$false)]
     [string]$TNSName,
 
-    [Parameter(Mandatory=$true)]
+    [Parameter(Mandatory=$false)]
     [string]$Schema,
 
-    [Parameter(Mandatory=$true)]
-    [int]$ProjectId,
+    [Parameter(Mandatory=$false)]
+    [int]$ProjectId = 0,
 
     [DateTime]$StartDate = (Get-Date).AddDays(-7),
     [DateTime]$EndDate = (Get-Date),
 
-    [string]$OutputFile = "management-data-${Schema}-${ProjectId}.json"
+    [string]$OutputFile,
+
+    [switch]$ForceRefresh,
+
+    [switch]$SkipTreeSnapshots,
+
+    [int]$TreeSnapshotLimit = 25,
+
+    [int]$TreeSnapshotErrorLimit = 5
 )
 
 # Start timer
 $scriptTimer = [System.Diagnostics.Stopwatch]::StartNew()
 
+# Load enterprise configuration for defaults
+# Get project root (3 levels up from main/)
+$scriptRootDir = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
+$enterpriseConfigPath = Join-Path $scriptRootDir "config\enterprise-config.json"
+
+if (Test-Path $enterpriseConfigPath) {
+    $enterpriseConfig = Get-Content $enterpriseConfigPath -Raw | ConvertFrom-Json
+
+    # Apply defaults if not specified
+    if ([string]::IsNullOrWhiteSpace($TNSName)) {
+        $TNSName = $enterpriseConfig.defaults.tnsName
+    }
+
+    if ([string]::IsNullOrWhiteSpace($Schema)) {
+        $Schema = $enterpriseConfig.defaults.schema
+    }
+
+    if ($ProjectId -eq 0) {
+        $ProjectId = $enterpriseConfig.defaults.projectId
+    }
+} else {
+    # Fallback hardcoded defaults if config not found
+    if ([string]::IsNullOrWhiteSpace($TNSName)) { $TNSName = "PSPDV3" }
+    if ([string]::IsNullOrWhiteSpace($Schema)) { $Schema = "DESIGN12" }
+    if ($ProjectId -eq 0) { $ProjectId = 18851221 }
+    Write-Warning "Enterprise config not found: $enterpriseConfigPath - using hardcoded defaults"
+}
+
+# Set output file if not specified
+if ([string]::IsNullOrWhiteSpace($OutputFile)) {
+    $OutputFile = "management-data-${Schema}-${ProjectId}.json"
+}
+
 Write-Host "`n========================================" -ForegroundColor Cyan
 Write-Host "  Management Reporting Data Collection" -ForegroundColor Cyan
+Write-Host "  (Optimized with DatabaseHelper)" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "  TNS:        $TNSName" -ForegroundColor Gray
 Write-Host "  Schema:     $Schema" -ForegroundColor Gray
 Write-Host "  Project ID: $ProjectId" -ForegroundColor Gray
 Write-Host "  Date Range: $($StartDate.ToString('yyyy-MM-dd')) to $($EndDate.ToString('yyyy-MM-dd'))" -ForegroundColor Gray
+Write-Host "  Cache:      $(if ($ForceRefresh) { 'Bypassed (Force Refresh)' } else { 'Enabled' })" -ForegroundColor Gray
 Write-Host ""
+
+# Import DatabaseHelper
+$dbHelperPath = Join-Path $PSScriptRoot "..\utilities\DatabaseHelper.ps1"
+if (-not (Test-Path $dbHelperPath)) {
+    Write-Error "DatabaseHelper.ps1 not found at: $dbHelperPath"
+    exit 1
+}
+Import-Module $dbHelperPath -Force
 
 # Import credential manager
 $credManagerPath = Join-Path $PSScriptRoot "..\utilities\CredentialManager.ps1"
@@ -71,6 +123,10 @@ if (Test-Path $enrichmentLibPath) {
 $startDateStr = $StartDate.ToString('yyyy-MM-dd')
 $endDateStr = $EndDate.ToString('yyyy-MM-dd')
 
+# Get server configuration for metadata
+$serverConfig = Get-OracleServerConfig -ServerName $TNSName
+$serverDescription = if ($serverConfig) { $serverConfig.description } else { "Unknown" }
+
 # Initialize results object
 $results = @{
     metadata = @{
@@ -80,6 +136,9 @@ $results = @{
         startDate = $startDateStr
         endDate = $endDateStr
         generatedAt = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+        tnsName = $TNSName
+        serverDescription = $serverDescription
+        cacheEnabled = (-not $ForceRefresh)
     }
     projectDatabase = @()
     resourceLibrary = @()
@@ -94,6 +153,7 @@ $results = @{
     userActivity = @()
     events = @()
     treeChanges = @()
+    workTypeSummaryMeta = @{}
     studyHealth = @{
         summary = @{
             totalStudies = 0
@@ -110,55 +170,81 @@ $results = @{
     resourceConflicts = @()
     staleCheckouts = @()
     bottleneckQueue = @()
+    performance = @{
+        totalTime = 0
+        queryTimes = @{}
+    }
 }
 
-# Parse SQL*Plus pipe-delimited output into objects for JSON conversion.
-function Convert-PipeDelimitedToObjects {
+# ========================================
+# Cache Configuration and Functions
+# ========================================
+
+$cacheBaseDir = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) "cache"
+if (-not (Test-Path $cacheBaseDir)) {
+    New-Item -ItemType Directory -Path $cacheBaseDir -Force | Out-Null
+}
+
+function Get-CacheFilePath {
     param(
-        [string[]]$Lines
+        [string]$QueryName,
+        [string]$Schema,
+        [int]$ProjectId
+    )
+    $cacheFile = "$QueryName-$Schema-$ProjectId.json"
+    return Join-Path $cacheBaseDir $cacheFile
+}
+
+function Test-CacheValid {
+    param(
+        [string]$CachePath,
+        [int]$TTLHours
     )
 
-    $lineList = @($Lines)
-
-    if (-not $lineList -or $lineList.Count -lt 2) {
-        return @()
+    if (-not (Test-Path $CachePath)) {
+        return $false
     }
 
-    $filtered = $lineList | Where-Object {
-        $_ -match '\|' -and ($_ -notmatch '^[\s\-\|]+$')
-    }
-    $filtered = @($filtered)
+    $fileInfo = Get-Item $CachePath
+    $age = (Get-Date) - $fileInfo.LastWriteTime
 
-    if ($filtered.Count -lt 2) {
-        return @()
-    }
-
-    $headers = $filtered[0] -split '\|'
-    $headers = $headers | ForEach-Object { $_.Trim() }
-
-    $objects = foreach ($line in $filtered[1..($filtered.Count - 1)]) {
-        if ([string]::IsNullOrWhiteSpace($line)) {
-            continue
-        }
-
-        $values = $line -split '\|', $headers.Count
-        $obj = [ordered]@{}
-
-        for ($i = 0; $i -lt $headers.Count; $i++) {
-            $header = $headers[$i]
-            if ([string]::IsNullOrWhiteSpace($header)) {
-                $header = "Column$($i + 1)"
-            }
-
-            $value = if ($i -lt $values.Count) { $values[$i].Trim() } else { "" }
-            $obj[$header] = $value
-        }
-
-        [PSCustomObject]$obj
-    }
-
-    return $objects
+    return ($age.TotalHours -lt $TTLHours)
 }
+
+function Get-CachedData {
+    param(
+        [string]$QueryName,
+        [int]$TTLHours
+    )
+
+    if ($ForceRefresh) {
+        return $null
+    }
+
+    $cachePath = Get-CacheFilePath -QueryName $QueryName -Schema $Schema -ProjectId $ProjectId
+
+    if (Test-CacheValid -CachePath $cachePath -TTLHours $TTLHours) {
+        Write-Host "    Using cached data (age: $([math]::Round(((Get-Date) - (Get-Item $cachePath).LastWriteTime).TotalHours, 1))h)" -ForegroundColor DarkGreen
+        $content = Get-Content $cachePath -Raw | ConvertFrom-Json
+        return @($content)
+    }
+
+    return $null
+}
+
+function Set-CachedData {
+    param(
+        [string]$QueryName,
+        [object[]]$Data
+    )
+
+    $cachePath = Get-CacheFilePath -QueryName $QueryName -Schema $Schema -ProjectId $ProjectId
+    $Data | ConvertTo-Json -Depth 5 | Out-File $cachePath -Encoding UTF8 -Force
+}
+
+# ========================================
+# Helper Functions
+# ========================================
 
 function Convert-StringToDateTime {
     param(
@@ -399,98 +485,231 @@ function Test-FileLocked {
     }
 }
 
-# Helper function to execute SQL query
+# ========================================
+# Database Query Execution
+# ========================================
+
+# Get credentials
+# IMPORTANT: Schema parameter is for SQL queries (e.g., "SELECT * FROM DESIGN12.COLLECTION_")
+# For authentication, we use sys with SYSDBA privileges in DEV mode
+Write-Host "Authenticating to database..." -ForegroundColor Yellow
+
+# Use CredentialManager to get sys credentials (DEV mode uses SYSDBA)
+$credential = $null
+$username = "sys"
+
+if (Get-Command -Name Get-DbCredential -ErrorAction SilentlyContinue) {
+    Write-Host "  Using CredentialManager for sys credentials..." -ForegroundColor Gray
+    try {
+        $credential = Get-DbCredential -TNSName $TNSName -Username $username
+    } catch {
+        Write-Warning "CredentialManager failed: $_"
+    }
+}
+
+if ($null -eq $credential) {
+    Write-Warning "Could not retrieve credentials from credential manager"
+    $securePassword = Read-Host "Enter password for $username" -AsSecureString
+    $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($securePassword)
+    $password = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
+    [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($BSTR)
+} else {
+    # Convert SecureString to plain text for connection
+    $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($credential.Password)
+    $password = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
+    [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($BSTR)
+    $username = $credential.UserName
+}
+
+# Build connection string for both main connection and parallel jobs
+$dbaPrivilege = if ($username -eq "sys") { "SYSDBA" } else { "None" }
+
+# Create database connection using DatabaseHelper (which loads the Oracle driver)
+Write-Host "Connecting to $TNSName as $username (querying schema: $Schema)..." -ForegroundColor Yellow
+$connection = New-OracleConnection -ServerName $TNSName -Username $username -Password $password -DBAPrivilege $dbaPrivilege
+
+if ($null -eq $connection) {
+    Write-Error "Failed to create database connection"
+    exit 1
+}
+
+# Build connection string manually for parallel jobs (connection object doesn't expose password)
+$connectionString = New-OracleConnectionString -ServerName $TNSName -Username $username -Password $password -DBAPrivilege $dbaPrivilege
+
+if ([string]::IsNullOrWhiteSpace($connectionString)) {
+    Write-Error "Failed to create connection string"
+    exit 1
+}
+
+try {
+    $connection.Open()
+    Write-Host "Connected successfully" -ForegroundColor Green
+} catch {
+    Write-Warning "Primary connection failed: $($_.Exception.Message)"
+    Write-Host "Retrying with TNS name connection..." -ForegroundColor Yellow
+
+    try {
+        if ($null -ne $connection) {
+            $connection.Dispose()
+        }
+
+        $fallbackConnectionString = New-OracleConnectionString -ServerName $TNSName -Username $username -Password $password -UseTnsNames -DBAPrivilege $dbaPrivilege
+        if ([string]::IsNullOrWhiteSpace($fallbackConnectionString)) {
+            throw "Failed to create fallback TNS connection string"
+        }
+
+        if ($fallbackConnectionString -notmatch "Connection Timeout") {
+            $fallbackConnectionString += ";Connection Timeout=120"
+        }
+
+        $connection = New-Object Oracle.ManagedDataAccess.Client.OracleConnection($fallbackConnectionString)
+        $connection.Open()
+        $connectionString = $fallbackConnectionString
+
+        Write-Host "Connected successfully (TNS fallback)" -ForegroundColor Green
+    } catch {
+        Write-Error "Failed to open database connection: $_"
+        exit 1
+    }
+}
+
+# Helper function to check table existence (avoid hard failures in optional queries)
+function Test-TableExists {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$TableName
+    )
+
+    $checkQuery = "SELECT 1 FROM ALL_TABLES WHERE OWNER = '$Schema' AND TABLE_NAME = '$TableName'"
+    $result = Invoke-OracleQuery -Connection $connection -Query $checkQuery -TimeoutSeconds 30
+    return ($null -ne $result -and $result.Count -gt 0)
+}
+
+# Optional table checks (schema varies across deployments)
+$hasTxProcessAssembly = Test-TableExists -TableName "TXPROCESSASSEMBLY_"
+$hasVecRotation = Test-TableExists -TableName "VEC_ROTATION_"
+
+# Helper function to execute query with timing and caching
 function Execute-Query {
     param(
         [string]$QueryName,
-        [string]$Query
+        [string]$Query,
+        [int]$TTLHours = 0
     )
 
     Write-Host "  Querying $QueryName..." -ForegroundColor Yellow
 
-    try {
-        # Create temp SQL file
-        $tempSqlFile = Join-Path $env:TEMP "${QueryName}-${Schema}-${ProjectId}.sql"
-
-        # Wrap query with SQL*Plus settings
-        $sqlScript = @'
-SET PAGESIZE 50000
-SET LINESIZE 32767
-SET FEEDBACK OFF
-SET HEADING ON
-SET VERIFY OFF
-SET COLSEP '|'
-SET TRIMSPOOL ON
-SET WRAP OFF
-
-##QUERY##
-
-EXIT;
-'@
-        $sqlScript = $sqlScript.Replace('##QUERY##', $Query)
-
-        $sqlScript | Out-File $tempSqlFile -Encoding ASCII
-
-        # Execute query
-        $connectionString = Get-DbConnectionString -TNSName $TNSName -AsSysDBA -ErrorAction Stop
-
-        if ($connectionString) {
-            # Execute query directly (same method as other working scripts)
-            # Use job with timeout to prevent hanging
-            $timeoutSeconds = 60  # Increased timeout for complex queries
-            $job = Start-Job -ScriptBlock {
-                param($connStr, $sqlFile)
-                $result = & sqlplus -S $connStr "@$sqlFile" 2>&1
-                return $result
-            } -ArgumentList $connectionString, $tempSqlFile
-            
-            $completed = Wait-Job $job -Timeout $timeoutSeconds
-            
-            if (-not $completed) {
-                Stop-Job $job -ErrorAction SilentlyContinue
-                Remove-Job $job -Force -ErrorAction SilentlyContinue
-                Write-Warning "    Query timed out after $timeoutSeconds seconds - skipping"
-                Remove-Item $tempSqlFile -ErrorAction SilentlyContinue
-                return @()
-            }
-            
-            $result = Receive-Job $job
-            Remove-Job $job -Force -ErrorAction SilentlyContinue
-
-            if (-not $result) {
-                Write-Warning "    No results returned"
-                Remove-Item $tempSqlFile -ErrorAction SilentlyContinue
-                return @()
-            }
-
-            # Parse results
-            $data = $result | Where-Object { $_ -match '\|' }
-            $objects = Convert-PipeDelimitedToObjects -Lines $data
-
-            # Cleanup
-            Remove-Item $tempSqlFile -ErrorAction SilentlyContinue
-
-            Write-Host "    Retrieved $($objects.Count) rows" -ForegroundColor Green
-            return $objects
-        } else {
-            Write-Warning "    Failed to get connection string"
-            return @()
+    # Check cache if TTL is set
+    if ($TTLHours -gt 0) {
+        $cachedData = Get-CachedData -QueryName $QueryName -TTLHours $TTLHours
+        if ($null -ne $cachedData) {
+            Write-Host "    Retrieved $($cachedData.Count) rows from cache" -ForegroundColor Green
+            return $cachedData
         }
     }
+
+    $queryTimer = [System.Diagnostics.Stopwatch]::StartNew()
+
+    try {
+        $data = Invoke-OracleQuery -Connection $connection -Query $Query -TimeoutSeconds 300
+
+        $queryTimer.Stop()
+        $queryTimeMs = [math]::Round($queryTimer.Elapsed.TotalMilliseconds, 0)
+        $results.performance.queryTimes[$QueryName] = $queryTimeMs
+
+        if ($null -eq $data) {
+            Write-Warning "    No results returned"
+            return @()
+        }
+
+        Write-Host "    Retrieved $($data.Count) rows in ${queryTimeMs}ms" -ForegroundColor Green
+
+        # Cache data if TTL is set
+        if ($TTLHours -gt 0 -and $data.Count -gt 0) {
+            Set-CachedData -QueryName $QueryName -Data $data
+        }
+
+        return $data
+    }
     catch {
+        $queryTimer.Stop()
         Write-Warning "    Error: $_"
         return @()
     }
 }
 
-# QUERY 1: Project Database Activity
-Write-Host "`n[1/14] Project Database Setup" -ForegroundColor Cyan
+# ========================================
+# Parallel Query Execution
+# ========================================
 
-$query1 = @'
+Write-Host "`n========================================" -ForegroundColor Cyan
+Write-Host "  Executing Queries in Parallel" -ForegroundColor Cyan
+Write-Host "========================================" -ForegroundColor Cyan
+
+# Optional query templates based on schema availability
+$ipaAssemblyQuery = if ($hasTxProcessAssembly) {
+@"
+SELECT
+    'IPA_ASSEMBLY' as work_type,
+    pa.OBJECT_ID as object_id,
+    pa.NAME_S_ as object_name,
+    'TxProcessAssembly' as object_type,
+    NVL(pa.CREATEDBY_S_, '') as created_by,
+    TO_CHAR(pa.MODIFICATIONDATE_DA_, 'YYYY-MM-DD HH24:MI:SS') as last_modified,
+    NVL(pa.LASTMODIFIEDBY_S_, '') as modified_by,
+    NVL(pr.OWNER_ID, 0) as checked_out_by_user_id,
+    NVL(u.CAPTION_S_, '') as checked_out_by_user_name,
+    CASE WHEN pr.WORKING_VERSION_ID > 0 THEN 'Checked Out' ELSE 'Available' END as status,
+    NVL(pr.WORKING_VERSION_ID, 0) as checkout_working_version_id
+FROM $Schema.TXPROCESSASSEMBLY_ pa
+LEFT JOIN $Schema.PROXY pr ON pa.OBJECT_ID = pr.OBJECT_ID
+LEFT JOIN $Schema.USER_ u ON pr.OWNER_ID = u.OBJECT_ID
+WHERE (pa.MODIFICATIONDATE_DA_ > TO_DATE('$startDateStr', 'YYYY-MM-DD')
+  OR pr.WORKING_VERSION_ID > 0)
+  AND ROWNUM <= 100
+ORDER BY pa.MODIFICATIONDATE_DA_ DESC
+"@
+} else {
+    "SELECT 'IPA_ASSEMBLY' as work_type FROM DUAL WHERE 1=0"
+}
+
+$studyMovementsRotationSelect = if ($hasVecRotation) {
+@"
+    CASE
+        WHEN EXISTS (SELECT 1 FROM $Schema.VEC_ROTATION_ vr WHERE vr.OBJECT_ID = sl.OBJECT_ID)
+        THEN sl.OBJECT_ID
+        ELSE NULL
+    END as rotation_vector_id,
+    (SELECT MAX(CASE WHEN vr.SEQ_NUMBER = 0 THEN TO_NUMBER(vr.DATA) END)
+        FROM $Schema.VEC_ROTATION_ vr
+        WHERE vr.OBJECT_ID = sl.OBJECT_ID) as rx_angle,
+    (SELECT MAX(CASE WHEN vr.SEQ_NUMBER = 1 THEN TO_NUMBER(vr.DATA) END)
+        FROM $Schema.VEC_ROTATION_ vr
+        WHERE vr.OBJECT_ID = sl.OBJECT_ID) as ry_angle,
+    (SELECT MAX(CASE WHEN vr.SEQ_NUMBER = 2 THEN TO_NUMBER(vr.DATA) END)
+        FROM $Schema.VEC_ROTATION_ vr
+        WHERE vr.OBJECT_ID = sl.OBJECT_ID) as rz_angle,
+"@
+} else {
+@"
+    NULL as rotation_vector_id,
+    NULL as rx_angle,
+    NULL as ry_angle,
+    NULL as rz_angle,
+"@
+}
+
+# Define all 14 queries
+$queries = @{
+    # Stable data (24 hour cache)
+    ProjectDatabase = @{
+        TTL = 24
+        Query = @"
 SELECT
     'PROJECT_DATABASE' as work_type,
     c.OBJECT_ID as object_id,
     c.CAPTION_S_ as object_name,
+    c.NAME_S_ as project_name,
     'Project' as object_type,
     c.CREATEDBY_S_ as created_by,
     TO_CHAR(c.MODIFICATIONDATE_DA_, 'YYYY-MM-DD HH24:MI:SS') as last_modified,
@@ -499,18 +718,16 @@ SELECT
     NVL(u.CAPTION_S_, '') as checked_out_by_user_name,
     CASE WHEN p.WORKING_VERSION_ID > 0 THEN 'Checked Out' ELSE 'Available' END as status,
     NVL(p.WORKING_VERSION_ID, 0) as checkout_working_version_id
-FROM ##SCHEMA##.COLLECTION_ c
-LEFT JOIN ##SCHEMA##.PROXY p ON c.OBJECT_ID = p.OBJECT_ID AND p.WORKING_VERSION_ID > 0
-LEFT JOIN ##SCHEMA##.USER_ u ON p.OWNER_ID = u.OBJECT_ID
-WHERE c.OBJECT_ID = ##PROJECTID##;
-'@
-$query1 = $query1.Replace('##SCHEMA##', $Schema).Replace('##PROJECTID##', $ProjectId).Replace('##STARTDATE##', $startDateStr)
-$results.projectDatabase = Execute-Query -QueryName "ProjectDatabase" -Query $query1
+FROM $Schema.COLLECTION_ c
+LEFT JOIN $Schema.PROXY p ON c.OBJECT_ID = p.OBJECT_ID AND p.WORKING_VERSION_ID > 0
+LEFT JOIN $Schema.USER_ u ON p.OWNER_ID = u.OBJECT_ID
+WHERE c.OBJECT_ID = $ProjectId
+"@
+    }
 
-# QUERY 2: Resource Library Activity
-Write-Host "`n[2/14] Resource Library" -ForegroundColor Cyan
-
-$query2 = @'
+    ResourceLibrary = @{
+        TTL = 24
+        Query = @"
 SELECT
     'RESOURCE_LIBRARY' as work_type,
     r.OBJECT_ID as object_id,
@@ -523,22 +740,20 @@ SELECT
     NVL(u.CAPTION_S_, '') as checked_out_by_user_name,
     CASE WHEN p.WORKING_VERSION_ID > 0 THEN 'Checked Out' ELSE 'Available' END as status,
     NVL(p.WORKING_VERSION_ID, 0) as checkout_working_version_id
-FROM ##SCHEMA##.RESOURCE_ r
-LEFT JOIN ##SCHEMA##.CLASS_DEFINITIONS cd ON r.CLASS_ID = cd.TYPE_ID
-LEFT JOIN ##SCHEMA##.PROXY p ON r.OBJECT_ID = p.OBJECT_ID
-LEFT JOIN ##SCHEMA##.USER_ u ON p.OWNER_ID = u.OBJECT_ID
-WHERE (r.MODIFICATIONDATE_DA_ > TO_DATE('##STARTDATE##', 'YYYY-MM-DD')
+FROM $Schema.RESOURCE_ r
+LEFT JOIN $Schema.CLASS_DEFINITIONS cd ON r.CLASS_ID = cd.TYPE_ID
+LEFT JOIN $Schema.PROXY p ON r.OBJECT_ID = p.OBJECT_ID
+LEFT JOIN $Schema.USER_ u ON p.OWNER_ID = u.OBJECT_ID
+WHERE (r.MODIFICATIONDATE_DA_ > TO_DATE('$startDateStr', 'YYYY-MM-DD')
   OR p.WORKING_VERSION_ID > 0)
   AND ROWNUM <= 100
-ORDER BY r.MODIFICATIONDATE_DA_ DESC;
-'@
-$query2 = $query2.Replace('##SCHEMA##', $Schema).Replace('##STARTDATE##', $startDateStr)
-$results.resourceLibrary = Execute-Query -QueryName "ResourceLibrary" -Query $query2
+ORDER BY r.MODIFICATIONDATE_DA_ DESC
+"@
+    }
 
-# QUERY 3: Part/MFG Library Activity
-Write-Host "`n[3/14] Part/MFG Library" -ForegroundColor Cyan
-
-$query3 = @'
+    PartLibrary = @{
+        TTL = 24
+        Query = @"
 SELECT
     'PART_LIBRARY' as work_type,
     p.OBJECT_ID as object_id,
@@ -560,54 +775,26 @@ SELECT
     NVL(u.CAPTION_S_, '') as checked_out_by_user_name,
     CASE WHEN pr.WORKING_VERSION_ID > 0 THEN 'Checked Out' ELSE 'Available' END as status,
     NVL(pr.WORKING_VERSION_ID, 0) as checkout_working_version_id
-FROM ##SCHEMA##.PART_ p
-LEFT JOIN ##SCHEMA##.CLASS_DEFINITIONS cd ON p.CLASS_ID = cd.TYPE_ID
-LEFT JOIN ##SCHEMA##.PROXY pr ON p.OBJECT_ID = pr.OBJECT_ID
-LEFT JOIN ##SCHEMA##.USER_ u ON pr.OWNER_ID = u.OBJECT_ID
-WHERE (p.MODIFICATIONDATE_DA_ > TO_DATE('##STARTDATE##', 'YYYY-MM-DD')
+FROM $Schema.PART_ p
+LEFT JOIN $Schema.CLASS_DEFINITIONS cd ON p.CLASS_ID = cd.TYPE_ID
+LEFT JOIN $Schema.PROXY pr ON p.OBJECT_ID = pr.OBJECT_ID
+LEFT JOIN $Schema.USER_ u ON pr.OWNER_ID = u.OBJECT_ID
+WHERE (p.MODIFICATIONDATE_DA_ > TO_DATE('$startDateStr', 'YYYY-MM-DD')
   OR pr.WORKING_VERSION_ID > 0)
   AND ROWNUM <= 100
-ORDER BY p.MODIFICATIONDATE_DA_ DESC;
-'@
-$query3 = $query3.Replace('##SCHEMA##', $Schema).Replace('##STARTDATE##', $startDateStr)
-$results.partLibrary = Execute-Query -QueryName "PartLibrary" -Query $query3
+ORDER BY p.MODIFICATIONDATE_DA_ DESC
+"@
+    }
 
-# QUERY 4: IPA Assembly Activity
-Write-Host "`n[4/14] IPA Assembly" -ForegroundColor Cyan
+    # Semi-stable data (4 hour cache)
+    IpaAssembly = @{
+        TTL = 4
+        Query = $ipaAssemblyQuery
+    }
 
-$query4 = @'
-SELECT
-    'IPA_ASSEMBLY' as work_type,
-    pa.OBJECT_ID as object_id,
-    pa.NAME_S_ as object_name,
-    'TxProcessAssembly' as object_type,
-    NVL(pa.CREATEDBY_S_, '') as created_by,
-    TO_CHAR(pa.MODIFICATIONDATE_DA_, 'YYYY-MM-DD HH24:MI:SS') as last_modified,
-    NVL(pa.LASTMODIFIEDBY_S_, '') as modified_by,
-    NVL(pr.OWNER_ID, 0) as checked_out_by_user_id,
-    NVL(u.CAPTION_S_, '') as checked_out_by_user_name,
-    CASE WHEN pr.WORKING_VERSION_ID > 0 THEN 'Checked Out' ELSE 'Available' END as status,
-    NVL(pr.WORKING_VERSION_ID, 0) as checkout_working_version_id,
-    (SELECT COUNT(DISTINCT o.OBJECT_ID)
-        FROM ##SCHEMA##.REL_COMMON r
-        INNER JOIN ##SCHEMA##.OPERATION_ o ON r.OBJECT_ID = o.OBJECT_ID
-        WHERE r.FORWARD_OBJECT_ID = pa.OBJECT_ID) as operation_count
-FROM ##SCHEMA##.PART_ pa
-LEFT JOIN ##SCHEMA##.PROXY pr ON pa.OBJECT_ID = pr.OBJECT_ID
-LEFT JOIN ##SCHEMA##.USER_ u ON pr.OWNER_ID = u.OBJECT_ID
-WHERE pa.CLASS_ID = 133
-  AND (pa.MODIFICATIONDATE_DA_ > TO_DATE('##STARTDATE##', 'YYYY-MM-DD')
-    OR pr.WORKING_VERSION_ID > 0)
-  AND ROWNUM <= 100
-ORDER BY pa.MODIFICATIONDATE_DA_ DESC;
-'@
-$query4 = $query4.Replace('##SCHEMA##', $Schema).Replace('##STARTDATE##', $startDateStr)
-$results.ipaAssembly = Execute-Query -QueryName "IpaAssembly" -Query $query4
-
-# QUERY 5A: Study Summary
-Write-Host "`n[5/14] Study Summary" -ForegroundColor Cyan
-
-$query5a = @'
+    StudySummary = @{
+        TTL = 4
+        Query = @"
 SELECT
     'STUDY_SUMMARY' as work_type,
     rs.OBJECT_ID as study_id,
@@ -620,35 +807,17 @@ SELECT
     NVL(u.CAPTION_S_, '') as checked_out_by_user_name,
     CASE WHEN p.WORKING_VERSION_ID > 0 THEN 'Active' ELSE 'Idle' END as status,
     NVL(p.WORKING_VERSION_ID, 0) as checkout_working_version_id
-FROM ##SCHEMA##.ROBCADSTUDY_ rs
-INNER JOIN ##SCHEMA##.REL_COMMON r ON rs.OBJECT_ID = r.OBJECT_ID
-LEFT JOIN ##SCHEMA##.CLASS_DEFINITIONS cd ON rs.CLASS_ID = cd.TYPE_ID
-LEFT JOIN ##SCHEMA##.PROXY p ON rs.OBJECT_ID = p.OBJECT_ID
-LEFT JOIN ##SCHEMA##.USER_ u ON p.OWNER_ID = u.OBJECT_ID
-WHERE EXISTS (
-    SELECT 1 FROM ##SCHEMA##.REL_COMMON r2
-    INNER JOIN ##SCHEMA##.COLLECTION_ c2 ON r2.OBJECT_ID = c2.OBJECT_ID
-    WHERE c2.OBJECT_ID = r.FORWARD_OBJECT_ID
-      AND c2.OBJECT_ID IN (
-        SELECT c3.OBJECT_ID
-        FROM ##SCHEMA##.REL_COMMON r3
-        INNER JOIN ##SCHEMA##.COLLECTION_ c3 ON r3.OBJECT_ID = c3.OBJECT_ID
-        START WITH r3.FORWARD_OBJECT_ID = ##PROJECTID##
-        CONNECT BY NOCYCLE PRIOR r3.OBJECT_ID = r3.FORWARD_OBJECT_ID
-      )
-  )
-  AND (rs.MODIFICATIONDATE_DA_ > TO_DATE('##STARTDATE##', 'YYYY-MM-DD')
-    OR p.WORKING_VERSION_ID > 0)
-  AND ROWNUM <= 50
-ORDER BY rs.MODIFICATIONDATE_DA_ DESC;
-'@
-$query5a = $query5a.Replace('##SCHEMA##', $Schema).Replace('##PROJECTID##', $ProjectId).Replace('##STARTDATE##', $startDateStr)
-$results.studySummary = Execute-Query -QueryName "StudySummary" -Query $query5a
+FROM $Schema.ROBCADSTUDY_ rs
+INNER JOIN $Schema.PROXY p ON rs.OBJECT_ID = p.OBJECT_ID AND p.PROJECT_ID = $ProjectId
+LEFT JOIN $Schema.CLASS_DEFINITIONS cd ON rs.CLASS_ID = cd.TYPE_ID
+LEFT JOIN $Schema.USER_ u ON p.OWNER_ID = u.OBJECT_ID
+ORDER BY rs.NAME_S_
+"@
+    }
 
-# QUERY 5B: Study Resources
-Write-Host "`n[6/14] Study Resource Allocation" -ForegroundColor Cyan
-
-$query5b = @'
+    StudyResources = @{
+        TTL = 4
+        Query = @"
 SELECT
     'STUDY_RESOURCES' as work_type,
     rs.OBJECT_ID as study_id,
@@ -665,37 +834,23 @@ SELECT
         WHEN s.NAME_S_ LIKE '%\_CC' ESCAPE '\' THEN 'Cell Coat Operations'
         ELSE 'Other'
     END as allocation_type
-FROM ##SCHEMA##.ROBCADSTUDY_ rs
-INNER JOIN ##SCHEMA##.REL_COMMON r_study ON rs.OBJECT_ID = r_study.OBJECT_ID
-INNER JOIN ##SCHEMA##.REL_COMMON r ON rs.OBJECT_ID = r.FORWARD_OBJECT_ID
-INNER JOIN ##SCHEMA##.SHORTCUT_ s ON r.OBJECT_ID = s.OBJECT_ID
-LEFT JOIN ##SCHEMA##.RESOURCE_ res
+FROM $Schema.ROBCADSTUDY_ rs
+INNER JOIN $Schema.PROXY p_study ON rs.OBJECT_ID = p_study.OBJECT_ID AND p_study.PROJECT_ID = $ProjectId
+INNER JOIN $Schema.REL_COMMON r ON r.FORWARD_OBJECT_ID = rs.OBJECT_ID AND r.REL_TYPE = 4
+INNER JOIN $Schema.SHORTCUT_ s ON r.OBJECT_ID = s.OBJECT_ID
+LEFT JOIN $Schema.RESOURCE_ res
     ON (s.LINKEXTERNALID_S_ IS NOT NULL AND s.LINKEXTERNALID_S_ = res.EXTERNALID_S_)
     OR (s.LINKEXTERNALID_S_ IS NULL AND s.NAME_S_ = res.NAME_S_)
-LEFT JOIN ##SCHEMA##.CLASS_DEFINITIONS cd ON res.CLASS_ID = cd.TYPE_ID
-WHERE EXISTS (
-    SELECT 1 FROM ##SCHEMA##.REL_COMMON r2
-    INNER JOIN ##SCHEMA##.COLLECTION_ c2 ON r2.OBJECT_ID = c2.OBJECT_ID
-    WHERE c2.OBJECT_ID = r_study.FORWARD_OBJECT_ID
-      AND c2.OBJECT_ID IN (
-        SELECT c3.OBJECT_ID
-        FROM ##SCHEMA##.REL_COMMON r3
-        INNER JOIN ##SCHEMA##.COLLECTION_ c3 ON r3.OBJECT_ID = c3.OBJECT_ID
-        START WITH r3.FORWARD_OBJECT_ID = ##PROJECTID##
-        CONNECT BY NOCYCLE PRIOR r3.OBJECT_ID = r3.FORWARD_OBJECT_ID
-      )
-  )
-  AND rs.MODIFICATIONDATE_DA_ > TO_DATE('##STARTDATE##', 'YYYY-MM-DD')
+LEFT JOIN $Schema.CLASS_DEFINITIONS cd ON res.CLASS_ID = cd.TYPE_ID
+WHERE rs.MODIFICATIONDATE_DA_ > TO_DATE('$startDateStr', 'YYYY-MM-DD')
   AND ROWNUM <= 200
-ORDER BY rs.NAME_S_, r.SEQ_NUMBER;
-'@
-$query5b = $query5b.Replace('##SCHEMA##', $Schema).Replace('##PROJECTID##', $ProjectId).Replace('##STARTDATE##', $startDateStr)
-$results.studyResources = Execute-Query -QueryName "StudyResources" -Query $query5b
+ORDER BY rs.NAME_S_, r.SEQ_NUMBER
+"@
+    }
 
-# QUERY 5C: Study Panels
-Write-Host "`n[7/14] Study Panel Usage" -ForegroundColor Cyan
-
-$query5c = @'
+    StudyPanels = @{
+        TTL = 4
+        Query = @"
 SELECT
     'STUDY_PANELS' as work_type,
     rs.OBJECT_ID as study_id,
@@ -709,34 +864,20 @@ SELECT
         ELSE 'N/A'
     END as panel_code,
     SUBSTR(s.NAME_S_, 1, INSTR(s.NAME_S_, '_') - 1) as station
-FROM ##SCHEMA##.ROBCADSTUDY_ rs
-INNER JOIN ##SCHEMA##.REL_COMMON r_study ON rs.OBJECT_ID = r_study.OBJECT_ID
-INNER JOIN ##SCHEMA##.REL_COMMON r ON rs.OBJECT_ID = r.FORWARD_OBJECT_ID
-INNER JOIN ##SCHEMA##.SHORTCUT_ s ON r.OBJECT_ID = s.OBJECT_ID
-WHERE EXISTS (
-    SELECT 1 FROM ##SCHEMA##.REL_COMMON r2
-    INNER JOIN ##SCHEMA##.COLLECTION_ c2 ON r2.OBJECT_ID = c2.OBJECT_ID
-    WHERE c2.OBJECT_ID = r_study.FORWARD_OBJECT_ID
-      AND c2.OBJECT_ID IN (
-        SELECT c3.OBJECT_ID
-        FROM ##SCHEMA##.REL_COMMON r3
-        INNER JOIN ##SCHEMA##.COLLECTION_ c3 ON r3.OBJECT_ID = c3.OBJECT_ID
-        START WITH r3.FORWARD_OBJECT_ID = ##PROJECTID##
-        CONNECT BY NOCYCLE PRIOR r3.OBJECT_ID = r3.FORWARD_OBJECT_ID
-      )
-  )
-  AND s.NAME_S_ LIKE '%\_%' ESCAPE '\'
-  AND rs.MODIFICATIONDATE_DA_ > TO_DATE('##STARTDATE##', 'YYYY-MM-DD')
+FROM $Schema.ROBCADSTUDY_ rs
+INNER JOIN $Schema.PROXY p_study ON rs.OBJECT_ID = p_study.OBJECT_ID AND p_study.PROJECT_ID = $ProjectId
+INNER JOIN $Schema.REL_COMMON r ON r.FORWARD_OBJECT_ID = rs.OBJECT_ID AND r.REL_TYPE = 4
+INNER JOIN $Schema.SHORTCUT_ s ON r.OBJECT_ID = s.OBJECT_ID
+WHERE s.NAME_S_ LIKE '%\_%' ESCAPE '\'
+  AND rs.MODIFICATIONDATE_DA_ > TO_DATE('$startDateStr', 'YYYY-MM-DD')
   AND ROWNUM <= 200
-ORDER BY rs.NAME_S_, s.NAME_S_;
-'@
-$query5c = $query5c.Replace('##SCHEMA##', $Schema).Replace('##PROJECTID##', $ProjectId).Replace('##STARTDATE##', $startDateStr)
-$results.studyPanels = Execute-Query -QueryName "StudyPanels" -Query $query5c
+ORDER BY rs.NAME_S_, s.NAME_S_
+"@
+    }
 
-# QUERY 5D: Study Operations
-Write-Host "`n[8/14] Study Operations" -ForegroundColor Cyan
-
-$query5d = @'
+    StudyOperations = @{
+        TTL = 4
+        Query = @"
 SELECT
     'STUDY_OPERATIONS' as work_type,
     o.OBJECT_ID as operation_id,
@@ -756,74 +897,61 @@ SELECT
     END as operation_category,
     CASE WHEN p.WORKING_VERSION_ID > 0 THEN 'Checked Out' ELSE 'Available' END as status,
     NVL(p.WORKING_VERSION_ID, 0) as checkout_working_version_id
-FROM ##SCHEMA##.OPERATION_ o
-LEFT JOIN ##SCHEMA##.CLASS_DEFINITIONS cd ON o.CLASS_ID = cd.TYPE_ID
-LEFT JOIN ##SCHEMA##.PROXY p ON o.OBJECT_ID = p.OBJECT_ID
-LEFT JOIN ##SCHEMA##.USER_ u ON p.OWNER_ID = u.OBJECT_ID
-WHERE (o.MODIFICATIONDATE_DA_ > TO_DATE('##STARTDATE##', 'YYYY-MM-DD')
+FROM $Schema.OPERATION_ o
+LEFT JOIN $Schema.CLASS_DEFINITIONS cd ON o.CLASS_ID = cd.TYPE_ID
+INNER JOIN $Schema.PROXY p ON o.OBJECT_ID = p.OBJECT_ID AND p.PROJECT_ID = $ProjectId
+LEFT JOIN $Schema.USER_ u ON p.OWNER_ID = u.OBJECT_ID
+WHERE (o.MODIFICATIONDATE_DA_ > TO_DATE('$startDateStr', 'YYYY-MM-DD')
   OR p.WORKING_VERSION_ID > 0)
   AND o.CLASS_ID = 141
   AND ROWNUM <= 100
-ORDER BY o.MODIFICATIONDATE_DA_ DESC;
-'@
-$query5d = $query5d.Replace('##SCHEMA##', $Schema).Replace('##STARTDATE##', $startDateStr)
-$results.studyOperations = Execute-Query -QueryName "StudyOperations" -Query $query5d
+ORDER BY o.MODIFICATIONDATE_DA_ DESC
+"@
+    }
 
-# QUERY 5E: Study Movements
-Write-Host "`n[9/14] Study Movement/Location Changes" -ForegroundColor Cyan
-
-$query5e = @'
+    # Volatile data (1 hour cache)
+    StudyMovements = @{
+        TTL = 1
+        Query = @"
 SELECT
     'STUDY_MOVEMENTS' as work_type,
+    rs.OBJECT_ID as study_id,
+    rs.NAME_S_ as study_name,
     sl.OBJECT_ID as studylayout_id,
     sl.STUDYINFO_SR_ as studyinfo_id,
     TO_CHAR(sl.MODIFICATIONDATE_DA_, 'YYYY-MM-DD HH24:MI:SS') as last_modified,
     NVL(sl.LASTMODIFIEDBY_S_, '') as modified_by,
     sl.OBJECT_ID as location_vector_id,
-    sl.OBJECT_ID as rotation_vector_id,
+    $studyMovementsRotationSelect
     (SELECT MAX(CASE WHEN vl.SEQ_NUMBER = 0 THEN TO_NUMBER(vl.DATA) END)
-        FROM ##SCHEMA##.VEC_LOCATION_ vl
+        FROM $Schema.VEC_LOCATION_ vl
         WHERE vl.OBJECT_ID = sl.OBJECT_ID) as x_coord,
     (SELECT MAX(CASE WHEN vl.SEQ_NUMBER = 1 THEN TO_NUMBER(vl.DATA) END)
-        FROM ##SCHEMA##.VEC_LOCATION_ vl
+        FROM $Schema.VEC_LOCATION_ vl
         WHERE vl.OBJECT_ID = sl.OBJECT_ID) as y_coord,
     (SELECT MAX(CASE WHEN vl.SEQ_NUMBER = 2 THEN TO_NUMBER(vl.DATA) END)
-        FROM ##SCHEMA##.VEC_LOCATION_ vl
+        FROM $Schema.VEC_LOCATION_ vl
         WHERE vl.OBJECT_ID = sl.OBJECT_ID) as z_coord,
     NVL(p.OWNER_ID, 0) as checked_out_by_user_id,
     NVL(u.CAPTION_S_, '') as checked_out_by_user_name,
     CASE WHEN p.WORKING_VERSION_ID > 0 THEN 'Checked Out' ELSE 'Available' END as status,
     NVL(p.WORKING_VERSION_ID, 0) as checkout_working_version_id
-FROM ##SCHEMA##.ROBCADSTUDY_ rs
-INNER JOIN ##SCHEMA##.REL_COMMON r_info ON r_info.FORWARD_OBJECT_ID = rs.OBJECT_ID AND r_info.CLASS_ID = 71
-INNER JOIN ##SCHEMA##.STUDYLAYOUT_ sl ON sl.STUDYINFO_SR_ = r_info.OBJECT_ID
-INNER JOIN ##SCHEMA##.REL_COMMON r ON rs.OBJECT_ID = r.OBJECT_ID
-LEFT JOIN ##SCHEMA##.PROXY p ON sl.OBJECT_ID = p.OBJECT_ID
-LEFT JOIN ##SCHEMA##.USER_ u ON p.OWNER_ID = u.OBJECT_ID
-WHERE EXISTS (
-    SELECT 1 FROM ##SCHEMA##.REL_COMMON r2
-    INNER JOIN ##SCHEMA##.COLLECTION_ c2 ON r2.OBJECT_ID = c2.OBJECT_ID
-    WHERE c2.OBJECT_ID = r.FORWARD_OBJECT_ID
-      AND c2.OBJECT_ID IN (
-        SELECT c3.OBJECT_ID
-        FROM ##SCHEMA##.REL_COMMON r3
-        INNER JOIN ##SCHEMA##.COLLECTION_ c3 ON r3.OBJECT_ID = c3.OBJECT_ID
-        START WITH r3.FORWARD_OBJECT_ID = ##PROJECTID##
-        CONNECT BY NOCYCLE PRIOR r3.OBJECT_ID = r3.FORWARD_OBJECT_ID
-      )
-  )
-  AND (sl.MODIFICATIONDATE_DA_ > TO_DATE('##STARTDATE##', 'YYYY-MM-DD')
+FROM $Schema.ROBCADSTUDY_ rs
+INNER JOIN $Schema.PROXY p_study ON rs.OBJECT_ID = p_study.OBJECT_ID AND p_study.PROJECT_ID = $ProjectId
+INNER JOIN $Schema.REL_COMMON r_info ON r_info.FORWARD_OBJECT_ID = rs.OBJECT_ID AND r_info.CLASS_ID = 71
+INNER JOIN $Schema.STUDYLAYOUT_ sl ON sl.STUDYINFO_SR_ = r_info.OBJECT_ID
+LEFT JOIN $Schema.PROXY p ON sl.OBJECT_ID = p.OBJECT_ID
+LEFT JOIN $Schema.USER_ u ON p.OWNER_ID = u.OBJECT_ID
+WHERE (sl.MODIFICATIONDATE_DA_ > TO_DATE('$startDateStr', 'YYYY-MM-DD')
     OR p.WORKING_VERSION_ID > 0)
   AND ROWNUM <= 100
-ORDER BY sl.MODIFICATIONDATE_DA_ DESC;
-'@
-$query5e = $query5e.Replace('##SCHEMA##', $Schema).Replace('##PROJECTID##', $ProjectId).Replace('##STARTDATE##', $startDateStr)
-$results.studyMovements = Execute-Query -QueryName "StudyMovements" -Query $query5e
+ORDER BY sl.MODIFICATIONDATE_DA_ DESC
+"@
+    }
 
-# QUERY 5F: Study Welds
-Write-Host "`n[10/14] Study Weld Points" -ForegroundColor Cyan
-
-$query5f = @'
+    StudyWelds = @{
+        TTL = 1
+        Query = @"
 SELECT
     'STUDY_WELDS' as work_type,
     o.OBJECT_ID as operation_id,
@@ -834,40 +962,37 @@ SELECT
     NVL(u.CAPTION_S_, '') as checked_out_by_user_name,
     CASE WHEN p.WORKING_VERSION_ID > 0 THEN 'Checked Out' ELSE 'Available' END as status,
     NVL(p.WORKING_VERSION_ID, 0) as checkout_working_version_id
-FROM ##SCHEMA##.OPERATION_ o
-LEFT JOIN ##SCHEMA##.PROXY p ON o.OBJECT_ID = p.OBJECT_ID
-LEFT JOIN ##SCHEMA##.USER_ u ON p.OWNER_ID = u.OBJECT_ID
+FROM $Schema.OPERATION_ o
+INNER JOIN $Schema.PROXY p ON o.OBJECT_ID = p.OBJECT_ID AND p.PROJECT_ID = $ProjectId
+LEFT JOIN $Schema.USER_ u ON p.OWNER_ID = u.OBJECT_ID
 WHERE o.CLASS_ID = 141
-  AND (o.MODIFICATIONDATE_DA_ > TO_DATE('##STARTDATE##', 'YYYY-MM-DD')
+  AND (o.MODIFICATIONDATE_DA_ > TO_DATE('$startDateStr', 'YYYY-MM-DD')
     OR p.WORKING_VERSION_ID > 0)
   AND ROWNUM <= 100
-ORDER BY o.MODIFICATIONDATE_DA_ DESC;
-'@
-$query5f = $query5f.Replace('##SCHEMA##', $Schema).Replace('##STARTDATE##', $startDateStr)
-$results.studyWelds = Execute-Query -QueryName "StudyWelds" -Query $query5f
+ORDER BY o.MODIFICATIONDATE_DA_ DESC
+"@
+    }
 
-# QUERY 6: User Activity
-Write-Host "`n[11/14] User Activity Summary" -ForegroundColor Cyan
-
-$query6 = @'
+    UserActivity = @{
+        TTL = 1
+        Query = @"
 SELECT
     u.OBJECT_ID as user_id,
     u.CAPTION_S_ as user_name,
-    u.NAME_ as username,
+    u.NAME_S_ as username,
     COUNT(DISTINCT p.OBJECT_ID) as objects_total,
     COUNT(DISTINCT CASE WHEN p.WORKING_VERSION_ID > 0 THEN p.OBJECT_ID END) as active_checkouts
-FROM ##SCHEMA##.USER_ u
-LEFT JOIN ##SCHEMA##.PROXY p ON u.OBJECT_ID = p.OWNER_ID
-GROUP BY u.OBJECT_ID, u.CAPTION_S_, u.NAME_
+FROM $Schema.USER_ u
+LEFT JOIN $Schema.PROXY p ON u.OBJECT_ID = p.OWNER_ID
+GROUP BY u.OBJECT_ID, u.CAPTION_S_, u.NAME_S_
 HAVING COUNT(DISTINCT p.OBJECT_ID) > 0
-ORDER BY active_checkouts DESC;
-'@
-$query6 = $query6.Replace('##SCHEMA##', $Schema)
-$results.userActivity = Execute-Query -QueryName "UserActivity" -Query $query6
+ORDER BY active_checkouts DESC
+"@
+    }
 
-# QUERY 7: Study Health Analysis
-Write-Host "`n[12/14] Study Health Analysis" -ForegroundColor Cyan
-$query7 = @'
+    StudyHealthData = @{
+        TTL = 4
+        Query = @"
 SELECT
     rs.OBJECT_ID as object_id,
     rs.NAME_S_ as study_name,
@@ -876,29 +1001,280 @@ SELECT
     TO_CHAR(rs.MODIFICATIONDATE_DA_, 'YYYY-MM-DD HH24:MI:SS') as last_modified,
     NVL(rs.LASTMODIFIEDBY_S_, '') as modified_by,
     rs.CLASS_ID as class_id
-FROM ##SCHEMA##.ROBCADSTUDY_ rs
-INNER JOIN ##SCHEMA##.REL_COMMON r ON rs.OBJECT_ID = r.OBJECT_ID
-LEFT JOIN ##SCHEMA##.CLASS_DEFINITIONS cd ON rs.CLASS_ID = cd.TYPE_ID
-WHERE EXISTS (
-    SELECT 1 FROM ##SCHEMA##.REL_COMMON r2
-    INNER JOIN ##SCHEMA##.COLLECTION_ c2 ON r2.OBJECT_ID = c2.OBJECT_ID
-    WHERE c2.OBJECT_ID = r.FORWARD_OBJECT_ID
-      AND c2.OBJECT_ID IN (
-        SELECT c3.OBJECT_ID
-        FROM ##SCHEMA##.REL_COMMON r3
-        INNER JOIN ##SCHEMA##.COLLECTION_ c3 ON r3.OBJECT_ID = c3.OBJECT_ID
-        START WITH r3.FORWARD_OBJECT_ID = ##PROJECTID##
-        CONNECT BY NOCYCLE PRIOR r3.OBJECT_ID = r3.FORWARD_OBJECT_ID
-      )
-  )
-  AND rs.NAME_S_ IS NOT NULL
-ORDER BY rs.NAME_S_;
-'@
-$query7 = $query7.Replace('##SCHEMA##', $Schema).Replace('##PROJECTID##', $ProjectId)
-$allStudies = Execute-Query -QueryName "StudyHealthData" -Query $query7
+FROM $Schema.ROBCADSTUDY_ rs
+INNER JOIN $Schema.PROXY p ON rs.OBJECT_ID = p.OBJECT_ID AND p.PROJECT_ID = $ProjectId
+LEFT JOIN $Schema.CLASS_DEFINITIONS cd ON rs.CLASS_ID = cd.TYPE_ID
+WHERE rs.NAME_S_ IS NOT NULL
+ORDER BY rs.NAME_S_
+"@
+    }
 
-# Perform health checks on studies
-Write-Host "  Analyzing study names for health issues..." -ForegroundColor Yellow
+    ResourceConflicts = @{
+        TTL = 1
+        Query = @"
+SELECT
+    r.NAME_S_ as resource_name,
+    r.OBJECT_ID as resource_id,
+    cd.NICE_NAME as resource_type,
+    COUNT(DISTINCT rs.OBJECT_ID) as study_count,
+    LISTAGG(rs.NAME_S_, ', ') WITHIN GROUP (ORDER BY rs.NAME_S_) as studies_using_resource
+FROM $Schema.SHORTCUT_ s
+INNER JOIN $Schema.RESOURCE_ r ON s.NAME_S_ = r.NAME_S_
+INNER JOIN $Schema.REL_COMMON rc ON s.OBJECT_ID = rc.OBJECT_ID
+INNER JOIN $Schema.ROBCADSTUDY_ rs ON rc.FORWARD_OBJECT_ID = rs.OBJECT_ID
+INNER JOIN $Schema.PROXY p ON rs.OBJECT_ID = p.OBJECT_ID
+LEFT JOIN $Schema.CLASS_DEFINITIONS cd ON r.CLASS_ID = cd.TYPE_ID
+WHERE p.WORKING_VERSION_ID > 0
+  AND p.PROJECT_ID = $ProjectId
+GROUP BY r.NAME_S_, r.OBJECT_ID, cd.NICE_NAME
+HAVING COUNT(DISTINCT rs.OBJECT_ID) > 1
+ORDER BY study_count DESC
+"@
+    }
+
+    StaleCheckouts = @{
+        TTL = 1
+        Query = @"
+SELECT
+    c.OBJECT_ID as object_id,
+    c.CAPTION_S_ as object_name,
+    cd.NICE_NAME as object_type,
+    c.MODIFICATIONDATE_DA_ as last_modified,
+    u.CAPTION_S_ as checked_out_by,
+    u.OBJECT_ID as user_id,
+    ROUND((SYSDATE - c.MODIFICATIONDATE_DA_) * 24, 1) as checkout_duration_hours,
+    ROUND((SYSDATE - c.MODIFICATIONDATE_DA_), 1) as checkout_duration_days
+FROM $Schema.COLLECTION_ c
+INNER JOIN $Schema.PROXY p ON c.OBJECT_ID = p.OBJECT_ID
+LEFT JOIN $Schema.USER_ u ON p.OWNER_ID = u.OBJECT_ID
+LEFT JOIN $Schema.CLASS_DEFINITIONS cd ON c.CLASS_ID = cd.TYPE_ID
+WHERE p.WORKING_VERSION_ID > 0
+  AND c.MODIFICATIONDATE_DA_ < SYSDATE - 3
+ORDER BY checkout_duration_hours DESC
+"@
+    }
+}
+
+# Execute queries in parallel using jobs
+Write-Host "`nStarting parallel query execution..." -ForegroundColor Yellow
+
+# Use the connection string we built earlier for parallel jobs
+$connectionStringForJobs = $connectionString
+
+$jobs = @{}
+$queryOrder = @(
+    'ProjectDatabase', 'ResourceLibrary', 'PartLibrary', 'IpaAssembly',
+    'StudySummary', 'StudyResources', 'StudyPanels', 'StudyOperations',
+    'StudyMovements', 'StudyWelds', 'UserActivity', 'StudyHealthData',
+    'ResourceConflicts', 'StaleCheckouts'
+)
+
+$jobIndex = 1
+foreach ($queryName in $queryOrder) {
+    $queryInfo = $queries[$queryName]
+    Write-Host "[$jobIndex/14] Launching $queryName (TTL: $($queryInfo.TTL)h)..." -ForegroundColor Cyan
+
+    # Check cache first (synchronously for better UX)
+    $cachedData = Get-CachedData -QueryName $queryName -TTLHours $queryInfo.TTL
+    if ($null -ne $cachedData) {
+        # Use cached data immediately
+        $jobs[$queryName] = @{
+            Job = $null
+            Data = $cachedData
+            Cached = $true
+        }
+        $jobIndex++
+        continue
+    }
+
+    # Launch background job for query
+    $job = Start-Job -ScriptBlock {
+        param($connString, $query, $timeout)
+
+        # Load assembly in job context
+        $scriptRoot = $using:PSScriptRoot
+        $rootDir = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $scriptRoot))
+        $dllPath = Join-Path $rootDir "lib\Oracle.ManagedDataAccess.dll"
+        Add-Type -Path $dllPath -ErrorAction Stop
+
+        $conn = New-Object Oracle.ManagedDataAccess.Client.OracleConnection($connString)
+        $conn.Open()
+
+        $cmd = $conn.CreateCommand()
+        $cmd.CommandText = $query
+        $cmd.CommandTimeout = $timeout
+
+        $reader = $cmd.ExecuteReader()
+
+        $columns = @()
+        for ($i = 0; $i -lt $reader.FieldCount; $i++) {
+            $columns += $reader.GetName($i)
+        }
+
+        $results = @()
+        while ($reader.Read()) {
+            $row = @{}
+            for ($i = 0; $i -lt $reader.FieldCount; $i++) {
+                $value = $reader.GetValue($i)
+                if ($value -is [System.DBNull]) {
+                    $value = $null
+                }
+                $row[$columns[$i]] = $value
+            }
+            $results += [PSCustomObject]$row
+        }
+
+        $reader.Close()
+        $cmd.Dispose()
+        $conn.Close()
+        $conn.Dispose()
+
+        return $results
+    } -ArgumentList $connectionStringForJobs, $queryInfo.Query, 300
+
+    $jobs[$queryName] = @{
+        Job = $job
+        Data = $null
+        Cached = $false
+        StartTime = Get-Date
+    }
+
+    $jobIndex++
+}
+
+# Wait for jobs and collect results
+Write-Host "`nWaiting for queries to complete..." -ForegroundColor Yellow
+
+foreach ($queryName in $queryOrder) {
+    $jobInfo = $jobs[$queryName]
+
+    if ($jobInfo.Cached) {
+        Write-Host "  $queryName : Retrieved $($jobInfo.Data.Count) rows from cache" -ForegroundColor Green
+        continue
+    }
+
+    $job = $jobInfo.Job
+    $startTime = $jobInfo.StartTime
+
+    Write-Host "  $queryName : Waiting..." -ForegroundColor Yellow -NoNewline
+
+    $completed = Wait-Job $job -Timeout 300
+
+    if (-not $completed) {
+        Stop-Job $job -ErrorAction SilentlyContinue
+        Remove-Job $job -Force -ErrorAction SilentlyContinue
+        Write-Host " TIMEOUT" -ForegroundColor Red
+        $jobInfo.Data = @()
+    } else {
+        $data = Receive-Job $job
+        Remove-Job $job -Force -ErrorAction SilentlyContinue
+
+        $elapsed = ((Get-Date) - $startTime).TotalMilliseconds
+        $results.performance.queryTimes[$queryName] = [math]::Round($elapsed, 0)
+
+        $jobInfo.Data = @($data)
+        Write-Host " $($jobInfo.Data.Count) rows in $([math]::Round($elapsed, 0))ms" -ForegroundColor Green
+
+        # Cache the result
+        if ($queries[$queryName].TTL -gt 0 -and $jobInfo.Data.Count -gt 0) {
+            Set-CachedData -QueryName $queryName -Data $jobInfo.Data
+        }
+    }
+}
+
+# Assign results to output structure
+Write-Host "`nProcessing results..." -ForegroundColor Yellow
+
+$results.projectDatabase = $jobs['ProjectDatabase'].Data
+$results.resourceLibrary = $jobs['ResourceLibrary'].Data
+$results.partLibrary = $jobs['PartLibrary'].Data
+$results.ipaAssembly = $jobs['IpaAssembly'].Data
+$results.studySummary = $jobs['StudySummary'].Data
+$results.studyResources = $jobs['StudyResources'].Data
+$results.studyPanels = $jobs['StudyPanels'].Data
+$results.studyOperations = $jobs['StudyOperations'].Data
+$results.studyMovements = $jobs['StudyMovements'].Data
+$results.studyWelds = $jobs['StudyWelds'].Data
+$results.userActivity = $jobs['UserActivity'].Data
+
+# Populate project name metadata from projectDatabase (if available)
+if (-not $results.metadata.projectName) {
+    $projectName = $null
+    if ($results.projectDatabase -and $results.projectDatabase.Count -gt 0) {
+        $firstProject = $results.projectDatabase[0]
+        if ($firstProject.project_name) {
+            $projectName = $firstProject.project_name
+        } elseif ($firstProject.object_name) {
+            $projectName = $firstProject.object_name
+        }
+    }
+    if (-not [string]::IsNullOrWhiteSpace($projectName)) {
+        $results.metadata.projectName = $projectName
+    }
+}
+
+# Deduplicate study summary by study_id
+if ($results.studySummary -and $results.studySummary.Count -gt 0) {
+    $studyMap = @{}
+    foreach ($study in $results.studySummary) {
+        $studyId = $study.study_id
+        if (-not $studyMap.ContainsKey($studyId)) {
+            $studyMap[$studyId] = $study
+        } else {
+            $existingDate = [DateTime]::ParseExact($studyMap[$studyId].last_modified, 'yyyy-MM-dd HH:mm:ss', $null)
+            $newDate = [DateTime]::ParseExact($study.last_modified, 'yyyy-MM-dd HH:mm:ss', $null)
+            if ($newDate -gt $existingDate) {
+                $studyMap[$studyId] = $study
+            }
+        }
+    }
+    $beforeCount = $results.studySummary.Count
+    $deduped = @()
+    $deduped += $studyMap.Values
+    $results.studySummary = $deduped
+    if ($beforeCount -ne $results.studySummary.Count) {
+        Write-Host "  Deduplicated $beforeCount -> $($results.studySummary.Count) studies" -ForegroundColor DarkYellow
+    }
+}
+
+# Work Type Summary metadata (definitions + Study Nodes breakdown)
+$studyTotal = if ($results.studySummary) { $results.studySummary.Count } else { 0 }
+$studyCheckedOutCount = 0
+$studyModifiedInRangeCount = 0
+$studyModifiedButNotCheckedOutCount = 0
+$studyCheckedOutButNotModifiedCount = 0
+
+if ($results.studySummary -and $results.studySummary.Count -gt 0) {
+    foreach ($study in $results.studySummary) {
+        $isCheckedOut = ($study.status -eq 'Active' -or $study.status -eq 'Checked Out')
+        $lastModifiedDate = Convert-StringToDateTime -Value $study.last_modified
+        $isModifiedInRange = Test-DateInRange -Value $lastModifiedDate -Start $StartDate -End $EndDate
+
+        if ($isCheckedOut) { $studyCheckedOutCount++ }
+        if ($isModifiedInRange) { $studyModifiedInRangeCount++ }
+        if ($isModifiedInRange -and -not $isCheckedOut) { $studyModifiedButNotCheckedOutCount++ }
+        if ($isCheckedOut -and -not $isModifiedInRange) { $studyCheckedOutButNotModifiedCount++ }
+    }
+}
+
+$results.workTypeSummaryMeta = @{
+    checkedOutRule = "PROXY.WORKING_VERSION_ID > 0"
+    modifiedRule = "ROBCADSTUDY_.MODIFICATIONDATE_DA_ between ${startDateStr} and ${endDateStr} (inclusive)"
+    modifiedTimestampColumn = "ROBCADSTUDY_.MODIFICATIONDATE_DA_"
+    dateRangeStart = $startDateStr
+    dateRangeEnd = $endDateStr
+    studyNodes = @{
+        totalStudiesInScope = $studyTotal
+        checkedOutCount = $studyCheckedOutCount
+        modifiedInRangeCount = $studyModifiedInRangeCount
+        modifiedButNotCheckedOutCount = $studyModifiedButNotCheckedOutCount
+        checkedOutButNotModifiedInRangeCount = $studyCheckedOutButNotModifiedCount
+    }
+}
+
+# Process Study Health Analysis
+Write-Host "`n[12/14] Processing Study Health Analysis" -ForegroundColor Cyan
+$allStudies = $jobs['StudyHealthData'].Data
 
 # Load rules from config file
 $rulesPath = Join-Path $PSScriptRoot "..\..\..\config\robcad-study-health-rules.json"
@@ -956,7 +1332,6 @@ function Get-NameTokens {
 foreach ($study in $allStudies) {
     $name = $study.study_name
 
-    # Skip if name is null or whitespace
     if ([string]::IsNullOrWhiteSpace($name)) {
         $issues += [PSCustomObject]@{
             node_id = $study.object_id
@@ -968,163 +1343,93 @@ foreach ($study in $allStudies) {
         continue
     }
 
-    # Check for leading/trailing whitespace
     if ($name -ne $name.Trim()) {
         $issues += [PSCustomObject]@{
             node_id = $study.object_id
             study_name = $name
-            severity = "Critical"
-            issue = "leading_trailing_whitespace"
-            details = "Leading or trailing whitespace detected"
+            severity = "High"
+            issue = "whitespace_padding"
+            details = "Name has leading or trailing whitespace"
         }
     }
 
-    # Check for illegal characters
+    if ($name.Length -gt $rules.maxNameLength) {
+        $issues += [PSCustomObject]@{
+            node_id = $study.object_id
+            study_name = $name
+            severity = "Medium"
+            issue = "name_too_long"
+            details = "Name exceeds $($rules.maxNameLength) characters (current: $($name.Length))"
+        }
+    }
+
     if (Test-IllegalChars -Name $name -IllegalChars $rules.illegalChars) {
         $issues += [PSCustomObject]@{
             node_id = $study.object_id
             study_name = $name
             severity = "Critical"
-            issue = "illegal_chars"
-            details = "Contains illegal characters"
+            issue = "illegal_characters"
+            details = "Name contains illegal filesystem characters"
         }
     }
 
-    # Check for junk tokens
     $tokens = Get-NameTokens -Name $name
-    $junkFound = @()
+
     foreach ($junk in $rules.junkTokens) {
-        if ($tokens -contains $junk.ToLowerInvariant()) {
-            $junkFound += $junk
+        if ($tokens -contains $junk) {
+            $suspicious += [PSCustomObject]@{
+                node_id = $study.object_id
+                study_name = $name
+                flag = "junk_token"
+                token = $junk
+                suggestion = "Review and rename if test/temporary study"
+            }
         }
     }
 
-    # Check for junk phrases
-    $nameLower = $name.ToLowerInvariant()
-    foreach ($phrase in $rules.junkPhrases) {
-        if ($nameLower.Contains($phrase.ToLowerInvariant())) {
-            $junkFound += $phrase
-        }
-    }
-
-    if ($junkFound.Count -gt 0) {
-        $issues += [PSCustomObject]@{
-            node_id = $study.object_id
-            study_name = $name
-            severity = "High"
-            issue = "junk_tokens"
-            details = "Contains placeholder tokens: $($junkFound -join ', ')"
-        }
-    }
-
-    # Check for hash-like names
-    if ($nameLower -match '[0-9a-f]{16,}') {
-        $issues += [PSCustomObject]@{
-            node_id = $study.object_id
-            study_name = $name
-            severity = "High"
-            issue = "hash_like_name"
-            details = "Looks like a GUID or hash"
-        }
-    }
-
-    # Check for file path in name
-    if ($nameLower -match '([a-z]:\\|\\\\|/home/)') {
-        $issues += [PSCustomObject]@{
-            node_id = $study.object_id
-            study_name = $name
-            severity = "High"
-            issue = "file_path_name"
-            details = "Contains a file path"
-        }
-    }
-
-    # Check for legacy markers
-    $legacyFound = @()
     foreach ($legacy in $rules.legacyTokens) {
-        if ($tokens -contains $legacy.ToLowerInvariant()) {
-            $legacyFound += $legacy
+        if ($tokens -contains $legacy) {
+            $suspicious += [PSCustomObject]@{
+                node_id = $study.object_id
+                study_name = $name
+                flag = "legacy_token"
+                token = $legacy
+                suggestion = "Consider archiving or removing if no longer needed"
+            }
         }
     }
 
-    # Check for year stamp
-    if ($nameLower -match $rules.yearPattern) {
-        $legacyFound += "year_stamp"
-    }
-
-    if ($legacyFound.Count -gt 0) {
-        $issues += [PSCustomObject]@{
-            node_id = $study.object_id
-            study_name = $name
-            severity = "High"
-            issue = "legacy_markers"
-            details = "Contains legacy markers: $($legacyFound -join ', ')"
-        }
-    }
-
-    # Check for overlong name
-    if ($name.Length -gt $rules.maxNameLength) {
-        $issues += [PSCustomObject]@{
-            node_id = $study.object_id
-            study_name = $name
-            severity = "Low"
-            issue = "overlong_name"
-            details = "Length $($name.Length) exceeds $($rules.maxNameLength)"
-        }
-    }
-
-    # Check for too many words
-    $wordTokens = ($name.Trim() -split '\s+') | Where-Object { $_ }
-    if ($wordTokens.Count -gt $rules.maxWordCount) {
-        $issues += [PSCustomObject]@{
-            node_id = $study.object_id
-            study_name = $name
-            severity = "Low"
-            issue = "too_many_tokens"
-            details = "Word count $($wordTokens.Count) exceeds $($rules.maxWordCount)"
+    if ($name -match $rules.yearPattern) {
+        $year = [regex]::Match($name, $rules.yearPattern).Value
+        $currentYear = (Get-Date).Year
+        if ([int]$year -lt ($currentYear - 2)) {
+            $suspicious += [PSCustomObject]@{
+                node_id = $study.object_id
+                study_name = $name
+                flag = "old_year"
+                token = $year
+                suggestion = "Study name contains old year $year - review if still current"
+            }
         }
     }
 }
 
-# Calculate summary statistics
-$results.studyHealth.summary.totalStudies = $allStudies.Count
-$results.studyHealth.summary.totalIssues = $issues.Count
-$results.studyHealth.summary.criticalIssues = @($issues | Where-Object { $_.severity -eq "Critical" }).Count
-$results.studyHealth.summary.highIssues = @($issues | Where-Object { $_.severity -eq "High" }).Count
-$results.studyHealth.summary.mediumIssues = @($issues | Where-Object { $_.severity -eq "Medium" }).Count
-$results.studyHealth.summary.lowIssues = @($issues | Where-Object { $_.severity -eq "Low" }).Count
-
-# Add to results
 $results.studyHealth.issues = $issues
 $results.studyHealth.suspicious = $suspicious
 $results.studyHealth.renameSuggestions = $renameSuggestions
+$results.studyHealth.summary.totalStudies = $allStudies.Count
+$results.studyHealth.summary.totalIssues = $issues.Count
+$results.studyHealth.summary.criticalIssues = ($issues | Where-Object { $_.severity -eq "Critical" }).Count
+$results.studyHealth.summary.highIssues = ($issues | Where-Object { $_.severity -eq "High" }).Count
+$results.studyHealth.summary.mediumIssues = ($issues | Where-Object { $_.severity -eq "Medium" }).Count
+$results.studyHealth.summary.lowIssues = ($issues | Where-Object { $_.severity -eq "Low" }).Count
 
-Write-Host "Analyzed $($allStudies.Count) studies, found $($issues.Count) issues" -ForegroundColor Green
-Write-Host "      Critical: $($results.studyHealth.summary.criticalIssues), High: $($results.studyHealth.summary.highIssues), Medium: $($results.studyHealth.summary.mediumIssues), Low: $($results.studyHealth.summary.lowIssues)" -ForegroundColor Gray
-# QUERY 7: Resource Conflicts
-Write-Host "`n[13/14] Resource Conflict Detection" -ForegroundColor Cyan
-$query7 = @'
-SELECT
-    r.NAME_S_ as resource_name,
-    r.OBJECT_ID as resource_id,
-    cd.NICE_NAME as resource_type,
-    COUNT(DISTINCT rs.OBJECT_ID) as study_count,
-    LISTAGG(rs.NAME_S_, ', ') WITHIN GROUP (ORDER BY rs.NAME_S_) as studies_using_resource
-FROM ##SCHEMA##.SHORTCUT_ s
-INNER JOIN ##SCHEMA##.RESOURCE_ r ON s.NAME_S_ = r.NAME_S_
-INNER JOIN ##SCHEMA##.REL_COMMON rc ON s.OBJECT_ID = rc.OBJECT_ID
-INNER JOIN ##SCHEMA##.ROBCADSTUDY_ rs ON rc.FORWARD_OBJECT_ID = rs.OBJECT_ID
-INNER JOIN ##SCHEMA##.PROXY p ON rs.OBJECT_ID = p.OBJECT_ID
-LEFT JOIN ##SCHEMA##.CLASS_DEFINITIONS cd ON r.CLASS_ID = cd.TYPE_ID
-WHERE p.WORKING_VERSION_ID > 0
-GROUP BY r.NAME_S_, r.OBJECT_ID, cd.NICE_NAME
-HAVING COUNT(DISTINCT rs.OBJECT_ID) > 1
-ORDER BY study_count DESC;
-'@
-$query7 = $query7.Replace('##SCHEMA##', $Schema)
-$conflicts = Execute-Query -QueryName "ResourceConflicts" -Query $query7
+Write-Host "  Found $($issues.Count) issues across $($allStudies.Count) studies" -ForegroundColor Green
 
-# Add risk level classification
+# Process Resource Conflicts
+Write-Host "`n[13/14] Processing Resource Conflicts" -ForegroundColor Cyan
+$conflicts = $jobs['ResourceConflicts'].Data
+
 $results.resourceConflicts = $conflicts | ForEach-Object {
     $studyCount = [int]$_.study_count
     $riskLevel = if ($studyCount -ge 3) { "Critical" } elseif ($studyCount -eq 2) { "High" } else { "Medium" }
@@ -1139,30 +1444,12 @@ $results.resourceConflicts = $conflicts | ForEach-Object {
     }
 }
 
-# QUERY 8: Stale Checkouts (>72 hours)
-Write-Host "`n[14/14] Stale Checkout Detection" -ForegroundColor Cyan
-$query8 = @'
-SELECT
-    c.OBJECT_ID as object_id,
-    c.CAPTION_S_ as object_name,
-    cd.NICE_NAME as object_type,
-    c.MODIFICATIONDATE_DA_ as last_modified,
-    u.CAPTION_S_ as checked_out_by,
-    u.OBJECT_ID as user_id,
-    ROUND((SYSDATE - c.MODIFICATIONDATE_DA_) * 24, 1) as checkout_duration_hours,
-    ROUND((SYSDATE - c.MODIFICATIONDATE_DA_), 1) as checkout_duration_days
-FROM ##SCHEMA##.COLLECTION_ c
-INNER JOIN ##SCHEMA##.PROXY p ON c.OBJECT_ID = p.OBJECT_ID
-LEFT JOIN ##SCHEMA##.USER_ u ON p.OWNER_ID = u.OBJECT_ID
-LEFT JOIN ##SCHEMA##.CLASS_DEFINITIONS cd ON c.CLASS_ID = cd.TYPE_ID
-WHERE p.WORKING_VERSION_ID > 0
-  AND c.MODIFICATIONDATE_DA_ < SYSDATE - 3
-ORDER BY checkout_duration_hours DESC;
-'@
-$query8 = $query8.Replace('##SCHEMA##', $Schema)
-$staleCheckouts = Execute-Query -QueryName "StaleCheckouts" -Query $query8
+Write-Host "  Found $($results.resourceConflicts.Count) resource conflicts" -ForegroundColor Green
 
-# Add severity classification
+# Process Stale Checkouts
+Write-Host "`n[14/14] Processing Stale Checkouts" -ForegroundColor Cyan
+$staleCheckouts = $jobs['StaleCheckouts'].Data
+
 $results.staleCheckouts = $staleCheckouts | ForEach-Object {
     $hours = [double]$_.checkout_duration_hours
     $days = [double]$_.checkout_duration_days
@@ -1182,7 +1469,6 @@ $results.staleCheckouts = $staleCheckouts | ForEach-Object {
     }
 }
 
-# Create bottleneck queue (group by user)
 $results.bottleneckQueue = $results.staleCheckouts |
     Where-Object { $_.flagged } |
     Group-Object -Property checked_out_by |
@@ -1202,9 +1488,12 @@ $results.bottleneckQueue = $results.staleCheckouts |
     } |
     Sort-Object -Property total_hours -Descending
 
-Write-Host "Found $($results.resourceConflicts.Count) resource conflicts" -ForegroundColor Green
-Write-Host "Found $($results.staleCheckouts.Count) stale checkouts (>72 hours)" -ForegroundColor Green
-Write-Host "Identified $($results.bottleneckQueue.Count) users with stale checkouts" -ForegroundColor Green
+Write-Host "  Found $($results.staleCheckouts.Count) stale checkouts" -ForegroundColor Green
+Write-Host "  Identified $($results.bottleneckQueue.Count) users with stale checkouts" -ForegroundColor Green
+
+# Close database connection
+$connection.Close()
+$connection.Dispose()
 
 # ========================================
 # Tree Snapshot Collection
@@ -1221,7 +1510,7 @@ if (Get-Command -Name New-TreeEvidenceBlock -ErrorAction SilentlyContinue) {
     Write-Warning "Tree evidence classifier not available; tree changes will be raw."
 }
 
-$treeSnapshotDir = Join-Path (Get-Location).Path "data\\tree-snapshots"
+$treeSnapshotDir = Join-Path (Get-Location).Path "data\tree-snapshots"
 if (-not (Test-Path $treeSnapshotDir)) {
     New-Item -ItemType Directory -Path $treeSnapshotDir -Force | Out-Null
 }
@@ -1229,7 +1518,9 @@ if (-not (Test-Path $treeSnapshotDir)) {
 $treeExportScript = Join-Path $PSScriptRoot "..\..\..\scripts\debug\export-study-tree-snapshot.ps1"
 $treeDiffScript = Join-Path $PSScriptRoot "..\..\..\scripts\debug\compare-study-tree-snapshots.ps1"
 
-if (-not (Test-Path $treeExportScript) -or -not (Test-Path $treeDiffScript)) {
+if ($SkipTreeSnapshots) {
+    Write-Warning "Tree snapshot collection skipped (SkipTreeSnapshots enabled)."
+} elseif (-not (Test-Path $treeExportScript) -or -not (Test-Path $treeDiffScript)) {
     Write-Warning "Tree snapshot scripts not found; skipping tree change collection."
 } else {
     $treeCheckoutMap = @{}
@@ -1246,1105 +1537,80 @@ if (-not (Test-Path $treeExportScript) -or -not (Test-Path $treeDiffScript)) {
         }
     }
 
+    $snapshotAttempts = 0
+    $snapshotErrors = 0
+    $snapshotSkipped = 0
+
     foreach ($study in $results.studySummary) {
         $studyId = [string]$study.study_id
         $studyName = $study.study_name
 
+        $hasCheckout = $treeCheckoutMap.ContainsKey($studyId)
+        $hasWrite = $treeWriteMap.ContainsKey($studyId)
+
+        if (-not $hasCheckout -and -not $hasWrite) {
+            $snapshotSkipped++
+            continue
+        }
+
+        if ($TreeSnapshotLimit -gt 0 -and $snapshotAttempts -ge $TreeSnapshotLimit) {
+            Write-Warning "Tree snapshot limit reached ($TreeSnapshotLimit). Skipping remaining studies."
+            break
+        }
+
+        $snapshotAttempts++
         Write-Host "  Processing: $studyName (ID: $studyId)" -ForegroundColor Gray
 
-        $baselineFile = Join-Path $treeSnapshotDir "study-$studyId-baseline.json"
-        $currentFile = Join-Path $treeSnapshotDir "study-$studyId-current.json"
-        $diffFile = Join-Path $treeSnapshotDir "study-$studyId-diff.json"
+        $snapshotPath = Join-Path $treeSnapshotDir "$studyId.json"
+        $previousSnapshotPath = Join-Path $treeSnapshotDir "$studyId.previous.json"
 
-        try {
-            & $treeExportScript `
-                -TNSName $TNSName `
-                -Schema $Schema `
-                -ProjectId $ProjectId `
-                -StudyId $studyId `
-                -OutputDir $treeSnapshotDir | Out-Null
-        } catch {
-            Write-Warning "    Snapshot export failed for study ${studyId}: $_"
-            continue
-        }
-
-        $latestSnapshot = Get-ChildItem -Path $treeSnapshotDir -Filter "study-tree-snapshot-$Schema-$studyId-*.json" |
-            Sort-Object -Property LastWriteTime -Descending |
-            Select-Object -First 1
-
-        if (-not $latestSnapshot) {
-            Write-Warning "    Snapshot export did not produce output for study ${studyId}"
-            continue
-        }
-
-        try {
-            Copy-Item -Path $latestSnapshot.FullName -Destination $currentFile -Force
-        } catch {
-            Write-Warning "    Failed to store current snapshot for study ${studyId}: $_"
-            continue
-        }
-
-        if (-not (Test-Path $baselineFile)) {
-            try {
-                Copy-Item -Path $currentFile -Destination $baselineFile -Force
-                Write-Host "    Created baseline snapshot" -ForegroundColor Yellow
-            } catch {
-                Write-Warning "    Failed to create baseline snapshot for study ${studyId}: $_"
-            }
-            continue
-        }
-
-        try {
-            & $treeDiffScript `
-                -BaselineSnapshot $baselineFile `
-                -CurrentSnapshot $currentFile `
-                -OutputFile $diffFile | Out-Null
-        } catch {
-            Write-Warning "    Snapshot diff failed for study ${studyId}: $_"
-            continue
-        }
-
-        if (-not (Test-Path $diffFile)) {
-            Write-Warning "    Diff output missing for study ${studyId}"
-            continue
-        }
-
-        $diff = $null
-        try {
-            $diff = Get-Content $diffFile -Raw | ConvertFrom-Json
-        } catch {
-            Write-Warning "    Failed to parse diff for study ${studyId}: $_"
-            continue
-        }
-
-        if (-not $diff -or -not $diff.changes) {
-            continue
-        }
-
-        $baselineSnapshot = $null
         $currentSnapshot = $null
+        if (Test-Path $snapshotPath) {
+            if (Test-Path $previousSnapshotPath) {
+                Remove-Item $previousSnapshotPath -Force -ErrorAction SilentlyContinue
+            }
+            Copy-Item -Path $snapshotPath -Destination $previousSnapshotPath -Force -ErrorAction SilentlyContinue
+        }
+
         try {
-            $baselineSnapshot = Get-Content $baselineFile -Raw | ConvertFrom-Json
-            $currentSnapshot = Get-Content $currentFile -Raw | ConvertFrom-Json
+            & $treeExportScript -TNSName $TNSName -Schema $Schema -ProjectId $ProjectId -StudyId $studyId -OutputFile $snapshotPath -ErrorAction Stop
+            if (Test-Path $snapshotPath) {
+                $currentSnapshot = Get-Content $snapshotPath -Raw | ConvertFrom-Json
+            }
         } catch {
-            # Snapshot parsing is optional for provenance lookups
-        }
-
-        $baselineNodeMap = @{}
-        if ($baselineSnapshot -and $baselineSnapshot.nodes) {
-            foreach ($node in $baselineSnapshot.nodes) {
-                $baselineNodeMap[$node.node_id] = $node
+            Write-Warning "    Failed to export tree snapshot: $_"
+            $snapshotErrors++
+            if ($TreeSnapshotErrorLimit -gt 0 -and $snapshotErrors -ge $TreeSnapshotErrorLimit) {
+                Write-Warning "Tree snapshot error limit reached ($TreeSnapshotErrorLimit). Stopping snapshot collection."
+                break
             }
         }
 
-        $currentNodeMap = @{}
-        if ($currentSnapshot -and $currentSnapshot.nodes) {
-            foreach ($node in $currentSnapshot.nodes) {
-                $currentNodeMap[$node.node_id] = $node
-            }
-        }
+        if ($treeEvidenceEnabled -and $currentSnapshot) {
+            $treeEvidenceBlock = New-TreeEvidenceBlock `
+                -StudyId $studyId `
+                -StudyName $studyName `
+                -HasCheckout $hasCheckout `
+                -HasWrite $hasWrite `
+                -CurrentSnapshot $currentSnapshot `
+                -PreviousSnapshotPath $previousSnapshotPath
 
-        $snapshotFiles = @{
-            baseline = [System.IO.Path]::GetFileName($baselineFile)
-            current = [System.IO.Path]::GetFileName($currentFile)
-            diff = [System.IO.Path]::GetFileName($diffFile)
-        }
-
-        $detectedAt = if ($diff.meta -and $diff.meta.comparedAt) { $diff.meta.comparedAt } else { (Get-Date).ToString('yyyy-MM-dd HH:mm:ss') }
-
-        foreach ($rename in $diff.changes.renamed) {
-            $treeChange = @{
-                evidence_type = "rename"
-                study_id = $studyId
-                study_name = $studyName
-                node_id = $rename.node_id
-                node_type = $rename.node_type
-                old_name = $rename.old_name
-                new_name = $rename.new_name
-                old_provenance = $rename.old_provenance
-                new_provenance = $rename.new_provenance
-                detected_at = $detectedAt
-                snapshot_files = $snapshotFiles
-            }
-
-            if ($treeEvidenceEnabled) {
-                $block = New-TreeEvidenceBlock -TreeChange $treeChange -CheckoutData $treeCheckoutMap -WriteData $treeWriteMap
-                if ($block) {
-                    $treeEvidence += [PSCustomObject]$block
-                }
-            } else {
-                $treeEvidence += [PSCustomObject]$treeChange
-            }
-        }
-
-        foreach ($move in $diff.changes.moved) {
-            $coordProvenance = $null
-            if ($currentNodeMap.ContainsKey($move.node_id) -and $currentNodeMap[$move.node_id].coord_provenance) {
-                $coordProvenance = $currentNodeMap[$move.node_id].coord_provenance
-            }
-
-            $treeChange = @{
-                evidence_type = "movement"
-                study_id = $studyId
-                study_name = $studyName
-                node_id = $move.node_id
-                node_name = $move.display_name
-                node_type = $move.node_type
-                old_x = $move.old_x
-                old_y = $move.old_y
-                old_z = $move.old_z
-                new_x = $move.new_x
-                new_y = $move.new_y
-                new_z = $move.new_z
-                delta_x = $move.delta_x
-                delta_y = $move.delta_y
-                delta_z = $move.delta_z
-                delta_mm = $move.delta_mm
-                movement_type = $move.movement_type
-                mapping_type = $move.mapping_type
-                coord_provenance = $coordProvenance
-                detected_at = $detectedAt
-                snapshot_files = $snapshotFiles
-            }
-
-            if ($treeEvidenceEnabled) {
-                $block = New-TreeEvidenceBlock -TreeChange $treeChange -CheckoutData $treeCheckoutMap -WriteData $treeWriteMap
-                if ($block) {
-                    $treeEvidence += [PSCustomObject]$block
-                }
-            } else {
-                $treeEvidence += [PSCustomObject]$treeChange
-            }
-        }
-
-        foreach ($structChange in $diff.changes.structuralChanges) {
-            $nameProvenance = $null
-            if ($currentNodeMap.ContainsKey($structChange.node_id) -and $currentNodeMap[$structChange.node_id].name_provenance) {
-                $nameProvenance = $currentNodeMap[$structChange.node_id].name_provenance
-            }
-
-            $treeChange = @{
-                evidence_type = "structure"
-                change_type = $structChange.change_type
-                study_id = $studyId
-                study_name = $studyName
-                node_id = $structChange.node_id
-                node_name = $structChange.display_name
-                node_type = $structChange.node_type
-                old_parent_id = $structChange.old_parent_id
-                new_parent_id = $structChange.new_parent_id
-                name_provenance = $nameProvenance
-                detected_at = $detectedAt
-                snapshot_files = $snapshotFiles
-            }
-
-            if ($treeEvidenceEnabled) {
-                $block = New-TreeEvidenceBlock -TreeChange $treeChange -CheckoutData $treeCheckoutMap -WriteData $treeWriteMap
-                if ($block) {
-                    $treeEvidence += [PSCustomObject]$block
-                }
-            } else {
-                $treeEvidence += [PSCustomObject]$treeChange
-            }
-        }
-
-        foreach ($mappingChange in $diff.changes.resourceMappingChanges) {
-            $treeChange = @{
-                evidence_type = "resource_mapping"
-                study_id = $studyId
-                study_name = $studyName
-                node_id = $mappingChange.node_id
-                node_name = $mappingChange.shortcut_name
-                node_type = "Shortcut"
-                old_resource_id = $mappingChange.old_resource_id
-                old_resource_name = $mappingChange.old_resource_name
-                new_resource_id = $mappingChange.new_resource_id
-                new_resource_name = $mappingChange.new_resource_name
-                detected_at = $detectedAt
-                snapshot_files = $snapshotFiles
-            }
-
-            if ($treeEvidenceEnabled) {
-                $block = New-TreeEvidenceBlock -TreeChange $treeChange -CheckoutData $treeCheckoutMap -WriteData $treeWriteMap
-                if ($block) {
-                    $treeEvidence += [PSCustomObject]$block
-                }
-            } else {
-                $treeEvidence += [PSCustomObject]$treeChange
-            }
-        }
-
-        foreach ($added in $diff.changes.nodesAdded) {
-            $nameProvenance = $null
-            if ($currentNodeMap.ContainsKey($added.node_id) -and $currentNodeMap[$added.node_id].name_provenance) {
-                $nameProvenance = $currentNodeMap[$added.node_id].name_provenance
-            }
-
-            $treeChange = @{
-                evidence_type = "node_added"
-                study_id = $studyId
-                study_name = $studyName
-                node_id = $added.node_id
-                node_name = $added.display_name
-                node_type = $added.node_type
-                parent_node_id = $added.parent_node_id
-                resource_name = $added.resource_name
-                name_provenance = $nameProvenance
-                detected_at = $detectedAt
-                snapshot_files = $snapshotFiles
-            }
-
-            if ($treeEvidenceEnabled) {
-                $block = New-TreeEvidenceBlock -TreeChange $treeChange -CheckoutData $treeCheckoutMap -WriteData $treeWriteMap
-                if ($block) {
-                    $treeEvidence += [PSCustomObject]$block
-                }
-            } else {
-                $treeEvidence += [PSCustomObject]$treeChange
-            }
-        }
-
-        foreach ($removed in $diff.changes.nodesRemoved) {
-            $nameProvenance = $null
-            if ($baselineNodeMap.ContainsKey($removed.node_id) -and $baselineNodeMap[$removed.node_id].name_provenance) {
-                $nameProvenance = $baselineNodeMap[$removed.node_id].name_provenance
-            }
-
-            $treeChange = @{
-                evidence_type = "node_removed"
-                study_id = $studyId
-                study_name = $studyName
-                node_id = $removed.node_id
-                node_name = $removed.display_name
-                node_type = $removed.node_type
-                parent_node_id = $removed.parent_node_id
-                resource_name = $removed.resource_name
-                name_provenance = $nameProvenance
-                detected_at = $detectedAt
-                snapshot_files = $snapshotFiles
-            }
-
-            if ($treeEvidenceEnabled) {
-                $block = New-TreeEvidenceBlock -TreeChange $treeChange -CheckoutData $treeCheckoutMap -WriteData $treeWriteMap
-                if ($block) {
-                    $treeEvidence += [PSCustomObject]$block
-                }
-            } else {
-                $treeEvidence += [PSCustomObject]$treeChange
+            if ($treeEvidenceBlock) {
+                $treeEvidence += $treeEvidenceBlock
             }
         }
     }
+
+    Write-Host "  Tree snapshots attempted: $snapshotAttempts (skipped: $snapshotSkipped, errors: $snapshotErrors)" -ForegroundColor Gray
 }
 
 $results.treeChanges = $treeEvidence
-Write-Host "  Tree evidence collected: $($results.treeChanges.Count) changes" -ForegroundColor Green
 
 # ========================================
-# Evidence & Snapshot Processing
+# Property Normalization
 # ========================================
 Write-Host "`n========================================" -ForegroundColor Cyan
-Write-Host "  Evidence & Snapshot Processing" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
-
-$evidenceEnabled = $false
-if (Get-Command -Name New-EvidenceBlock -ErrorAction SilentlyContinue) {
-    $evidenceEnabled = $true
-} else {
-    Write-Warning "Evidence classifier not available; evidence blocks will be empty."
-}
-
-$previousSnapshot = $null
-$snapshotPath = $null
-$snapshotAvailable = $false
-if (Get-Command -Name Read-Snapshot -ErrorAction SilentlyContinue) {
-    $snapshotPath = Get-SnapshotPath -Schema $Schema -ProjectId $ProjectId
-    $previousSnapshot = Read-Snapshot -SnapshotPath $snapshotPath
-    $snapshotAvailable = $true
-    if ($snapshotPath) {
-        $results.metadata.snapshotFile = [System.IO.Path]::GetFileName($snapshotPath)
-    }
-} else {
-    Write-Warning "Snapshot manager not available; diffs disabled."
-}
-
-$newSnapshotRecords = @()
-
-function Add-EventRecord {
-    param(
-        [string]$WorkType,
-        [string]$Timestamp,
-        [string]$User,
-        [string]$Description,
-        [string]$ObjectName,
-        [string]$ObjectId,
-        [string]$ObjectType,
-        [hashtable]$Evidence,
-        [hashtable]$Context
-    )
-
-    $safeEvidence = Ensure-EvidenceBlock -Evidence $Evidence
-
-    $event = [ordered]@{
-        timestamp = $Timestamp
-        user = $User
-        workType = $WorkType
-        description = $Description
-        objectName = $ObjectName
-        objectId = $ObjectId
-        objectType = $ObjectType
-        evidence = $safeEvidence
-    }
-
-    if ($Context -and $Context.Count -gt 0) {
-        $event.context = $Context
-    }
-
-    $results.events += [PSCustomObject]$event
-}
-
-# Project Database events
-foreach ($item in $results.projectDatabase) {
-    $objectId = [string]$item.object_id
-    $objectType = if ($item.object_type) { $item.object_type } else { "Project" }
-    $objectName = $item.object_name
-    $modifiedBy = $item.modified_by
-    $lastModifiedDate = Convert-StringToDateTime -Value $item.last_modified
-    $writeSources = @()
-    if (Test-DateInRange -Value $lastModifiedDate -Start $StartDate -End $EndDate) {
-        $writeSources += "COLLECTION_.MODIFICATIONDATE_DA_"
-    }
-
-    $snapshotRecord = New-SnapshotRecord `
-        -ObjectId $objectId `
-        -ObjectType $objectType `
-        -ModificationDate $lastModifiedDate `
-        -LastModifiedBy $modifiedBy `
-        -Metadata @{ objectName = $objectName }
-
-    if ($snapshotRecord) {
-        $newSnapshotRecords += $snapshotRecord
-    }
-
-    $snapshotComparison = $null
-    if ($previousSnapshot) {
-        $snapshotComparison = Compare-Snapshots -ObjectId $objectId -NewRecord $snapshotRecord -PreviousSnapshot $previousSnapshot
-    }
-    $snapshotEvidence = New-SnapshotEvidence -SnapshotComparison $snapshotComparison
-
-    $deltaSummary = New-AllocationDeltaSummary -SnapshotComparison $snapshotComparison -NewRecord $snapshotRecord
-
-    $evidence = @{}
-    if ($evidenceEnabled) {
-        $evidence = New-EvidenceBlock `
-            -ObjectId $objectId `
-            -ObjectType $objectType `
-            -ProxyOwnerId $item.checked_out_by_user_id `
-            -ProxyOwnerName $item.checked_out_by_user_name `
-            -LastModifiedBy $modifiedBy `
-            -CheckoutWorkingVersionId ([int]$item.checkout_working_version_id) `
-            -ModificationDate $lastModifiedDate `
-            -WriteSources $writeSources `
-            -DeltaSummary $deltaSummary `
-            -SnapshotComparison $snapshotEvidence
-    }
-
-    $normalizedWorkType = Normalize-WorkTypeSafe -WorkType "Project Database" -ObjectType $objectType
-    $description = if ($item.status) { "$objectName - $($item.status)" } else { $objectName }
-    $context = $null
-    if (Get-Command -Name New-EventEnrichment -ErrorAction SilentlyContinue) {
-        $enrichment = New-EventEnrichment `
-            -WorkType $normalizedWorkType `
-            -ObjectName $objectName `
-            -ObjectType $objectType `
-            -ObjectId $objectId `
-            -Category $null `
-            -Item $item `
-            -DeltaSummary $deltaSummary `
-            -SnapshotComparison $snapshotComparison
-
-        if ($enrichment -and $enrichment.description) {
-            $description = $enrichment.description
-        }
-        $context = $enrichment.context
-    }
-    $user = if ($modifiedBy) { $modifiedBy } else { $item.checked_out_by_user_name }
-
-    Add-EventRecord `
-        -WorkType $normalizedWorkType `
-        -Timestamp $item.last_modified `
-        -User $user `
-        -Description $description `
-        -ObjectName $objectName `
-        -ObjectId $objectId `
-        -ObjectType $objectType `
-        -Evidence $evidence `
-        -Context $context
-}
-
-# Resource Library events
-foreach ($item in $results.resourceLibrary) {
-    $objectId = [string]$item.object_id
-    $objectType = if ($item.object_type) { $item.object_type } else { "Resource" }
-    $objectName = $item.object_name
-    $modifiedBy = $item.modified_by
-    $lastModifiedDate = Convert-StringToDateTime -Value $item.last_modified
-    $writeSources = @()
-    if (Test-DateInRange -Value $lastModifiedDate -Start $StartDate -End $EndDate) {
-        $writeSources += "RESOURCE_.MODIFICATIONDATE_DA_"
-    }
-
-    $snapshotRecord = New-SnapshotRecord `
-        -ObjectId $objectId `
-        -ObjectType $objectType `
-        -ModificationDate $lastModifiedDate `
-        -LastModifiedBy $modifiedBy `
-        -Metadata @{ objectName = $objectName }
-
-    if ($snapshotRecord) {
-        $newSnapshotRecords += $snapshotRecord
-    }
-
-    $snapshotComparison = $null
-    if ($previousSnapshot) {
-        $snapshotComparison = Compare-Snapshots -ObjectId $objectId -NewRecord $snapshotRecord -PreviousSnapshot $previousSnapshot
-    }
-    $snapshotEvidence = New-SnapshotEvidence -SnapshotComparison $snapshotComparison
-
-    $deltaSummary = New-LibraryDeltaSummary -SnapshotComparison $snapshotComparison -NewRecord $snapshotRecord
-
-    $evidence = @{}
-    if ($evidenceEnabled) {
-        $evidence = New-EvidenceBlock `
-            -ObjectId $objectId `
-            -ObjectType $objectType `
-            -ProxyOwnerId $item.checked_out_by_user_id `
-            -ProxyOwnerName $item.checked_out_by_user_name `
-            -LastModifiedBy $modifiedBy `
-            -CheckoutWorkingVersionId ([int]$item.checkout_working_version_id) `
-            -ModificationDate $lastModifiedDate `
-            -WriteSources $writeSources `
-            -DeltaSummary $deltaSummary `
-            -SnapshotComparison $snapshotEvidence
-    }
-
-    $normalizedWorkType = Normalize-WorkTypeSafe -WorkType "Resource Library" -ObjectType $objectType
-    $description = if ($item.status) { "$objectName ($($item.object_type)) - $($item.status)" } else { "$objectName ($($item.object_type))" }
-    $context = $null
-    if (Get-Command -Name New-EventEnrichment -ErrorAction SilentlyContinue) {
-        $enrichment = New-EventEnrichment `
-            -WorkType $normalizedWorkType `
-            -ObjectName $objectName `
-            -ObjectType $objectType `
-            -ObjectId $objectId `
-            -Category $null `
-            -Item $item `
-            -DeltaSummary $deltaSummary `
-            -SnapshotComparison $snapshotComparison
-
-        if ($enrichment -and $enrichment.description) {
-            $description = $enrichment.description
-        }
-        $context = $enrichment.context
-    }
-    $user = if ($modifiedBy) { $modifiedBy } else { $item.checked_out_by_user_name }
-
-    Add-EventRecord `
-        -WorkType $normalizedWorkType `
-        -Timestamp $item.last_modified `
-        -User $user `
-        -Description $description `
-        -ObjectName $objectName `
-        -ObjectId $objectId `
-        -ObjectType $objectType `
-        -Evidence $evidence `
-        -Context $context
-}
-
-# Part Library events
-foreach ($item in $results.partLibrary) {
-    $objectId = [string]$item.object_id
-    $objectType = if ($item.object_type) { $item.object_type } else { "Part" }
-    $objectName = $item.object_name
-    $modifiedBy = $item.modified_by
-    $lastModifiedDate = Convert-StringToDateTime -Value $item.last_modified
-    $writeSources = @()
-    if (Test-DateInRange -Value $lastModifiedDate -Start $StartDate -End $EndDate) {
-        $writeSources += "PART_.MODIFICATIONDATE_DA_"
-    }
-
-    $snapshotRecord = New-SnapshotRecord `
-        -ObjectId $objectId `
-        -ObjectType $objectType `
-        -ModificationDate $lastModifiedDate `
-        -LastModifiedBy $modifiedBy `
-        -Metadata @{ objectName = $objectName; category = $item.category }
-
-    if ($snapshotRecord) {
-        $newSnapshotRecords += $snapshotRecord
-    }
-
-    $snapshotComparison = $null
-    if ($previousSnapshot) {
-        $snapshotComparison = Compare-Snapshots -ObjectId $objectId -NewRecord $snapshotRecord -PreviousSnapshot $previousSnapshot
-    }
-    $snapshotEvidence = New-SnapshotEvidence -SnapshotComparison $snapshotComparison
-
-    $deltaSummary = New-LibraryDeltaSummary -SnapshotComparison $snapshotComparison -NewRecord $snapshotRecord
-
-    $evidence = @{}
-    if ($evidenceEnabled) {
-        $evidence = New-EvidenceBlock `
-            -ObjectId $objectId `
-            -ObjectType $objectType `
-            -ProxyOwnerId $item.checked_out_by_user_id `
-            -ProxyOwnerName $item.checked_out_by_user_name `
-            -LastModifiedBy $modifiedBy `
-            -CheckoutWorkingVersionId ([int]$item.checkout_working_version_id) `
-            -ModificationDate $lastModifiedDate `
-            -WriteSources $writeSources `
-            -DeltaSummary $deltaSummary `
-            -SnapshotComparison $snapshotEvidence
-    }
-
-    $normalizedWorkType = Normalize-WorkTypeSafe -WorkType "Part/MFG Library" -ObjectType $objectType -Category $item.category
-    $description = if ($item.status) { "$objectName ($($item.category)) - $($item.status)" } else { "$objectName ($($item.category))" }
-    $context = $null
-    if (Get-Command -Name New-EventEnrichment -ErrorAction SilentlyContinue) {
-        $enrichment = New-EventEnrichment `
-            -WorkType $normalizedWorkType `
-            -ObjectName $objectName `
-            -ObjectType $objectType `
-            -ObjectId $objectId `
-            -Category $item.category `
-            -Item $item `
-            -DeltaSummary $deltaSummary `
-            -SnapshotComparison $snapshotComparison
-
-        if ($enrichment -and $enrichment.description) {
-            $description = $enrichment.description
-        }
-        $context = $enrichment.context
-    }
-    $user = if ($modifiedBy) { $modifiedBy } else { $item.checked_out_by_user_name }
-
-    Add-EventRecord `
-        -WorkType $normalizedWorkType `
-        -Timestamp $item.last_modified `
-        -User $user `
-        -Description $description `
-        -ObjectName $objectName `
-        -ObjectId $objectId `
-        -ObjectType $objectType `
-        -Evidence $evidence `
-        -Context $context
-}
-
-# IPA Assembly events
-foreach ($item in $results.ipaAssembly) {
-    $objectId = [string]$item.object_id
-    $objectType = if ($item.object_type) { $item.object_type } else { "TxProcessAssembly" }
-    $objectName = $item.object_name
-    $modifiedBy = $item.modified_by
-    $lastModifiedDate = Convert-StringToDateTime -Value $item.last_modified
-    $operationCount = 0
-    if (-not [string]::IsNullOrWhiteSpace($item.operation_count)) {
-        $operationCount = [int]$item.operation_count
-    }
-
-    $stationContext = $null
-    if (Get-Command -Name Try-ResolveStationContext -ErrorAction SilentlyContinue) {
-        $stationContext = Try-ResolveStationContext -Item $item -ObjectName $objectName
-    }
-
-    $stationValue = $null
-    if ($stationContext -and $stationContext.station) {
-        $stationValue = $stationContext.station
-    }
-
-    $allocationFingerprint = $null
-    if (Get-Command -Name New-AllocationFingerprint -ErrorAction SilentlyContinue) {
-        $allocationFingerprint = New-AllocationFingerprint -Station $stationValue -OperationCount $operationCount
-    }
-
-    $operationCounts = $null
-    if ($operationCount -gt 0 -or $allocationFingerprint) {
-        $operationCounts = @{
-            operationCount = $operationCount
-        }
-        if ($allocationFingerprint) {
-            $operationCounts.allocationFingerprint = $allocationFingerprint
-        }
-    }
-
-    $writeSources = @()
-    if (Test-DateInRange -Value $lastModifiedDate -Start $StartDate -End $EndDate) {
-        if (Get-Command -Name Get-IpaWriteSources -ErrorAction SilentlyContinue) {
-            $writeSources += Get-IpaWriteSources -OperationCount $operationCount
-        } else {
-            $writeSources += "PART_.MODIFICATIONDATE_DA_"
-        }
-    }
-
-    $joinSources = @("REL_COMMON.OBJECT_ID", "OPERATION_.OBJECT_ID")
-
-    $metadata = @{ objectName = $objectName }
-    if ($stationValue) {
-        $metadata.station = $stationValue
-    }
-
-    if ($allocationFingerprint) {
-        $metadata.allocationFingerprint = $allocationFingerprint
-    }
-
-    $snapshotRecord = New-SnapshotRecord `
-        -ObjectId $objectId `
-        -ObjectType $objectType `
-        -ModificationDate $lastModifiedDate `
-        -LastModifiedBy $modifiedBy `
-        -OperationCounts $operationCounts `
-        -Metadata $metadata
-
-    if ($snapshotRecord) {
-        $newSnapshotRecords += $snapshotRecord
-    }
-
-    $snapshotComparison = $null
-    if ($previousSnapshot) {
-        $snapshotComparison = Compare-Snapshots -ObjectId $objectId -NewRecord $snapshotRecord -PreviousSnapshot $previousSnapshot
-    }
-    $snapshotEvidence = New-SnapshotEvidence -SnapshotComparison $snapshotComparison
-
-    $allocationHistory = @()
-    if ($snapshotComparison -and $snapshotComparison.previousRecord -and $snapshotComparison.previousRecord.PSObject.Properties['metadata']) {
-        $previousMetadata = $snapshotComparison.previousRecord.metadata
-        if ($previousMetadata.PSObject.Properties['allocationFingerprintHistory']) {
-            $allocationHistory = @($previousMetadata.allocationFingerprintHistory)
-        } elseif ($previousMetadata.PSObject.Properties['allocationFingerprint']) {
-            $allocationHistory = @($previousMetadata.allocationFingerprint)
-        }
-    }
-
-    if ($allocationFingerprint) {
-        $allocationHistory += $allocationFingerprint
-        if ($allocationHistory.Count -gt 3) {
-            $allocationHistory = $allocationHistory[-3..-1]
-        }
-    }
-
-    if ($snapshotRecord -and $allocationHistory.Count -gt 0) {
-        if (-not $snapshotRecord.metadata) {
-            $snapshotRecord.metadata = @{}
-        }
-        $snapshotRecord.metadata.allocationFingerprintHistory = $allocationHistory
-    }
-
-    $allocationState = $null
-    if (Get-Command -Name Get-AllocationStabilityState -ErrorAction SilentlyContinue) {
-        $allocationState = Get-AllocationStabilityState -FingerprintHistory $allocationHistory -Window 3
-    }
-
-    $deltaSummary = New-AllocationDeltaSummary -SnapshotComparison $snapshotComparison -NewRecord $snapshotRecord
-
-    $evidence = @{}
-    if ($evidenceEnabled) {
-        $evidence = New-EvidenceBlock `
-            -ObjectId $objectId `
-            -ObjectType $objectType `
-            -ProxyOwnerId $item.checked_out_by_user_id `
-            -ProxyOwnerName $item.checked_out_by_user_name `
-            -LastModifiedBy $modifiedBy `
-            -CheckoutWorkingVersionId ([int]$item.checkout_working_version_id) `
-            -ModificationDate $lastModifiedDate `
-            -WriteSources $writeSources `
-            -DeltaSummary $deltaSummary `
-            -JoinSources $joinSources `
-            -SnapshotComparison $snapshotEvidence
-    }
-
-    $normalizedWorkType = Normalize-WorkTypeSafe -WorkType "IPA Assembly" -ObjectType $objectType
-    $description = if ($item.status) { "$objectName - $($item.status)" } else { $objectName }
-    $context = $null
-    if (Get-Command -Name New-EventEnrichment -ErrorAction SilentlyContinue) {
-        $enrichment = New-EventEnrichment `
-            -WorkType $normalizedWorkType `
-            -ObjectName $objectName `
-            -ObjectType $objectType `
-            -ObjectId $objectId `
-            -Category $null `
-            -Item $item `
-            -DeltaSummary $deltaSummary `
-            -SnapshotComparison $snapshotComparison
-
-        if ($enrichment -and $enrichment.description) {
-            $description = $enrichment.description
-        }
-        $context = $enrichment.context
-    }
-
-    if ($allocationState) {
-        if (-not $context) {
-            $context = @{}
-        }
-        $context.allocationState = $allocationState
-    }
-    $user = if ($modifiedBy) { $modifiedBy } else { $item.checked_out_by_user_name }
-
-    Add-EventRecord `
-        -WorkType $normalizedWorkType `
-        -Timestamp $item.last_modified `
-        -User $user `
-        -Description $description `
-        -ObjectName $objectName `
-        -ObjectId $objectId `
-        -ObjectType $objectType `
-        -Evidence $evidence `
-        -Context $context
-}
-
-# Study Summary events
-foreach ($item in $results.studySummary) {
-    $objectId = [string]$item.study_id
-    $objectType = if ($item.study_type) { $item.study_type } else { "RobcadStudy" }
-    $objectName = $item.study_name
-    $modifiedBy = $item.modified_by
-    $lastModifiedDate = Convert-StringToDateTime -Value $item.last_modified
-    $writeSources = @()
-    if (Test-DateInRange -Value $lastModifiedDate -Start $StartDate -End $EndDate) {
-        $writeSources += "ROBCADSTUDY_.MODIFICATIONDATE_DA_"
-    }
-
-    $snapshotRecord = New-SnapshotRecord `
-        -ObjectId $objectId `
-        -ObjectType $objectType `
-        -ModificationDate $lastModifiedDate `
-        -LastModifiedBy $modifiedBy `
-        -Metadata @{ studyName = $objectName }
-
-    if ($snapshotRecord) {
-        $newSnapshotRecords += $snapshotRecord
-    }
-
-    $snapshotComparison = $null
-    if ($previousSnapshot) {
-        $snapshotComparison = Compare-Snapshots -ObjectId $objectId -NewRecord $snapshotRecord -PreviousSnapshot $previousSnapshot
-    }
-    $snapshotEvidence = New-SnapshotEvidence -SnapshotComparison $snapshotComparison
-
-    $evidence = @{}
-    if ($evidenceEnabled) {
-        $evidence = New-EvidenceBlock `
-            -ObjectId $objectId `
-            -ObjectType $objectType `
-            -ProxyOwnerId $item.checked_out_by_user_id `
-            -ProxyOwnerName $item.checked_out_by_user_name `
-            -LastModifiedBy $modifiedBy `
-            -CheckoutWorkingVersionId ([int]$item.checkout_working_version_id) `
-            -ModificationDate $lastModifiedDate `
-            -WriteSources $writeSources `
-            -SnapshotComparison $snapshotEvidence
-    }
-
-    $normalizedWorkType = Normalize-WorkTypeSafe -WorkType "Study Nodes" -ObjectType $objectType
-    $description = if ($item.status) { "$objectName ($($item.study_type)) - $($item.status)" } else { "$objectName ($($item.study_type))" }
-    $context = $null
-    if (Get-Command -Name New-EventEnrichment -ErrorAction SilentlyContinue) {
-        $enrichment = New-EventEnrichment `
-            -WorkType $normalizedWorkType `
-            -ObjectName $objectName `
-            -ObjectType $objectType `
-            -ObjectId $objectId `
-            -Category $null `
-            -Item $item `
-            -DeltaSummary $null `
-            -SnapshotComparison $snapshotComparison
-
-        if ($enrichment -and $enrichment.description) {
-            $description = $enrichment.description
-        }
-        $context = $enrichment.context
-    }
-    $user = if ($modifiedBy) { $modifiedBy } else { $item.checked_out_by_user_name }
-
-    Add-EventRecord `
-        -WorkType $normalizedWorkType `
-        -Timestamp $item.last_modified `
-        -User $user `
-        -Description $description `
-        -ObjectName $objectName `
-        -ObjectId $objectId `
-        -ObjectType $objectType `
-        -Evidence $evidence `
-        -Context $context
-}
-
-# Study Movement events
-foreach ($item in $results.studyMovements) {
-    $objectId = [string]$item.studylayout_id
-    $objectType = "StudyLayout"
-    $objectName = "StudyLayout $objectId"
-    $modifiedBy = $item.modified_by
-    $lastModifiedDate = Convert-StringToDateTime -Value $item.last_modified
-    $writeSources = @()
-    if (Test-DateInRange -Value $lastModifiedDate -Start $StartDate -End $EndDate) {
-        $writeSources += "STUDYLAYOUT_.MODIFICATIONDATE_DA_"
-    }
-
-    $coordinates = $null
-    if (-not [string]::IsNullOrWhiteSpace($item.x_coord) -and
-        -not [string]::IsNullOrWhiteSpace($item.y_coord) -and
-        -not [string]::IsNullOrWhiteSpace($item.z_coord)) {
-        $coordinates = @{
-            x = [double]$item.x_coord
-            y = [double]$item.y_coord
-            z = [double]$item.z_coord
-        }
-    }
-
-    $snapshotRecord = New-SnapshotRecord `
-        -ObjectId $objectId `
-        -ObjectType $objectType `
-        -ModificationDate $lastModifiedDate `
-        -LastModifiedBy $modifiedBy `
-        -Coordinates $coordinates `
-        -Metadata @{ studyId = $item.studyinfo_id; locationVectorId = $item.location_vector_id }
-
-    if ($snapshotRecord) {
-        $newSnapshotRecords += $snapshotRecord
-    }
-
-    $snapshotComparison = $null
-    if ($previousSnapshot) {
-        $snapshotComparison = Compare-Snapshots -ObjectId $objectId -NewRecord $snapshotRecord -PreviousSnapshot $previousSnapshot
-    }
-    $snapshotEvidence = New-SnapshotEvidence -SnapshotComparison $snapshotComparison
-
-    $deltaSummary = $null
-    $previousRecordTable = $null
-    if ($snapshotComparison -and $snapshotComparison.previousRecord) {
-        $previousRecordTable = Convert-PSObjectToHashtable -InputObject $snapshotComparison.previousRecord
-    }
-    if ($snapshotComparison -and $previousRecordTable -and $snapshotComparison.hasDelta) {
-        $deltaSummary = New-CoordinateDeltaSummary -NewRecord $snapshotRecord -PreviousRecord $previousRecordTable
-    }
-
-    $evidence = @{}
-    if ($evidenceEnabled) {
-        $evidence = New-EvidenceBlock `
-            -ObjectId $objectId `
-            -ObjectType $objectType `
-            -ProxyOwnerId $item.checked_out_by_user_id `
-            -ProxyOwnerName $item.checked_out_by_user_name `
-            -LastModifiedBy $modifiedBy `
-            -CheckoutWorkingVersionId ([int]$item.checkout_working_version_id) `
-            -ModificationDate $lastModifiedDate `
-            -WriteSources $writeSources `
-            -DeltaSummary $deltaSummary `
-            -SnapshotComparison $snapshotEvidence
-    }
-
-    $normalizedWorkType = Normalize-WorkTypeSafe -WorkType "Study Movements" -ObjectType $objectType
-    $description = "Study layout update (location vector $($item.location_vector_id))"
-    $context = $null
-    if (Get-Command -Name New-EventEnrichment -ErrorAction SilentlyContinue) {
-        $enrichment = New-EventEnrichment `
-            -WorkType $normalizedWorkType `
-            -ObjectName $objectName `
-            -ObjectType $objectType `
-            -ObjectId $objectId `
-            -Category $null `
-            -Item $item `
-            -DeltaSummary $deltaSummary `
-            -SnapshotComparison $snapshotComparison
-
-        if ($enrichment -and $enrichment.description) {
-            $description = $enrichment.description
-        }
-        $context = $enrichment.context
-    }
-    $user = if ($modifiedBy) { $modifiedBy } else { $item.checked_out_by_user_name }
-
-    Add-EventRecord `
-        -WorkType $normalizedWorkType `
-        -Timestamp $item.last_modified `
-        -User $user `
-        -Description $description `
-        -ObjectName $objectName `
-        -ObjectId $objectId `
-        -ObjectType $objectType `
-        -Evidence $evidence `
-        -Context $context
-}
-
-# Study Operation events
-foreach ($item in $results.studyOperations) {
-    $objectId = [string]$item.operation_id
-    $objectType = if ($item.operation_class) { $item.operation_class } else { "Operation" }
-    $objectName = $item.operation_name
-    $modifiedBy = $item.modified_by
-    $lastModifiedDate = Convert-StringToDateTime -Value $item.last_modified
-    $writeSources = @()
-    if (Test-DateInRange -Value $lastModifiedDate -Start $StartDate -End $EndDate) {
-        $writeSources += "OPERATION_.MODIFICATIONDATE_DA_"
-    }
-
-    $snapshotRecord = New-SnapshotRecord `
-        -ObjectId $objectId `
-        -ObjectType $objectType `
-        -ModificationDate $lastModifiedDate `
-        -LastModifiedBy $modifiedBy `
-        -Metadata @{ operationName = $objectName; operationType = $item.operation_type }
-
-    if ($snapshotRecord) {
-        $newSnapshotRecords += $snapshotRecord
-    }
-
-    $snapshotComparison = $null
-    if ($previousSnapshot) {
-        $snapshotComparison = Compare-Snapshots -ObjectId $objectId -NewRecord $snapshotRecord -PreviousSnapshot $previousSnapshot
-    }
-    $snapshotEvidence = New-SnapshotEvidence -SnapshotComparison $snapshotComparison
-
-    $deltaSummary = New-AllocationDeltaSummary -SnapshotComparison $snapshotComparison -NewRecord $snapshotRecord
-
-    $evidence = @{}
-    if ($evidenceEnabled) {
-        $evidence = New-EvidenceBlock `
-            -ObjectId $objectId `
-            -ObjectType $objectType `
-            -ProxyOwnerId $item.checked_out_by_user_id `
-            -ProxyOwnerName $item.checked_out_by_user_name `
-            -LastModifiedBy $modifiedBy `
-            -CheckoutWorkingVersionId ([int]$item.checkout_working_version_id) `
-            -ModificationDate $lastModifiedDate `
-            -WriteSources $writeSources `
-            -DeltaSummary $deltaSummary `
-            -SnapshotComparison $snapshotEvidence
-    }
-
-    $normalizedWorkType = Normalize-WorkTypeSafe -WorkType "Study Operations" -ObjectType $objectType
-    $description = if ($item.operation_category) { "$objectName - $($item.operation_category)" } else { $objectName }
-    $context = $null
-    if (Get-Command -Name New-EventEnrichment -ErrorAction SilentlyContinue) {
-        $enrichment = New-EventEnrichment `
-            -WorkType $normalizedWorkType `
-            -ObjectName $objectName `
-            -ObjectType $objectType `
-            -ObjectId $objectId `
-            -Category $null `
-            -Item $item `
-            -DeltaSummary $deltaSummary `
-            -SnapshotComparison $snapshotComparison
-
-        if ($enrichment -and $enrichment.description) {
-            $description = $enrichment.description
-        }
-        $context = $enrichment.context
-    }
-    $user = if ($modifiedBy) { $modifiedBy } else { $item.checked_out_by_user_name }
-
-    Add-EventRecord `
-        -WorkType $normalizedWorkType `
-        -Timestamp $item.last_modified `
-        -User $user `
-        -Description $description `
-        -ObjectName $objectName `
-        -ObjectId $objectId `
-        -ObjectType $objectType `
-        -Evidence $evidence `
-        -Context $context
-}
-
-# Study Weld events
-foreach ($item in $results.studyWelds) {
-    $objectId = [string]$item.operation_id
-    $objectType = "WeldOperation"
-    $objectName = $item.operation_name
-    $modifiedBy = $item.modified_by
-    $lastModifiedDate = Convert-StringToDateTime -Value $item.last_modified
-    $writeSources = @()
-    if (Test-DateInRange -Value $lastModifiedDate -Start $StartDate -End $EndDate) {
-        $writeSources += "OPERATION_.MODIFICATIONDATE_DA_"
-    }
-
-    $snapshotRecord = New-SnapshotRecord `
-        -ObjectId $objectId `
-        -ObjectType $objectType `
-        -ModificationDate $lastModifiedDate `
-        -LastModifiedBy $modifiedBy `
-        -Metadata @{ operationName = $objectName }
-
-    if ($snapshotRecord) {
-        $newSnapshotRecords += $snapshotRecord
-    }
-
-    $snapshotComparison = $null
-    if ($previousSnapshot) {
-        $snapshotComparison = Compare-Snapshots -ObjectId $objectId -NewRecord $snapshotRecord -PreviousSnapshot $previousSnapshot
-    }
-    $snapshotEvidence = New-SnapshotEvidence -SnapshotComparison $snapshotComparison
-
-    $deltaSummary = New-AllocationDeltaSummary -SnapshotComparison $snapshotComparison -NewRecord $snapshotRecord
-
-    $evidence = @{}
-    if ($evidenceEnabled) {
-        $evidence = New-EvidenceBlock `
-            -ObjectId $objectId `
-            -ObjectType $objectType `
-            -ProxyOwnerId $item.checked_out_by_user_id `
-            -ProxyOwnerName $item.checked_out_by_user_name `
-            -LastModifiedBy $modifiedBy `
-            -CheckoutWorkingVersionId ([int]$item.checkout_working_version_id) `
-            -ModificationDate $lastModifiedDate `
-            -WriteSources $writeSources `
-            -DeltaSummary $deltaSummary `
-            -SnapshotComparison $snapshotEvidence
-    }
-
-    $normalizedWorkType = Normalize-WorkTypeSafe -WorkType "Study Welds" -ObjectType $objectType
-    $description = $objectName
-    $context = $null
-    if (Get-Command -Name New-EventEnrichment -ErrorAction SilentlyContinue) {
-        $enrichment = New-EventEnrichment `
-            -WorkType $normalizedWorkType `
-            -ObjectName $objectName `
-            -ObjectType $objectType `
-            -ObjectId $objectId `
-            -Category $null `
-            -Item $item `
-            -DeltaSummary $deltaSummary `
-            -SnapshotComparison $snapshotComparison
-
-        if ($enrichment -and $enrichment.description) {
-            $description = $enrichment.description
-        }
-        $context = $enrichment.context
-    }
-    $user = if ($modifiedBy) { $modifiedBy } else { $item.checked_out_by_user_name }
-
-    Add-EventRecord `
-        -WorkType $normalizedWorkType `
-        -Timestamp $item.last_modified `
-        -User $user `
-        -Description $description `
-        -ObjectName $objectName `
-        -ObjectId $objectId `
-        -ObjectType $objectType `
-        -Evidence $evidence `
-        -Context $context
-}
-
-if ($snapshotAvailable -and $newSnapshotRecords.Count -gt 0) {
-    try {
-        Save-Snapshot -SnapshotRecords $newSnapshotRecords -OutputPath $snapshotPath -Schema $Schema -ProjectId $ProjectId | Out-Null
-        Write-Host "Snapshot saved: $snapshotPath" -ForegroundColor Green
-    } catch {
-        Write-Warning "    Failed to save snapshot: $_"
-    }
-}
-
-# Normalize property names to lowercase for JavaScript compatibility
-Write-Host "`n========================================" -ForegroundColor Cyan
-Write-Host "  Normalizing Data" -ForegroundColor Cyan
+Write-Host "  Normalizing Output" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 
 function ConvertTo-LowercaseProperties {
@@ -2354,11 +1620,11 @@ function ConvertTo-LowercaseProperties {
         return $null
     }
 
-    if ($InputObject -is [System.Array]) {
-        return @($InputObject | ForEach-Object { ConvertTo-LowercaseProperties $_ })
+    if ($InputObject -is [Array]) {
+        return $InputObject | ForEach-Object { ConvertTo-LowercaseProperties $_ }
     }
 
-    if ($InputObject -is [System.Collections.IDictionary]) {
+    if ($InputObject -is [hashtable]) {
         $newObj = @{}
         foreach ($key in $InputObject.Keys) {
             $lowercaseKey = $key.ToString().ToLower()
@@ -2383,7 +1649,9 @@ Write-Host "  Converting property names to lowercase..." -ForegroundColor Yellow
 $results = ConvertTo-LowercaseProperties $results
 Write-Host "  Normalization complete" -ForegroundColor Green
 
-# Save results to JSON
+# ========================================
+# Save Results
+# ========================================
 Write-Host "`n========================================" -ForegroundColor Cyan
 Write-Host "  Saving Results" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
@@ -2406,7 +1674,18 @@ if (Test-FileLocked -Path $outputPath) {
     $targetPath = Join-Path $outputDir ("$outputName.$timestamp$outputExt")
 }
 
-$results | ConvertTo-Json -Depth 10 | Out-File $tempFile -Encoding UTF8 -Force
+# Add performance summary
+$scriptTimer.Stop()
+$results.performance.totalTime = [math]::Round($scriptTimer.Elapsed.TotalSeconds, 2)
+
+# Convert to JSON with optimized depth
+$jsonText = $results | ConvertTo-Json -Depth 5
+
+# Fix single-element array serialization
+$jsonText = $jsonText -replace '"studysummary":\s*\{', '"studysummary": [{'
+$jsonText = $jsonText -replace '("studysummary":\s*\[\{[^\}]+\})\s*,\s*"', '$1],  "'
+
+$jsonText | Out-File $tempFile -Encoding UTF8 -Force
 
 $finalOutput = $tempFile
 try {
@@ -2422,9 +1701,25 @@ try {
 
 Write-Host "  Results saved to: $finalOutput" -ForegroundColor Green
 
-$scriptTimer.Stop()
-Write-Host "`n  Total time: $([math]::Round($scriptTimer.Elapsed.TotalSeconds, 2))s" -ForegroundColor Cyan
+# ========================================
+# Performance Summary
+# ========================================
+Write-Host "`n========================================" -ForegroundColor Cyan
+Write-Host "  Performance Summary" -ForegroundColor Cyan
+Write-Host "========================================" -ForegroundColor Cyan
+
+Write-Host "  Total execution time: $($results.performance.totalTime)s" -ForegroundColor Green
+
+$cacheHits = ($jobs.Values | Where-Object { $_.Cached }).Count
+$totalQueries = $jobs.Count
+Write-Host "  Cache hits: $cacheHits / $totalQueries" -ForegroundColor $(if ($cacheHits -gt 0) { "Green" } else { "Gray" })
+
+$slowestQuery = $results.performance.queryTimes.GetEnumerator() | Sort-Object Value -Descending | Select-Object -First 1
+if ($slowestQuery) {
+    Write-Host "  Slowest query: $($slowestQuery.Key) ($($slowestQuery.Value)ms)" -ForegroundColor Yellow
+}
+
 Write-Host ""
 
-# Explicitly exit with success code (0 rows is valid - means no activity in date range)
+# Explicitly exit with success code
 exit 0

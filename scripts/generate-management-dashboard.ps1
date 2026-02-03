@@ -1,4 +1,4 @@
-# Generate Management Dashboard HTML
+﻿# Generate Management Dashboard HTML
 # Purpose: Transform management.json into interactive HTML dashboard with 6 views
 # Agent: 04 (Frontend)
 # Date: 2026-01-22
@@ -40,16 +40,32 @@ catch {
     exit 1
 }
 
+# Core metadata
+$schema = if ($data.metadata.schema) { $data.metadata.schema } else { "UNKNOWN" }
+$projectId = if ($data.metadata.projectId) { $data.metadata.projectId } else { "UNKNOWN" }
+$projectName = if ($data.metadata.projectName) {
+    $data.metadata.projectName
+} elseif ($data.metadata.projectname) {
+    $data.metadata.projectname
+} elseif ($data.projectDatabase) {
+    $projectDbItems = @($data.projectDatabase)
+    if ($projectDbItems.Count -gt 0) {
+        if ($projectDbItems[0].project_name) { $projectDbItems[0].project_name } else { $projectDbItems[0].object_name }
+    } else {
+        "Unknown Project"
+    }
+} else {
+    "Unknown Project"
+}
+
 # Determine output file name
 if ([string]::IsNullOrWhiteSpace($OutputFile)) {
-    $schema = if ($data.metadata.schema) { $data.metadata.schema } else { "UNKNOWN" }
-    $projectId = if ($data.metadata.projectId) { $data.metadata.projectId } else { "UNKNOWN" }
     $OutputFile = "management-dashboard-$schema-$projectId.html"
 }
 
 Write-Host "Generating dashboard HTML..." -ForegroundColor Yellow
-Write-Host "  Schema:     $($data.metadata.schema)" -ForegroundColor Gray
-Write-Host "  Project ID: $($data.metadata.projectId)" -ForegroundColor Gray
+Write-Host "  Schema:     $schema" -ForegroundColor Gray
+Write-Host "  Project:    $projectName ($projectId)" -ForegroundColor Gray
 Write-Host "  Date Range: $($data.metadata.startDate) to $($data.metadata.endDate)" -ForegroundColor Gray
 Write-Host ""
 
@@ -94,7 +110,7 @@ $html = @"
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Management Dashboard - $($data.metadata.schema) - Project $($data.metadata.projectId)</title>
+    <title>Management Dashboard - $schema - $projectName ($projectId)</title>
     <style>
         /* ========================================
            RESET & BASE STYLES
@@ -381,6 +397,19 @@ $html = @"
             font-weight: 600;
         }
 
+        .movement-translation {
+            color: var(--info-color);
+            font-weight: 600;
+        }
+
+        .movement-both {
+            background: #fff3cd;
+            color: #856404;
+            padding: 4px 8px;
+            border-radius: 4px;
+            border-left: 3px solid var(--warning-color);
+        }
+
         .movement-world {
             background: #fff3cd;
             color: #856404;
@@ -508,6 +537,26 @@ $html = @"
             background: white;
             cursor: pointer;
             min-width: 150px;
+        }
+
+        .checkbox-inline {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-weight: 600;
+            color: #2c3e50;
+        }
+
+        .active-studies-summary {
+            margin-bottom: 10px;
+            color: #6b7280;
+            font-size: 0.9em;
+        }
+
+        .load-more {
+            display: none;
+            justify-content: center;
+            margin-top: 15px;
         }
 
         .btn {
@@ -872,8 +921,19 @@ $html = @"
         <div class="header">
             <h1>Management Dashboard</h1>
             <div class="meta">
-                <span><strong>Schema:</strong> $($data.metadata.schema)</span>
-                <span><strong>Project ID:</strong> $($data.metadata.projectId)</span>
+                <span><strong>Data Source:</strong> $(
+                    if ($data.metadata.PSObject.Properties.Name -contains 'tnsName') {
+                        $tnsDisplay = $data.metadata.tnsName
+                        if ($data.metadata.PSObject.Properties.Name -contains 'serverDescription') {
+                            $tnsDisplay += " ($($data.metadata.serverDescription))"
+                        }
+                        $tnsDisplay
+                    } else {
+                        "N/A"
+                    }
+                )</span>
+                <span><strong>Schema:</strong> $schema</span>
+                <span><strong>Project:</strong> $projectName (ID: $projectId)</span>
                 <span><strong>Period:</strong> $($data.metadata.startDate) to $($data.metadata.endDate)</span>
                 <span><strong>Generated:</strong> $($data.metadata.generatedAt)</span>
             </div>
@@ -883,7 +943,7 @@ $html = @"
         <div class="nav-tabs">
             <button class="nav-tab active" onclick="showView('view1')">Work Type Summary</button>
             <button class="nav-tab" onclick="showView('view2')">Active Studies</button>
-            <button class="nav-tab" onclick="showView('view3')">Movement Activity</button>
+            <button class="nav-tab" onclick="showView('view3')">Placement Activity</button>
             <button class="nav-tab" onclick="showView('view9')">Tree Changes</button>
             <button class="nav-tab" onclick="showView('view4')">User Activity</button>
             <button class="nav-tab" onclick="showView('view5')">Timeline</button>
@@ -903,8 +963,8 @@ $html = @"
                     <thead>
                         <tr>
                             <th class="sortable" onclick="sortTable('workTypeSummaryTable', 0)">Work Type</th>
-                            <th class="sortable" onclick="sortTable('workTypeSummaryTable', 1)">Active Items</th>
-                            <th class="sortable" onclick="sortTable('workTypeSummaryTable', 2)">Modified Items</th>
+                            <th class="sortable" onclick="sortTable('workTypeSummaryTable', 1)" id="workTypeCheckedOutHeader">Checked Out</th>
+                            <th class="sortable" onclick="sortTable('workTypeSummaryTable', 2)" id="workTypeModifiedHeader">Modified (Range)</th>
                             <th class="sortable" onclick="sortTable('workTypeSummaryTable', 3)">Unique Users</th>
                             <th>Change Summary</th>
                         </tr>
@@ -922,25 +982,61 @@ $html = @"
                 <h2>Active Studies - Detailed View</h2>
                 <p>Deep dive into study node activity with expandable sections</p>
             </div>
+            <div class="controls">
+                <input type="text" class="search-box" id="activeStudySearch" placeholder="Search studies..." oninput="onActiveStudyFilterChange()">
+                <select class="filter-select" id="activeStudyStatusFilter" onchange="onActiveStudyFilterChange()">
+                    <option value="">All Checkout Status</option>
+                    <option value="Active">Checked Out</option>
+                    <option value="Idle">Idle</option>
+                </select>
+                <select class="filter-select" id="activeStudyActivityFilter" onchange="onActiveStudyFilterChange()">
+                    <option value="">All Activity</option>
+                    <option value="checkedOut">Checked Out Only</option>
+                    <option value="modified">Modified in Range Only</option>
+                    <option value="both">Checked Out + Modified</option>
+                </select>
+                <select class="filter-select" id="activeStudyHealthFilter" onchange="onActiveStudyFilterChange()">
+                    <option value="">All Health</option>
+                    <option value="Critical">Critical</option>
+                    <option value="High">High</option>
+                    <option value="Medium">Medium</option>
+                    <option value="Low">Low</option>
+                    <option value="Healthy">Healthy</option>
+                </select>
+                <select class="filter-select" id="activeStudySort" onchange="onActiveStudyFilterChange()">
+                    <option value="health">Sort: Health (Worst)</option>
+                    <option value="recent">Sort: Recent</option>
+                    <option value="name">Sort: Name</option>
+                </select>
+                <label class="checkbox-inline">
+                    <input type="checkbox" id="activeStudyHideTemp" checked onchange="onActiveStudyFilterChange()"> Hide temp/legacy
+                </label>
+            </div>
+            <div class="active-studies-summary" id="activeStudiesSummary"></div>
             <div id="activeStudiesContainer">
                 <!-- Populated by JavaScript -->
             </div>
+            <div class="load-more" id="activeStudiesLoadMore">
+                <button class="btn-primary" id="activeStudiesLoadMoreButton" onclick="loadMoreActiveStudies()">Show more</button>
+            </div>
         </div>
 
-        <!-- View 3: Movement/Location Activity -->
+        <!-- View 3: Placement Activity -->
         <div id="view3" class="view-container">
             <div class="view-header">
-                <h2>Movement/Location Activity</h2>
-                <p>Track robot/resource position changes</p>
+                <h2>Placement Activity</h2>
+                <p>Translation and rotation changes for study layouts</p>
             </div>
             <div class="scrollable">
                 <table class="data-table" id="movementActivityTable">
                     <thead>
                         <tr>
                             <th class="sortable" onclick="sortTable('movementActivityTable', 0)">Study Name</th>
-                            <th class="sortable" onclick="sortTable('movementActivityTable', 1)">Movement Type</th>
-                            <th class="sortable" onclick="sortTable('movementActivityTable', 2)">Modified By</th>
-                            <th class="sortable" onclick="sortTable('movementActivityTable', 3)">Last Modified</th>
+                            <th class="sortable" onclick="sortTable('movementActivityTable', 1)">Placement Type</th>
+                            <th class="sortable" onclick="sortTable('movementActivityTable', 2)">Translation (X,Y,Z)</th>
+                            <th class="sortable" onclick="sortTable('movementActivityTable', 3)">Rotation (RX,RY,RZ)</th>
+                            <th class="sortable" onclick="sortTable('movementActivityTable', 4)">Modified By</th>
+                            <th class="sortable" onclick="sortTable('movementActivityTable', 5)">Last Modified</th>
                         </tr>
                     </thead>
                     <tbody id="movementActivityBody">
@@ -1181,7 +1277,7 @@ $html = @"
         <div id="view8" class="view-container">
             <div class="view-header">
                 <h2>Resource Conflicts & Stale Checkouts</h2>
-                <p>Track resource conflicts and identify bottlenecks from long-running checkouts</p>
+                <p>Detect multi-user checkout conflicts and identify bottlenecks from long-running checkouts</p>
             </div>
 
             <!-- Summary Cards -->
@@ -1212,8 +1308,8 @@ $html = @"
                             <tr>
                                 <th class="sortable" onclick="sortTable('conflictsTable', 0)">Resource</th>
                                 <th class="sortable" onclick="sortTable('conflictsTable', 1)">Type</th>
-                                <th class="sortable" onclick="sortTable('conflictsTable', 2)">Study Count</th>
-                                <th>Studies Using Resource</th>
+                                <th class="sortable" onclick="sortTable('conflictsTable', 2)">Conflict Type</th>
+                                <th>Users/Studies</th>
                                 <th class="sortable" onclick="sortTable('conflictsTable', 4)">Risk Level</th>
                             </tr>
                         </thead>
@@ -1280,17 +1376,175 @@ $html = @"
         // ========================================
         const dashboardData = JSON.parse(document.getElementById('dashboard-data').textContent || '{}');
 
+        // Support lowercase keys from get-management-data normalization
+        const keyMap = {
+            projectdatabase: 'projectDatabase',
+            resourcelibrary: 'resourceLibrary',
+            partlibrary: 'partLibrary',
+            ipaassembly: 'ipaAssembly',
+            studysummary: 'studySummary',
+            studyresources: 'studyResources',
+            studypanels: 'studyPanels',
+            studyoperations: 'studyOperations',
+            studymovements: 'studyMovements',
+            studywelds: 'studyWelds',
+            useractivity: 'userActivity',
+            treechanges: 'treeChanges',
+            studyhealth: 'studyHealth',
+            resourceconflicts: 'resourceConflicts',
+            stalecheckouts: 'staleCheckouts',
+            bottleneckqueue: 'bottleneckQueue',
+            worktypesummarymeta: 'workTypeSummaryMeta',
+            metadata: 'metadata',
+            events: 'events'
+        };
+        Object.keys(keyMap).forEach(lowerKey => {
+            const camelKey = keyMap[lowerKey];
+            if (dashboardData[lowerKey] !== undefined && dashboardData[camelKey] === undefined) {
+                dashboardData[camelKey] = dashboardData[lowerKey];
+            }
+        });
+
+        function isEmptyObject(value) {
+            return value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length === 0;
+        }
+
         // Normalize data: ensure all expected arrays are actually arrays (handle single-object case)
         const arrayFields = ['projectDatabase', 'resourceLibrary', 'partLibrary', 'ipaAssembly',
                             'studySummary', 'studyResources', 'studyPanels', 'studyOperations',
                             'studyMovements', 'studyWelds', 'userActivity', 'treeChanges'];
         arrayFields.forEach(field => {
             if (dashboardData[field] && !Array.isArray(dashboardData[field])) {
-                dashboardData[field] = [dashboardData[field]];
+                if (isEmptyObject(dashboardData[field])) {
+                    dashboardData[field] = [];
+                } else {
+                    dashboardData[field] = [dashboardData[field]];
+                }
             } else if (!dashboardData[field]) {
                 dashboardData[field] = [];
             }
         });
+
+        const activeStudiesState = {
+            pageSize: 30,
+            visibleCount: 30,
+            search: '',
+            status: '',
+            activity: '',
+            health: '',
+            sort: 'health',
+            hideTemp: true
+        };
+
+        const healthSeverityRank = {
+            Critical: 4,
+            High: 3,
+            Medium: 2,
+            Low: 1,
+            Healthy: 0
+        };
+
+        function parseDateTime(value) {
+            if (!value) return 0;
+            const normalized = value.replace(' ', 'T');
+            const dt = new Date(normalized);
+            const ms = dt.getTime();
+            return Number.isNaN(ms) ? 0 : ms;
+        }
+
+        const meta = dashboardData.metadata || {};
+        const startDateValue = meta.startDate || meta.startdate;
+        const endDateValue = meta.endDate || meta.enddate;
+        const rangeStart = startDateValue
+            ? parseDateTime(startDateValue + ' 00:00:00')
+            : 0;
+        const rangeEnd = endDateValue
+            ? parseDateTime(endDateValue + ' 23:59:59')
+            : 0;
+
+        function isInRange(timestamp) {
+            if (!timestamp) return false;
+            if (!rangeStart && !rangeEnd) return true;
+            if (rangeStart && timestamp < rangeStart) return false;
+            if (rangeEnd && timestamp > rangeEnd) return false;
+            return true;
+        }
+
+        function formatVector(x, y, z) {
+            const values = [x, y, z].map(v => {
+                if (v === null || v === undefined || v === '') return null;
+                const num = Number(v);
+                return Number.isNaN(num) ? null : num;
+            });
+            if (values.every(v => v === null)) {
+                return '—';
+            }
+            return values.map(v => (v === null ? '—' : v.toFixed(2))).join(', ');
+        }
+
+        function buildHealthIndex() {
+            const issues = (dashboardData.studyHealth && dashboardData.studyHealth.issues) ? dashboardData.studyHealth.issues : [];
+            const index = {};
+            issues.forEach(issue => {
+                const id = issue.node_id || issue.study_id || issue.studyId;
+                if (!id) return;
+                const key = String(id);
+                const severity = issue.severity || 'Low';
+                const rank = healthSeverityRank[severity] || 0;
+                if (!index[key] || rank > index[key].rank) {
+                    index[key] = { severity, rank, count: 0 };
+                }
+                index[key].count += 1;
+            });
+            return index;
+        }
+
+        function buildSuspiciousIndex() {
+            const suspicious = (dashboardData.studyHealth && dashboardData.studyHealth.suspicious) ? dashboardData.studyHealth.suspicious : [];
+            const tempFlags = new Set(['junk_token', 'legacy_token', 'old_year']);
+            const ids = new Set();
+            suspicious.forEach(item => {
+                if (!item || !item.node_id) return;
+                if (tempFlags.has(item.flag)) {
+                    ids.add(String(item.node_id));
+                }
+            });
+            return ids;
+        }
+
+        function isTemporaryStudy(study, suspiciousIds) {
+            const id = study && study.study_id ? String(study.study_id) : '';
+            if (suspiciousIds && suspiciousIds.has(id)) return true;
+            const name = (study.study_name || '').toLowerCase();
+            if (!name) return false;
+            return /\\b(temp|test|tmp|draft|copy|backup|old|legacy|merge|merged|scratch|junk)\\b/.test(name) ||
+                   name === 'robcadstudy' ||
+                   name === 'empty';
+        }
+
+        function onActiveStudyFilterChange() {
+            const search = document.getElementById('activeStudySearch');
+            const status = document.getElementById('activeStudyStatusFilter');
+            const activity = document.getElementById('activeStudyActivityFilter');
+            const health = document.getElementById('activeStudyHealthFilter');
+            const sort = document.getElementById('activeStudySort');
+            const hideTemp = document.getElementById('activeStudyHideTemp');
+
+            activeStudiesState.search = search ? search.value.trim().toLowerCase() : '';
+            activeStudiesState.status = status ? status.value : '';
+            activeStudiesState.activity = activity ? activity.value : '';
+            activeStudiesState.health = health ? health.value : '';
+            activeStudiesState.sort = sort ? sort.value : 'health';
+            activeStudiesState.hideTemp = hideTemp ? hideTemp.checked : true;
+            activeStudiesState.visibleCount = activeStudiesState.pageSize;
+
+            renderActiveStudies();
+        }
+
+        function loadMoreActiveStudies() {
+            activeStudiesState.visibleCount += activeStudiesState.pageSize;
+            renderActiveStudies();
+        }
 
         if (!dashboardData || !dashboardData.metadata) {
             document.body.innerHTML = '<div class="error-state"><h3>Error Loading Dashboard</h3><p>Failed to load dashboard data. Please regenerate the data file.</p></div>';
@@ -1630,6 +1884,20 @@ $html = @"
             const tbody = document.getElementById('workTypeSummaryBody');
             tbody.innerHTML = '';
 
+            const workTypeMeta = dashboardData.workTypeSummaryMeta || {};
+            const checkedOutRule = workTypeMeta.checkedOutRule || workTypeMeta.checkedoutrule || 'PROXY.WORKING_VERSION_ID > 0';
+            const modifiedRule = workTypeMeta.modifiedRule || workTypeMeta.modifiedrule || 'last_modified in date range';
+            const rangeLabel = startDateValue && endDateValue ? `${startDateValue} to ${endDateValue}` : 'selected range';
+
+            const checkedOutHeader = document.getElementById('workTypeCheckedOutHeader');
+            if (checkedOutHeader) {
+                checkedOutHeader.title = `Checked Out = ${checkedOutRule}`;
+            }
+            const modifiedHeader = document.getElementById('workTypeModifiedHeader');
+            if (modifiedHeader) {
+                modifiedHeader.title = `Modified (Range) = ${modifiedRule} between ${rangeLabel}`;
+            }
+
             const workTypes = [
                 { name: 'Project Database', key: 'projectDatabase', items: dashboardData.projectDatabase || [] },
                 { name: 'Resource Library', key: 'resourceLibrary', items: dashboardData.resourceLibrary || [] },
@@ -1641,8 +1909,18 @@ $html = @"
             workTypes.forEach(workType => {
                 const items = workType.items;
                 const activeCount = items.filter(item => item.status === 'Checked Out' || item.status === 'Active').length;
-                const modifiedCount = items.length;
+                const modifiedCount = items.filter(item => isInRange(parseDateTime(item.last_modified))).length;
+                const totalCount = items.length;
                 const uniqueUsers = [...new Set(items.map(item => item.modified_by || item.checked_out_by_user_name).filter(Boolean))];
+
+                let changeSummary = modifiedCount > 0 ? `${modifiedCount} items in range` : 'No activity in range';
+                if (workType.key === 'studySummary' && workTypeMeta.studyNodes) {
+                    const studyMeta = workTypeMeta.studyNodes;
+                    const totalStudies = studyMeta.totalStudiesInScope ?? studyMeta.totalstudiesinscope ?? totalCount;
+                    const checkedOutStudies = studyMeta.checkedOutCount ?? studyMeta.checkedoutcount ?? activeCount;
+                    const modifiedStudies = studyMeta.modifiedInRangeCount ?? studyMeta.modifiedinrangecount ?? modifiedCount;
+                    changeSummary = `${checkedOutStudies} checked out • ${modifiedStudies} modified in range • ${totalStudies} total`;
+                }
 
                 const row = tbody.insertRow();
                 row.innerHTML = ``
@@ -1650,7 +1928,7 @@ $html = @"
                     <td><span class="badge badge-info">`${activeCount}</span></td>
                     <td><span class="badge badge-primary">`${modifiedCount}</span></td>
                     <td>`${uniqueUsers.length}</td>
-                    <td>`${modifiedCount > 0 ? modifiedCount + ' items' : 'No activity'}</td>
+                    <td>`${changeSummary}</td>
                 ``;
             });
         }
@@ -1660,36 +1938,123 @@ $html = @"
         // ========================================
         function renderActiveStudies() {
             const container = document.getElementById('activeStudiesContainer');
+            const summary = document.getElementById('activeStudiesSummary');
+            const loadMore = document.getElementById('activeStudiesLoadMore');
             const studies = dashboardData.studySummary || [];
 
             if (studies.length === 0) {
-                container.innerHTML = '<div class="empty-state"><p>No studies active in date range</p></div>';
+                container.innerHTML = '<div class="empty-state"><p>No studies available for this project</p></div>';
+                if (summary) summary.textContent = '';
+                if (loadMore) loadMore.style.display = 'none';
                 return;
+            }
+
+            const healthIndex = buildHealthIndex();
+            const suspiciousIds = buildSuspiciousIndex();
+
+            let filtered = studies.slice();
+
+            if (activeStudiesState.search) {
+                filtered = filtered.filter(s => (s.study_name || '').toLowerCase().includes(activeStudiesState.search));
+            }
+
+            if (activeStudiesState.status) {
+                filtered = filtered.filter(s => (s.status || '') === activeStudiesState.status);
+            }
+
+            if (activeStudiesState.activity) {
+                filtered = filtered.filter(s => {
+                    const status = s.status || '';
+                    const isCheckedOut = status === 'Active' || status === 'Checked Out';
+                    const isModified = isInRange(parseDateTime(s.last_modified));
+                    if (activeStudiesState.activity === 'checkedOut') return isCheckedOut;
+                    if (activeStudiesState.activity === 'modified') return isModified;
+                    if (activeStudiesState.activity === 'both') return isCheckedOut && isModified;
+                    return true;
+                });
+            }
+
+            if (activeStudiesState.health) {
+                filtered = filtered.filter(s => {
+                    const health = healthIndex[String(s.study_id)] || { severity: 'Healthy', rank: 0 };
+                    if (activeStudiesState.health === 'Healthy') {
+                        return health.rank === 0;
+                    }
+                    return health.severity === activeStudiesState.health;
+                });
+            }
+
+            const preHideCount = filtered.length;
+
+            if (activeStudiesState.hideTemp) {
+                filtered = filtered.filter(s => !isTemporaryStudy(s, suspiciousIds));
+            }
+
+            filtered.sort((a, b) => {
+                const aHealth = healthIndex[String(a.study_id)] || { rank: 0 };
+                const bHealth = healthIndex[String(b.study_id)] || { rank: 0 };
+                const aDate = parseDateTime(a.last_modified);
+                const bDate = parseDateTime(b.last_modified);
+
+                if (activeStudiesState.sort === 'health') {
+                    if (bHealth.rank !== aHealth.rank) return bHealth.rank - aHealth.rank;
+                    if (bDate !== aDate) return bDate - aDate;
+                } else if (activeStudiesState.sort === 'recent') {
+                    if (bDate !== aDate) return bDate - aDate;
+                }
+
+                const aName = (a.study_name || '').toLowerCase();
+                const bName = (b.study_name || '').toLowerCase();
+                return aName.localeCompare(bName);
+            });
+
+            const total = filtered.length;
+            const visible = filtered.slice(0, activeStudiesState.visibleCount);
+            const checkedOutCount = filtered.filter(s => (s.status || '') === 'Active' || (s.status || '') === 'Checked Out').length;
+            const idleCount = filtered.length - checkedOutCount;
+
+            if (summary) {
+                const hiddenCount = activeStudiesState.hideTemp ? (preHideCount - total) : 0;
+                const hiddenText = hiddenCount > 0 ? `` (`${hiddenCount} hidden by temp/legacy filter)`` : '';
+                summary.textContent = ``Showing `${visible.length} of `${total} studies`${hiddenText}. Checked Out: `${checkedOutCount}, Idle: `${idleCount}.``;
+            }
+
+            if (loadMore) {
+                loadMore.style.display = total > visible.length ? 'flex' : 'none';
             }
 
             container.innerHTML = '';
 
-            studies.forEach((study, index) => {
-                // Get related resources
-                const resources = (dashboardData.studyResources || []).filter(r => r.study_id === study.study_id);
+            if (visible.length === 0) {
+                container.innerHTML = '<div class="empty-state"><p>No studies match the current filters</p></div>';
+                return;
+            }
 
-                // Get related panels
-                const panels = (dashboardData.studyPanels || []).filter(p => p.study_id === study.study_id);
+            visible.forEach((study, index) => {
+                const studyIdKey = String(study.study_id || '');
+                const healthMeta = healthIndex[studyIdKey] || { severity: 'Healthy', rank: 0, count: 0 };
+                const isTemp = isTemporaryStudy(study, suspiciousIds);
+                const healthBadge = healthMeta.rank > 0
+                    ? ``<span class="badge `${healthMeta.severity === 'Critical' ? 'badge-danger' : healthMeta.severity === 'High' ? 'badge-warning' : healthMeta.severity === 'Medium' ? 'badge-info' : 'badge-primary'}">`${healthMeta.severity}`${healthMeta.count ? ' (' + healthMeta.count + ')' : ''}</span>``
+                    : '<span class="badge badge-success">Healthy</span>';
+                const tempBadge = isTemp ? '<span class="badge badge-warning" style="margin-left: 6px;">Temp</span>' : '';
 
-                // Get related operations
-                const operations = (dashboardData.studyOperations || []).filter(o => {
-                    // Match operations by timestamp proximity or other criteria
-                    return true; // Simplified for now
-                }).slice(0, 10);
+                const resources = (dashboardData.studyResources || []).filter(r => String(r.study_id) === studyIdKey);
+                const panels = (dashboardData.studyPanels || []).filter(p => String(p.study_id) === studyIdKey);
+                const movements = (dashboardData.studyMovements || [])
+                    .filter(m => String(m.study_id || '') === studyIdKey)
+                    .sort((a, b) => parseDateTime(b.last_modified) - parseDateTime(a.last_modified))
+                    .slice(0, 8);
 
                 const treeItem = document.createElement('div');
                 treeItem.className = 'tree-item';
                 treeItem.innerHTML = ``
                     <div class="tree-header" onclick="toggleTreeItem(`${index})">
                         <div>
-                            <div class="title">`${study.study_name || 'Unnamed Study'}</div>
+                            <div class="title">`${study.study_name || 'Unnamed Study'}`${tempBadge}</div>
                             <div style="font-size: 0.9em; color: #7f8c8d; margin-top: 5px;">
-                                `${study.status === 'Active' ? '<span class="badge badge-success">Active</span>' : '<span class="badge badge-warning">Idle</span>'}
+                                `${(study.status === 'Active' || study.status === 'Checked Out') ? '<span class="badge badge-success">Checked Out</span>' : '<span class="badge badge-warning">Idle</span>'}
+                                <span style="margin-left: 6px;">`${healthBadge}</span>
                                 <span style="margin-left: 10px;">Modified by: `${study.modified_by || 'Unknown'}</span>
                                 <span style="margin-left: 10px;">Last modified: `${study.last_modified || 'N/A'}</span>
                             </div>
@@ -1713,15 +2078,22 @@ $html = @"
                             </ul>
                         </div>
                         `` : ''}
-                        `${operations.length > 0 ? ``
+                        `${movements.length > 0 ? ``
                         <div class="tree-section">
-                            <h4>Recent Operations (`${operations.length})</h4>
+                            <h4>Recent Placement Changes (`${movements.length})</h4>
                             <ul class="tree-list">
-                                `${operations.map(o => ``<li>`${o.operation_name} - `${o.operation_category || o.operation_class}</li>``).join('')}
+                                `${movements.map(m => {
+                                    const translation = formatVector(m.x_coord, m.y_coord, m.z_coord);
+                                    const rotation = formatVector(m.rx_angle, m.ry_angle, m.rz_angle);
+                                    const hasTranslation = translation !== '—';
+                                    const hasRotation = rotation !== '—';
+                                    const label = hasTranslation && hasRotation ? 'Translation + Rotation' : hasTranslation ? 'Translation' : hasRotation ? 'Rotation' : 'Placement';
+                                    return ``<li>`${label}: `${translation} / `${rotation} (`${m.modified_by || 'Unknown'}, `${m.last_modified || 'N/A'})</li>``;
+                                }).join('')}
                             </ul>
                         </div>
                         `` : ''}
-                        `${resources.length === 0 && panels.length === 0 && operations.length === 0 ? ``
+                        `${resources.length === 0 && panels.length === 0 && movements.length === 0 ? ``
                         <div class="tree-section">
                             <p style="color: #7f8c8d;">No detailed information available for this study.</p>
                         </div>
@@ -1746,14 +2118,14 @@ $html = @"
         }
 
         // ========================================
-        // VIEW 3: MOVEMENT ACTIVITY
+        // VIEW 3: PLACEMENT ACTIVITY
         // ========================================
         function renderMovementActivity() {
             const tbody = document.getElementById('movementActivityBody');
             const movements = dashboardData.studyMovements || [];
 
             if (movements.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="4" class="text-center">No movement activity recorded</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="6" class="text-center">No placement activity recorded</td></tr>';
                 return;
             }
 
@@ -1761,26 +2133,30 @@ $html = @"
 
             movements.forEach(movement => {
                 const row = tbody.insertRow();
+                const translation = formatVector(movement.x_coord, movement.y_coord, movement.z_coord);
+                const rotation = formatVector(movement.rx_angle, movement.ry_angle, movement.rz_angle);
+                const hasTranslation = translation !== '—';
+                const hasRotation = rotation !== '—';
 
-                // Determine movement type (simplified logic)
-                let movementType = 'Simple Move';
-                let movementClass = 'movement-simple';
+                let placementType = 'Placement';
+                let placementClass = 'movement-simple';
 
-                // Check if this looks like a significant change
-                if (movement.location_vector_id && movement.rotation_vector_id) {
-                    movementType = 'Location & Rotation Change';
-                    movementClass = 'movement-world';
-                } else if (movement.location_vector_id) {
-                    movementType = 'Location Change';
-                    movementClass = 'movement-weld';
-                } else if (movement.rotation_vector_id) {
-                    movementType = 'Rotation Change';
-                    movementClass = 'movement-rotation';
+                if (hasTranslation && hasRotation) {
+                    placementType = 'Translation + Rotation';
+                    placementClass = 'movement-both';
+                } else if (hasTranslation) {
+                    placementType = 'Translation';
+                    placementClass = 'movement-translation';
+                } else if (hasRotation) {
+                    placementType = 'Rotation';
+                    placementClass = 'movement-rotation';
                 }
 
                 row.innerHTML = ``
-                    <td>Study Layout `${movement.studylayout_id}</td>
-                    <td><span class="`${movementClass}">`${movementType}</span></td>
+                    <td>`${movement.study_name || ('Study Layout ' + movement.studylayout_id)}</td>
+                    <td><span class="`${placementClass}">`${placementType}</span></td>
+                    <td>`${translation}</td>
+                    <td>`${rotation}</td>
                     <td>`${movement.modified_by || 'Unknown'}</td>
                     <td>`${movement.last_modified || 'N/A'}</td>
                 ``;
@@ -1968,6 +2344,14 @@ $html = @"
             return '(' + formatCoordValue(coords.x) + ', ' + formatCoordValue(coords.y) + ', ' + formatCoordValue(coords.z) + ')';
         }
 
+        function formatRotationSet(coords) {
+            if (!coords) return 'N/A';
+            const rx = formatCoordValue(coords.rx);
+            const ry = formatCoordValue(coords.ry);
+            const rz = formatCoordValue(coords.rz);
+            return '(' + rx + '\u00B0, ' + ry + '\u00B0, ' + rz + '\u00B0)';
+        }
+
         function renderTreeChanges() {
             const changes = getTreeChangeList();
             window.treeChangeData = changes.sort((a, b) => (b.detectedAt || '').localeCompare(a.detectedAt || ''));
@@ -2143,7 +2527,7 @@ $html = @"
             if (change.nodeType) gridItems.push('<div><strong>Node Type:</strong> ' + change.nodeType + '</div>');
             if (change.detectedAt) gridItems.push('<div><strong>Detected:</strong> ' + change.detectedAt + '</div>');
             if (change.context && change.context.workType) gridItems.push('<div><strong>Work Type:</strong> ' + formatWorkTypeLabel(change.context.workType) + '</div>');
-            if (change.movementClassification) gridItems.push('<div><strong>Movement:</strong> ' + change.movementClassification + '</div>');
+            if (change.movementClassification) gridItems.push('<div><strong>Transform:</strong> ' + change.movementClassification + '</div>');
             if (change.mappingType) gridItems.push('<div><strong>Mapping:</strong> ' + change.mappingType + '</div>');
 
             let detailSection = '';
@@ -2162,19 +2546,53 @@ $html = @"
                 const afterCoords = change.deltaSummary ? change.deltaSummary.after : null;
                 const deltaCoords = change.deltaSummary ? change.deltaSummary.delta : null;
                 const maxDelta = (change.deltaSummary && change.deltaSummary.maxAbsDelta !== undefined) ? change.deltaSummary.maxAbsDelta : null;
+                const maxDeltaDeg = (change.deltaSummary && change.deltaSummary.maxAbsDeltaDeg !== undefined) ? change.deltaSummary.maxAbsDeltaDeg : null;
                 const coordProv = (beforeCoords && beforeCoords.coord_provenance) ? beforeCoords.coord_provenance : (afterCoords && afterCoords.coord_provenance ? afterCoords.coord_provenance : null);
 
-                detailSection =
-                    '<div class="tree-change-section">' +
-                    '<h4>Movement Details</h4>' +
-                    '<div class="tree-change-coords">' +
-                    '<div><strong>Before:</strong> ' + formatCoordSet(beforeCoords) + '</div>' +
-                    '<div><strong>After:</strong> ' + formatCoordSet(afterCoords) + '</div>' +
-                    '<div><strong>Delta:</strong> ' + formatCoordSet(deltaCoords) + '</div>' +
-                    (maxDelta !== null ? '<div><strong>Max Δ:</strong> ' + maxDelta + 'mm</div>' : '') +
-                    '</div>' +
-                    (coordProv ? '<div class="context-line">Provenance: ' + coordProv + '</div>' : '') +
-                    '</div>';
+                // Check if rotation data exists
+                const hasRotation = deltaCoords && (deltaCoords.rx !== undefined || deltaCoords.ry !== undefined || deltaCoords.rz !== undefined);
+
+                let movementHtml = '<div class="tree-change-section"><h4>Transform Details</h4>';
+
+                // Position section
+                movementHtml += '<div class="tree-change-coords">';
+                if (hasRotation) {
+                    movementHtml += '<div><strong>Position:</strong></div>';
+                    movementHtml += '<div style="margin-left: 1em;"><strong>Before:</strong> ' + formatCoordSet(beforeCoords) + '</div>';
+                    movementHtml += '<div style="margin-left: 1em;"><strong>After:</strong> ' + formatCoordSet(afterCoords) + '</div>';
+                    movementHtml += '<div style="margin-left: 1em;"><strong>Delta:</strong> ' + formatCoordSet(deltaCoords) + '</div>';
+                } else {
+                    movementHtml += '<div><strong>Before:</strong> ' + formatCoordSet(beforeCoords) + '</div>';
+                    movementHtml += '<div><strong>After:</strong> ' + formatCoordSet(afterCoords) + '</div>';
+                    movementHtml += '<div><strong>Delta:</strong> ' + formatCoordSet(deltaCoords) + '</div>';
+                }
+
+                // Rotation section (if rotation data exists)
+                if (hasRotation) {
+                    movementHtml += '<div style="margin-top: 0.5em;"><strong>Rotation:</strong></div>';
+                    movementHtml += '<div style="margin-left: 1em;"><strong>Before:</strong> ' + formatRotationSet(beforeCoords) + '</div>';
+                    movementHtml += '<div style="margin-left: 1em;"><strong>After:</strong> ' + formatRotationSet(afterCoords) + '</div>';
+                    movementHtml += '<div style="margin-left: 1em;"><strong>Delta:</strong> ' + formatRotationSet(deltaCoords) + '</div>';
+                }
+
+                // Max delta summary
+                if (maxDelta !== null || maxDeltaDeg !== null) {
+                    movementHtml += '<div style="margin-top: 0.5em;"><strong>Max \u0394:</strong> ';
+                    const parts = [];
+                    if (maxDelta !== null) parts.push(maxDelta + 'mm position');
+                    if (maxDeltaDeg !== null) parts.push(maxDeltaDeg + '\u00B0 rotation');
+                    movementHtml += parts.join(', ') + '</div>';
+                }
+
+                movementHtml += '</div>';
+
+                // Provenance
+                if (coordProv) {
+                    movementHtml += '<div class="context-line">Provenance: ' + coordProv + '</div>';
+                }
+
+                movementHtml += '</div>';
+                detailSection = movementHtml;
             } else if (change.changeType === 'structure') {
                 detailSection =
                     '<div class="tree-change-section">' +
@@ -2636,7 +3054,14 @@ $html = @"
         // ========================================
         function renderStudyHealth() {
             const healthData = dashboardData.studyHealth || {};
-            const summary = healthData.summary || {};
+            const summaryRaw = healthData.summary || {};
+            const summary = {
+                totalStudies: summaryRaw.totalStudies ?? summaryRaw.totalstudies ?? 0,
+                criticalIssues: summaryRaw.criticalIssues ?? summaryRaw.criticalissues ?? 0,
+                highIssues: summaryRaw.highIssues ?? summaryRaw.highissues ?? 0,
+                mediumIssues: summaryRaw.mediumIssues ?? summaryRaw.mediumissues ?? 0,
+                lowIssues: summaryRaw.lowIssues ?? summaryRaw.lowissues ?? 0
+            };
             const issues = healthData.issues || [];
 
             document.getElementById('totalStudiesCount').textContent = summary.totalStudies || 0;
@@ -2645,10 +3070,10 @@ $html = @"
             document.getElementById('mediumIssuesCount').textContent = summary.mediumIssues || 0;
             document.getElementById('lowIssuesCount').textContent = summary.lowIssues || 0;
 
-            const totalStudies = summary.totalStudies || 1;
-            const studiesWithIssues = new Set(issues.map(i => i.node_id)).size;
-            const healthyStudies = totalStudies - studiesWithIssues;
-            const healthScore = Math.round((healthyStudies / totalStudies) * 100);
+            const fallbackTotal = (dashboardData.studySummary || []).length;
+            const totalStudies = summary.totalStudies || fallbackTotal || 0;
+            const studiesWithIssues = new Set(issues.map(i => i.node_id || i.study_id || i.studyId).filter(Boolean)).size;
+            const healthScore = totalStudies > 0 ? Math.round(((totalStudies - studiesWithIssues) / totalStudies) * 100) : 0;
             document.getElementById('healthScorePercent').textContent = healthScore + '%';
 
             window.healthIssuesData = issues;
@@ -2780,7 +3205,7 @@ $html = @"
             const tbody = document.getElementById('conflictsBody');
 
             if (!conflicts || conflicts.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="5" class="text-center">No resource conflicts detected</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="5" class="text-center">No resource conflicts detected - all resources used normally</td></tr>';
                 return;
             }
 
@@ -2793,11 +3218,16 @@ $html = @"
                 else if (conflict.risk_level === 'High') riskBadge = 'badge-warning';
                 else if (conflict.risk_level === 'Medium') riskBadge = 'badge-info';
 
+                // Format users/studies display
+                const usersStudies = conflict.user_count > 1
+                    ? '<strong>Users:</strong> ' + (conflict.users || 'N/A') + '<br><small>' + (conflict.studies || '') + '</small>'
+                    : '<strong>Studies:</strong> ' + (conflict.studies || 'N/A');
+
                 row.innerHTML =
-                    '<td><strong>' + (conflict.resource_name || 'N/A') + '</strong></td>' +
+                    '<td><strong>' + (conflict.resource_name || 'N/A') + '</strong><br><small>ID: ' + (conflict.instance_id || 'N/A') + '</small></td>' +
                     '<td>' + (conflict.resource_type || 'N/A') + '</td>' +
-                    '<td><span class="badge ' + riskBadge + '">' + (conflict.study_count || 0) + '</span></td>' +
-                    '<td>' + (conflict.studies || 'N/A') + '</td>' +
+                    '<td><span class="badge ' + riskBadge + '">' + (conflict.conflict_type || 'Unknown') + '</span></td>' +
+                    '<td>' + usersStudies + '</td>' +
                     '<td><span class="badge ' + riskBadge + '">' + (conflict.risk_level || 'N/A') + '</span></td>';
             });
         }
@@ -2967,7 +3397,7 @@ $html = @"
 
             try {
                 renderWorkTypeSummary();
-                renderActiveStudies();
+                onActiveStudyFilterChange();
                 renderMovementActivity();
                 renderTreeChanges();
                 populateUserSelectors();
@@ -2980,7 +3410,7 @@ $html = @"
                 console.log('Dashboard initialized successfully');
             } catch (e) {
                 console.error('Error initializing dashboard:', e);
-                alert('Error initializing dashboard. Check browser console for details.');
+                console.warn('Dashboard initialization had errors but may still function. Check console for details.');
             }
         });
     </script>
