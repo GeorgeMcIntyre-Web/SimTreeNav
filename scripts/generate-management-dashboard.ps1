@@ -942,7 +942,7 @@ $html = @"
         <!-- Navigation Tabs -->
         <div class="nav-tabs">
             <button class="nav-tab active" onclick="showView('view1')">Work Type Summary</button>
-            <button class="nav-tab" onclick="showView('view2')">Active Studies</button>
+            <button class="nav-tab" onclick="showView('view2')">Studies</button>
             <button class="nav-tab" onclick="showView('view3')">Placement Activity</button>
             <button class="nav-tab" onclick="showView('view9')">Tree Changes</button>
             <button class="nav-tab" onclick="showView('view4')">User Activity</button>

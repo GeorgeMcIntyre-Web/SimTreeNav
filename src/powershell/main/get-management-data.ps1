@@ -1414,6 +1414,250 @@ $results.workTypeSummaryMeta = @{
     }
 }
 
+# ========================================
+# Compute Study Health v1
+# ========================================
+Write-Host "`n[11b/14] Computing Study Health (v1)" -ForegroundColor Cyan
+
+# Helper function to compute health for a single study
+function Compute-StudyHealth {
+    param(
+        [Parameter(Mandatory=$true)]
+        $Study,
+        [hashtable]$TreeSnapshotIndex,
+        [hashtable]$ResourceCountsIndex,
+        [hashtable]$PanelCountsIndex,
+        [hashtable]$OperationCountsIndex
+    )
+
+    $studyId = [string]$Study.study_id
+    $studyName = $Study.study_name
+
+    # Initialize health signals
+    $signals = @{
+        nodeCount = 0
+        rootResourceCount = 0
+        structureUnreadable = $false
+        hasResourcesLoaded = $false
+        resourceCount = 0
+        hasPanels = $false
+        panelCount = 0
+        hasMfg = $false
+        mfgCount = 0
+        projectedMfgCount = 0
+        hasLocations = $false
+        locationCount = 0
+        assignedLocationCount = 0
+        hasOperations = $false
+        operationCount = 0
+        robotLinkedOperationCount = 0
+    }
+
+    # Get node count from tree snapshot if available
+    if ($TreeSnapshotIndex.ContainsKey($studyId)) {
+        $snapshot = $TreeSnapshotIndex[$studyId]
+        if ($snapshot.meta -and $snapshot.meta.nodeCount) {
+            $signals.nodeCount = [int]$snapshot.meta.nodeCount
+        }
+    }
+
+    # Get resource counts
+    if ($ResourceCountsIndex.ContainsKey($studyId)) {
+        $resInfo = $ResourceCountsIndex[$studyId]
+        $signals.resourceCount = $resInfo.totalCount
+        $signals.rootResourceCount = $resInfo.rootCount
+        $signals.hasResourcesLoaded = ($resInfo.totalCount -gt 0)
+    }
+
+    # Get panel counts
+    if ($PanelCountsIndex.ContainsKey($studyId)) {
+        $panelCount = $PanelCountsIndex[$studyId]
+        $signals.panelCount = $panelCount
+        $signals.hasPanels = ($panelCount -gt 0)
+    }
+
+    # Get operation counts
+    if ($OperationCountsIndex.ContainsKey($studyId)) {
+        $opInfo = $OperationCountsIndex[$studyId]
+        $signals.operationCount = $opInfo.totalCount
+        $signals.robotLinkedOperationCount = $opInfo.robotLinkedCount
+        $signals.hasOperations = ($opInfo.totalCount -gt 0)
+    }
+
+    # Determine structure readability (using study name heuristics)
+    # A structure is "unreadable" if name suggests it's poorly organized
+    $nameLower = $studyName.ToLowerInvariant()
+    $hasJunkPattern = ($nameLower -match 'test|temp|asdf|xxx|copy|new folder')
+    $hasIllegalChars = ($studyName -match '[:\*\?"<>\|]')
+    $signals.structureUnreadable = ($hasJunkPattern -or $hasIllegalChars)
+
+    # Initialize score and reasons
+    $score = 100
+    $reasons = @()
+
+    # Rule 1: Hard fail if no nodes
+    if ($signals.nodeCount -eq 0) {
+        $score = 0
+        $reasons += "no_nodes"
+    } else {
+        # Rule 2: Root resources penalty
+        if ($signals.rootResourceCount -gt 0) {
+            $score -= 10
+            $reasons += "root_resources"
+        }
+
+        # Rule 3: Structure unreadable penalty
+        if ($signals.structureUnreadable) {
+            $score -= 20
+            $reasons += "structure_unreadable"
+        }
+
+        # Stage-aware penalties (only apply if appropriate)
+        
+        # No resources loaded (basic penalty)
+        if (-not $signals.hasResourcesLoaded) {
+            $score -= 5
+            $reasons += "no_resources"
+        } else {
+            # Panels stage (only if resources exist)
+            if (-not $signals.hasPanels) {
+                $score -= 5
+                $reasons += "no_panels"
+            }
+
+            # MFG projection (only if MFG exists)
+            if ($signals.hasMfg -and $signals.projectedMfgCount -eq 0) {
+                $score -= 5
+                $reasons += "mfg_not_projected"
+            }
+
+            # Locations assigned (only if locations exist)
+            if ($signals.hasLocations -and $signals.assignedLocationCount -eq 0) {
+                $score -= 5
+                $reasons += "locations_not_assigned"
+            }
+
+            # Operations robot-linked (only if operations exist)
+            if ($signals.hasOperations -and $signals.robotLinkedOperationCount -eq 0) {
+                $score -= 5
+                $reasons += "operations_not_linked"
+            }
+        }
+    }
+
+    # Ensure score is in valid range
+    $score = [Math]::Max(0, [Math]::Min(100, $score))
+
+    # Determine status from score
+    $status = if ($score -ge 80) { "Healthy" } elseif ($score -ge 40) { "Warning" } else { "Unhealthy" }
+
+    return @{
+        healthScore = $score
+        healthStatus = $status
+        healthReasons = $reasons
+        healthSignals = $signals
+    }
+}
+
+# Build indexes for health computation
+Write-Host "  Building data indexes..." -ForegroundColor Gray
+
+# Tree snapshot index (nodeCount from snapshots)
+$treeSnapshotIndex = @{}
+$treeSnapshotDir = Join-Path (Get-Location).Path "data\tree-snapshots"
+if (Test-Path $treeSnapshotDir) {
+    Get-ChildItem -Path $treeSnapshotDir -Filter "*.json" | Where-Object { $_.Name -notmatch 'previous' } | ForEach-Object {
+        if ($_.BaseName -match '^\d+$') {
+            $studyId = $_.BaseName
+            try {
+                $snapshot = Get-Content $_.FullName -Raw | ConvertFrom-Json
+                $treeSnapshotIndex[$studyId] = $snapshot
+            } catch {
+                # Ignore invalid snapshots
+            }
+        }
+    }
+}
+Write-Host "    Loaded $($treeSnapshotIndex.Count) tree snapshots" -ForegroundColor DarkGray
+
+# Resource counts index (per study)
+$resourceCountsIndex = @{}
+if ($results.studyResources) {
+    $results.studyResources | Group-Object -Property study_id | ForEach-Object {
+        $studyId = [string]$_.Name
+        $resources = $_.Group
+        $totalCount = $resources.Count
+        # Root resources are those with allocation_type indicating root level or shortcut_name is empty/generic
+        $rootCount = ($resources | Where-Object { 
+            $_.allocation_type -eq 'Root' -or 
+            $_.shortcut_name -eq 'Shortcut' -or 
+            [string]::IsNullOrWhiteSpace($_.shortcut_name)
+        }).Count
+        $resourceCountsIndex[$studyId] = @{
+            totalCount = $totalCount
+            rootCount = $rootCount
+        }
+    }
+}
+Write-Host "    Indexed $($resourceCountsIndex.Count) studies with resources" -ForegroundColor DarkGray
+
+# Panel counts index
+$panelCountsIndex = @{}
+if ($results.studyPanels) {
+    $results.studyPanels | Group-Object -Property study_id | ForEach-Object {
+        $studyId = [string]$_.Name
+        $panelCountsIndex[$studyId] = $_.Count
+    }
+}
+Write-Host "    Indexed $($panelCountsIndex.Count) studies with panels" -ForegroundColor DarkGray
+
+# Operation counts index (total and robot-linked)
+$operationCountsIndex = @{}
+if ($results.studyOperations) {
+    $results.studyOperations | Group-Object -Property study_id | ForEach-Object {
+        $studyId = [string]$_.Name
+        $operations = $_.Group
+        $totalCount = $operations.Count
+        # Robot-linked operations have a robot_name populated
+        $robotLinkedCount = ($operations | Where-Object { -not [string]::IsNullOrWhiteSpace($_.robot_name) }).Count
+        $operationCountsIndex[$studyId] = @{
+            totalCount = $totalCount
+            robotLinkedCount = $robotLinkedCount
+        }
+    }
+}
+Write-Host "    Indexed $($operationCountsIndex.Count) studies with operations" -ForegroundColor DarkGray
+
+# Compute health for each study in studySummary
+Write-Host "  Computing health for $($results.studySummary.Count) studies..." -ForegroundColor Gray
+$healthyCount = 0
+$warningCount = 0
+$unhealthyCount = 0
+
+foreach ($study in $results.studySummary) {
+    $health = Compute-StudyHealth `
+        -Study $study `
+        -TreeSnapshotIndex $treeSnapshotIndex `
+        -ResourceCountsIndex $resourceCountsIndex `
+        -PanelCountsIndex $panelCountsIndex `
+        -OperationCountsIndex $operationCountsIndex
+
+    # Attach health fields to study object
+    $study | Add-Member -NotePropertyName healthScore -NotePropertyValue $health.healthScore -Force
+    $study | Add-Member -NotePropertyName healthStatus -NotePropertyValue $health.healthStatus -Force
+    $study | Add-Member -NotePropertyName healthReasons -NotePropertyValue $health.healthReasons -Force
+    $study | Add-Member -NotePropertyName healthSignals -NotePropertyValue $health.healthSignals -Force
+
+    # Count by status
+    switch ($health.healthStatus) {
+        "Healthy" { $healthyCount++ }
+        "Warning" { $warningCount++ }
+        "Unhealthy" { $unhealthyCount++ }
+    }
+}
+
+Write-Host "  Health computed: $healthyCount Healthy, $warningCount Warning, $unhealthyCount Unhealthy" -ForegroundColor Green
+
 # Process Study Health Analysis
 Write-Host "`n[12/14] Processing Study Health Analysis" -ForegroundColor Cyan
 $allStudies = $jobs['StudyHealthData'].Data
