@@ -1,4 +1,4 @@
-# Generate Management Dashboard HTML
+﻿# Generate Management Dashboard HTML
 # Purpose: Transform management.json into interactive HTML dashboard with 6 views
 # Agent: 04 (Frontend)
 # Date: 2026-01-22
