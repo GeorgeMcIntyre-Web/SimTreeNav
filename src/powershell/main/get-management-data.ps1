@@ -2112,18 +2112,75 @@ if (-not (Test-Path $outputDir)) {
     New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
 }
 
+# Determine file naming pattern (support both legacy and new patterns)
 $outputName = [System.IO.Path]::GetFileNameWithoutExtension($outputPath)
 $outputExt = [System.IO.Path]::GetExtension($outputPath)
-$timestamp = (Get-Date).ToString('yyyyMMdd-HHmmss')
-$tempFile = Join-Path $outputDir ("$outputName.tmp-$timestamp$outputExt")
-$targetPath = $outputPath
-if (Test-FileLocked -Path $outputPath) {
-    $targetPath = Join-Path $outputDir ("$outputName.$timestamp$outputExt")
+
+# If output file doesn't end with -latest, construct versioned names
+$latestFile = if ($outputName -match '-latest$') {
+    $outputPath
+} else {
+    Join-Path $outputDir "management-data-${Schema}-${ProjectId}-latest${outputExt}"
+}
+
+$prevFile = $latestFile -replace '-latest', '-prev'
+$runStateFile = Join-Path $outputDir "run-state-${Schema}-${ProjectId}.json"
+
+# Load previous run state (if exists)
+$runState = if (Test-Path $runStateFile) {
+    Get-Content $runStateFile -Raw | ConvertFrom-Json
+} else {
+    @{
+        runHistory = @()
+    }
+}
+
+# If latest file exists, rotate it to prev
+$prevRunAt = $null
+if (Test-Path $latestFile) {
+    Write-Host "  Rotating latest -> prev..." -ForegroundColor Gray
+    
+    # Read metadata from current latest to get its timestamp
+    try {
+        $latestContent = Get-Content $latestFile -Raw | ConvertFrom-Json
+        $prevRunAt = $latestContent.metadata.generatedAt
+    } catch {
+        Write-Warning "  Could not read timestamp from existing latest file"
+    }
+    
+    # Copy latest to prev (overwrite if prev exists)
+    if (Test-Path $prevFile) {
+        Remove-Item $prevFile -Force
+    }
+    Copy-Item $latestFile $prevFile -Force
+    Write-Host "  Previous run backed up" -ForegroundColor Green
 }
 
 # Add performance summary
 $scriptTimer.Stop()
 $results.performance.totalTime = [math]::Round($scriptTimer.Elapsed.TotalSeconds, 2)
+
+# Prepare run metadata for the new run
+$currentRunAt = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+$runId = (Get-Date).ToString('yyyyMMdd-HHmmss')
+
+# Update run state
+$runState.latestRunAt = $currentRunAt
+$runState.latestRunId = $runId
+$runState.latestFile = $latestFile
+if ($prevRunAt) {
+    $runState.prevRunAt = $prevRunAt
+    $runState.prevFile = $prevFile
+}
+
+# Add to history (keep last 10)
+$runState.runHistory = @($runState.runHistory | Select-Object -Last 9) + @{
+    runAt = $currentRunAt
+    runId = $runId
+    file = $latestFile
+    schema = $Schema
+    projectId = $ProjectId
+}
 
 # Convert to JSON with optimized depth
 $jsonText = $results | ConvertTo-Json -Depth 5
@@ -2132,21 +2189,105 @@ $jsonText = $results | ConvertTo-Json -Depth 5
 $jsonText = $jsonText -replace '"studysummary":\s*\{', '"studysummary": [{'
 $jsonText = $jsonText -replace '("studysummary":\s*\[\{[^\}]+\})\s*,\s*"', '$1],  "'
 
+# Write to temp file first
+$timestamp = (Get-Date).ToString('yyyyMMdd-HHmmss')
+$tempFile = Join-Path $outputDir ("management-data-${Schema}-${ProjectId}.tmp-$timestamp${outputExt}")
 $jsonText | Out-File $tempFile -Encoding UTF8 -Force
 
-$finalOutput = $tempFile
+# Move temp to latest
 try {
-    if (Test-Path $targetPath) {
-        Remove-Item -Path $targetPath -Force -ErrorAction Stop
+    if (Test-Path $latestFile) {
+        Remove-Item -Path $latestFile -Force -ErrorAction Stop
     }
-
-    Move-Item -Path $tempFile -Destination $targetPath -ErrorAction Stop
-    $finalOutput = $targetPath
+    Move-Item -Path $tempFile -Destination $latestFile -ErrorAction Stop
+    Write-Host "  Results saved to: $latestFile" -ForegroundColor Green
 } catch {
-    Write-Warning "    Output file could not be replaced; keeping temp file instead."
+    Write-Warning "  Could not write to latest file; keeping temp file: $tempFile"
 }
 
-Write-Host "  Results saved to: $finalOutput" -ForegroundColor Green
+# Save run state
+$runStateJson = $runState | ConvertTo-Json -Depth 3
+$runStateJson | Out-File $runStateFile -Encoding UTF8 -Force
+Write-Host "  Run state updated: $runStateFile" -ForegroundColor Green
+
+# ========================================
+# Compute Previous Run Diff
+# ========================================
+if (Test-Path $prevFile) {
+    Write-Host "`n  Computing changes since previous run..." -ForegroundColor Cyan
+    
+    $diffScriptPath = Join-Path $scriptRootDir "scripts\compute-prev-diff.ps1"
+    if (Test-Path $diffScriptPath) {
+        try {
+            # Run diff computation
+            $diffResult = & $diffScriptPath -PrevFile $prevFile -LatestFile $latestFile
+            
+            if ($diffResult -and $diffResult.compareMeta) {
+                # Add compareMeta to results metadata
+                $results.metadata | Add-Member -NotePropertyName "compareMeta" -NotePropertyValue $diffResult.compareMeta -Force
+                
+                # Add changedSincePrev and changeReasons to each study
+                foreach ($study in $results.studySummary) {
+                    $studyId = $study.OBJECT_ID
+                    if ($diffResult.studyChanges.ContainsKey($studyId)) {
+                        $changeInfo = $diffResult.studyChanges[$studyId]
+                        $study | Add-Member -NotePropertyName "changedSincePrev" -NotePropertyValue $changeInfo.changed -Force
+                        $study | Add-Member -NotePropertyName "changeReasons" -NotePropertyValue $changeInfo.reasons -Force
+                    } else {
+                        # Study not in diff (shouldn't happen, but handle gracefully)
+                        $study | Add-Member -NotePropertyName "changedSincePrev" -NotePropertyValue $false -Force
+                        $study | Add-Member -NotePropertyName "changeReasons" -NotePropertyValue @() -Force
+                    }
+                }
+                
+                # Re-save latest file with diff data
+                $jsonTextWithDiff = $results | ConvertTo-Json -Depth 5
+                $jsonTextWithDiff = $jsonTextWithDiff -replace '"studysummary":\s*\{', '"studysummary": [{'
+                $jsonTextWithDiff = $jsonTextWithDiff -replace '("studysummary":\s*\[\{[^\}]+\})\s*,\s*"', '$1],  "'
+                $jsonTextWithDiff | Out-File $latestFile -Encoding UTF8 -Force
+                
+                Write-Host "  Changed studies: $($diffResult.compareMeta.changedStudyCount) / $($diffResult.compareMeta.totalStudyCount)" -ForegroundColor Green
+            }
+        } catch {
+            Write-Warning "  Failed to compute diff: $_"
+            # Add empty compareMeta to indicate diff was attempted but failed
+            $results.metadata | Add-Member -NotePropertyName "compareMeta" -NotePropertyValue @{
+                mode = "diff_failed"
+                error = $_.ToString()
+            } -Force
+        }
+    } else {
+        Write-Warning "  Diff script not found: $diffScriptPath"
+    }
+} else {
+    Write-Host "`n  No previous run found - this is the first run" -ForegroundColor Gray
+    # Add compareMeta indicating no previous run
+    $results.metadata | Add-Member -NotePropertyName "compareMeta" -NotePropertyValue @{
+        mode = "no_previous_run"
+        noPreviousRun = $true
+    } -Force
+    
+    # Set all studies to not changed
+    foreach ($study in $results.studySummary) {
+        $study | Add-Member -NotePropertyName "changedSincePrev" -NotePropertyValue $false -Force
+        $study | Add-Member -NotePropertyName "changeReasons" -NotePropertyValue @() -Force
+    }
+    
+    # Re-save with these fields
+    $jsonTextWithDiff = $results | ConvertTo-Json -Depth 5
+    $jsonTextWithDiff = $jsonTextWithDiff -replace '"studysummary":\s*\{', '"studysummary": [{'
+    $jsonTextWithDiff = $jsonTextWithDiff -replace '("studysummary":\s*\[\{[^\}]+\})\s*,\s*"', '$1],  "'
+    $jsonTextWithDiff | Out-File $latestFile -Encoding UTF8 -Force
+}
+
+# Also write to legacy location for backward compatibility
+$legacyFile = Join-Path $outputDir "management-data-${Schema}-${ProjectId}${outputExt}"
+if ($legacyFile -ne $latestFile) {
+    Copy-Item $latestFile $legacyFile -Force
+    Write-Host "  Legacy file updated: $legacyFile" -ForegroundColor Gray
+}
+
+$finalOutput = $latestFile
 
 # ========================================
 # Performance Summary

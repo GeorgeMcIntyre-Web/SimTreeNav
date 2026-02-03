@@ -1,4 +1,4 @@
-﻿# Generate Management Dashboard HTML
+# Generate Management Dashboard HTML
 # Purpose: Transform management.json into interactive HTML dashboard with 6 views
 # Agent: 04 (Frontend)
 # Date: 2026-01-22
@@ -937,6 +937,31 @@ $html = @"
                 <span><strong>Period:</strong> $($data.metadata.startDate) to $($data.metadata.endDate)</span>
                 <span><strong>Generated:</strong> $($data.metadata.generatedAt)</span>
             </div>
+            $(
+                if ($data.metadata.PSObject.Properties.Name -contains 'compareMeta' -and $data.metadata.compareMeta) {
+                    $compareMeta = $data.metadata.compareMeta
+                    if ($compareMeta.mode -eq 'previous_run') {
+                        $prevTime = $compareMeta.prevRunAt
+                        $latestTime = $compareMeta.latestRunAt
+                        $changedCount = $compareMeta.changedStudyCount
+                        @"
+            <div style="background: linear-gradient(135deg, #3498db 0%, #2980b9 100%); color: white; padding: 12px 20px; border-radius: 6px; margin-top: 15px; font-size: 0.95em;">
+                <strong>📊 Comparison Mode:</strong> Showing changes since previous run
+                <span style="margin-left: 15px; opacity: 0.9;">Previous: $prevTime → Latest: $latestTime</span>
+                <span style="margin-left: 15px; font-weight: 600;">$changedCount studies changed</span>
+            </div>
+"@
+                    } elseif ($compareMeta.noPreviousRun) {
+                        @"
+            <div style="background: linear-gradient(135deg, #95a5a6 0%, #7f8c8d 100%); color: white; padding: 12px 20px; border-radius: 6px; margin-top: 15px; font-size: 0.95em;">
+                <strong>📊 First Run:</strong> No previous run available yet. Run again to see changes between runs.
+            </div>
+"@
+                    }
+                } else {
+                    ""
+                }
+            )
         </div>
 
         <!-- Navigation Tabs -->
@@ -958,6 +983,12 @@ $html = @"
                 <h2>Work Type Summary</h2>
                 <p>High-level overview of activity across all work types</p>
             </div>
+            
+            <!-- Summary Cards (if comparison data available) -->
+            <div id="workSummaryCards" style="display: none; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 30px;">
+                <!-- Cards populated by JavaScript -->
+            </div>
+            
             <div class="scrollable">
                 <table class="data-table" id="workTypeSummaryTable">
                     <thead>
@@ -991,6 +1022,7 @@ $html = @"
                 </select>
                 <select class="filter-select" id="activeStudyActivityFilter" onchange="onActiveStudyFilterChange()">
                     <option value="">All Activity</option>
+                    <option value="changed">Changed Since Last Run</option>
                     <option value="checkedOut">Checked Out Only</option>
                     <option value="modified">Modified in Range Only</option>
                     <option value="both">Checked Out + Modified</option>
@@ -1898,6 +1930,37 @@ $html = @"
                 modifiedHeader.title = 'Modified (Range) = ' + modifiedRule + ' between ' + rangeLabel;
             }
 
+            // Render comparison summary cards if available
+            const compareMeta = dashboardData.metadata && dashboardData.metadata.compareMeta;
+            const cardsContainer = document.getElementById('workSummaryCards');
+            if (compareMeta && compareMeta.mode === 'previous_run' && cardsContainer) {
+                const studies = dashboardData.studySummary || [];
+                const changedCount = studies.filter(s => s.changedSincePrev === true).length;
+                const checkedOutCount = studies.filter(s => s.WORKING_VERSION_ID > 0).length;
+                const totalCount = studies.length;
+                
+                cardsContainer.style.display = 'grid';
+                cardsContainer.innerHTML = ``
+                    <div style="background: linear-gradient(135deg, #3498db 0%, #2980b9 100%); color: white; padding: 20px; border-radius: 8px; box-shadow: var(--shadow);">
+                        <div style="font-size: 2em; font-weight: bold;">`${changedCount}</div>
+                        <div style="font-size: 0.9em; opacity: 0.9;">Changed Since Last Run</div>
+                        <div style="font-size: 0.8em; opacity: 0.8; margin-top: 8px;">`${Math.round(changedCount / totalCount * 100)}% of studies</div>
+                    </div>
+                    <div style="background: linear-gradient(135deg, #2ecc71 0%, #27ae60 100%); color: white; padding: 20px; border-radius: 8px; box-shadow: var(--shadow);">
+                        <div style="font-size: 2em; font-weight: bold;">`${checkedOutCount}</div>
+                        <div style="font-size: 0.9em; opacity: 0.9;">Checked Out</div>
+                        <div style="font-size: 0.8em; opacity: 0.8; margin-top: 8px;">Currently active</div>
+                    </div>
+                    <div style="background: linear-gradient(135deg, #95a5a6 0%, #7f8c8d 100%); color: white; padding: 20px; border-radius: 8px; box-shadow: var(--shadow);">
+                        <div style="font-size: 2em; font-weight: bold;">`${totalCount}</div>
+                        <div style="font-size: 0.9em; opacity: 0.9;">Total Studies</div>
+                        <div style="font-size: 0.8em; opacity: 0.8; margin-top: 8px;">In this project</div>
+                    </div>
+                ``;
+            } else if (cardsContainer) {
+                cardsContainer.style.display = 'none';
+            }
+
             const workTypes = [
                 { name: 'Project Database', key: 'projectDatabase', items: dashboardData.projectDatabase || [] },
                 { name: 'Resource Library', key: 'resourceLibrary', items: dashboardData.resourceLibrary || [] },
@@ -1972,6 +2035,8 @@ $html = @"
                     const status = s.status || '';
                     const isCheckedOut = status === 'Active' || status === 'Checked Out';
                     const isModified = isInRange(parseDateTime(s.last_modified));
+                    const isChanged = s.changedSincePrev === true;
+                    if (activeStudiesState.activity === 'changed') return isChanged;
                     if (activeStudiesState.activity === 'checkedOut') return isCheckedOut;
                     if (activeStudiesState.activity === 'modified') return isModified;
                     if (activeStudiesState.activity === 'both') return isCheckedOut && isModified;
@@ -2043,6 +2108,9 @@ $html = @"
                     ? ``<span class="badge `${healthMeta.severity === 'Critical' ? 'badge-danger' : healthMeta.severity === 'High' ? 'badge-warning' : healthMeta.severity === 'Medium' ? 'badge-info' : 'badge-primary'}">`${healthMeta.severity}`${healthMeta.count ? ' (' + healthMeta.count + ')' : ''}</span>``
                     : '<span class="badge badge-success">Healthy</span>';
                 const tempBadge = isTemp ? '<span class="badge badge-warning" style="margin-left: 6px;">Temp</span>' : '';
+                const changedBadge = study.changedSincePrev 
+                    ? ``<span class="badge badge-info" style="margin-left: 6px;" title="Changed: `${(study.changeReasons || []).join(', ')}">Changed</span>``
+                    : '';
 
                 const resources = (dashboardData.studyResources || []).filter(r => String(r.study_id) === studyIdKey);
                 const panels = (dashboardData.studyPanels || []).filter(p => String(p.study_id) === studyIdKey);
@@ -2056,7 +2124,7 @@ $html = @"
                 treeItem.innerHTML = ``
                     <div class="tree-header" onclick="toggleTreeItem(`${index})">
                         <div>
-                            <div class="title">`${study.study_name || 'Unnamed Study'}`${tempBadge}</div>
+                            <div class="title">`${study.study_name || 'Unnamed Study'}`${tempBadge}`${changedBadge}</div>
                             <div style="font-size: 0.9em; color: #7f8c8d; margin-top: 5px;">
                                 `${(study.status === 'Active' || study.status === 'Checked Out') ? '<span class="badge badge-success">Checked Out</span>' : '<span class="badge badge-warning">Idle</span>'}
                                 <span style="margin-left: 6px;">`${healthBadge}</span>

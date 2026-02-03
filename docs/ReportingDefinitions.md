@@ -97,6 +97,63 @@ These fields provide traceability and allow the UI to display the exact rules us
 
 ---
 
+## Previous Run Comparison
+
+### Changed Since Last Run
+
+A study node is considered **Changed Since Last Run** if any of the following differ between the previous run and the current run:
+
+- `healthScore` changed
+- `healthStatus` changed
+- `WORKING_VERSION_ID` changed (checkout status)
+- `modifiedInRange` changed
+- Resource count changed (from `healthSignals.resourceCount`)
+- Panel count changed (from `healthSignals.panelCount`)
+- Operation count changed (from `healthSignals.operationCount`)
+- Study name changed (`STUDY_NAME`)
+
+### Storage Pattern
+
+The system maintains two JSON files per project:
+- `management-data-{Schema}-{ProjectId}-latest.json` - Current run data
+- `management-data-{Schema}-{ProjectId}-prev.json` - Previous run data (backup of latest from prior run)
+- `run-state-{Schema}-{ProjectId}.json` - Run metadata (timestamps, file paths, run history)
+
+### Comparison Metadata
+
+Each run includes `metadata.compareMeta` with:
+- `mode`: "previous_run" | "no_previous_run" | "diff_failed"
+- `prevRunAt`: Timestamp of previous run (ISO format)
+- `latestRunAt`: Timestamp of current run (ISO format)
+- `changedStudyCount`: Number of studies with detected changes
+- `totalStudyCount`: Total number of studies in current run
+- `noPreviousRun`: Boolean flag (true if no previous run exists)
+
+### Per-Study Fields
+
+Each study in `studySummary` includes:
+- `changedSincePrev`: Boolean indicating if study changed since previous run
+- `changeReasons`: Array of change reason codes: ["health", "checkout", "resources", "panels", "operations", "modified", "name", "new", "removed"]
+
+### Dashboard Rendering
+
+The dashboard displays comparison data when available:
+- **Header banner**: Shows comparison mode and changed study count
+- **Work Summary cards**: Displays "Changed Since Last Run" metric
+- **Studies tab filter**: Includes "Changed Since Last Run" option
+- **Study badges**: Shows "Changed" badge with tooltip listing reasons
+
+### First Run Behavior
+
+On the first run (no previous data):
+- `compareMeta.mode` = "no_previous_run"
+- `compareMeta.noPreviousRun` = true
+- All studies have `changedSincePrev` = false
+- Dashboard shows "First Run" banner
+
+---
+
 ## Change History
 
+- **2026-02-03**: Added Previous Run Comparison section (v1.2)
 - **2026-02-03**: Initial version (Phase 1 deliverable)

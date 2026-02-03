@@ -150,6 +150,9 @@ Each study in `studySummary` includes:
 | `studyPanels` | get-management-data.ps1 | ~1200 (from query) |
 | `studyOperations` | get-management-data.ps1 | ~1201 (from query) |
 | `treeChanges` | get-management-data.ps1 | ~1749 (from tree snapshots) |
+| `metadata.compareMeta` | get-management-data.ps1 + compute-prev-diff.ps1 | ~2200+ (after save) |
+| `changedSincePrev` (per study) | compute-prev-diff.ps1 | Called by get-management-data.ps1 |
+| `changeReasons` (per study) | compute-prev-diff.ps1 | Called by get-management-data.ps1 |
 
 ---
 
@@ -157,10 +160,13 @@ Each study in `studySummary` includes:
 
 | UI Element | Rendered In | Function/Line |
 |------------|-------------|---------------|
-| Studies tab | generate-management-dashboard.ps1 | `renderActiveStudies()` ~1944 |
+| Studies tab | generate-management-dashboard.ps1 | `renderActiveStudies()` ~2007 |
 | Study health status pill | generate-management-dashboard.ps1 | JavaScript in `renderActiveStudies()` |
 | Study counts (header) | generate-management-dashboard.ps1 | ~1919-1920, ~3064+ |
-| Contract validation | generate-management-dashboard.ps1 | (to be added) |
+| Comparison banner (header) | generate-management-dashboard.ps1 | ~940-965 (inline) |
+| Changed Since Last Run cards | generate-management-dashboard.ps1 | `renderWorkTypeSummary()` ~1930+ |
+| Changed badge (studies) | generate-management-dashboard.ps1 | `renderActiveStudies()` ~2110+ |
+| Changed filter (studies) | generate-management-dashboard.ps1 | Filter logic in `renderActiveStudies()` |
 
 ---
 
