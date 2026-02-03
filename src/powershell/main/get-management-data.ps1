@@ -2128,7 +2128,16 @@ $runStateFile = Join-Path $outputDir "run-state-${Schema}-${ProjectId}.json"
 
 # Load previous run state (if exists)
 $runState = if (Test-Path $runStateFile) {
-    Get-Content $runStateFile -Raw | ConvertFrom-Json
+    # Convert PSCustomObject to hashtable for easier manipulation
+    $loadedState = Get-Content $runStateFile -Raw | ConvertFrom-Json
+    @{
+        latestRunAt = $loadedState.latestRunAt
+        latestRunId = $loadedState.latestRunId
+        latestFile = $loadedState.latestFile
+        prevRunAt = $loadedState.prevRunAt
+        prevFile = $loadedState.prevFile
+        runHistory = if ($loadedState.runHistory) { @($loadedState.runHistory) } else { @() }
+    }
 } else {
     @{
         runHistory = @()
