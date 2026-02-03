@@ -944,19 +944,15 @@ $html = @"
                         $prevTime = $compareMeta.prevRunAt
                         $latestTime = $compareMeta.latestRunAt
                         $changedCount = $compareMeta.changedStudyCount
-                        @"
-            <div style="background: linear-gradient(135deg, #3498db 0%, #2980b9 100%); color: white; padding: 12px 20px; border-radius: 6px; margin-top: 15px; font-size: 0.95em;">
-                <strong>📊 Comparison Mode:</strong> Showing changes since previous run
-                <span style="margin-left: 15px; opacity: 0.9;">Previous: $prevTime → Latest: $latestTime</span>
-                <span style="margin-left: 15px; font-weight: 600;">$changedCount studies changed</span>
-            </div>
-"@
+                        "<div style=`"background: linear-gradient(135deg, #3498db 0%, #2980b9 100%); color: white; padding: 12px 20px; border-radius: 6px; margin-top: 15px; font-size: 0.95em;`">" +
+                        "<strong>📊 Comparison Mode:</strong> Showing changes since previous run " +
+                        "<span style=`"margin-left: 15px; opacity: 0.9;`">Previous: $prevTime → Latest: $latestTime</span> " +
+                        "<span style=`"margin-left: 15px; font-weight: 600;`">$changedCount studies changed</span>" +
+                        "</div>"
                     } elseif ($compareMeta.noPreviousRun) {
-                        @"
-            <div style="background: linear-gradient(135deg, #95a5a6 0%, #7f8c8d 100%); color: white; padding: 12px 20px; border-radius: 6px; margin-top: 15px; font-size: 0.95em;">
-                <strong>📊 First Run:</strong> No previous run available yet. Run again to see changes between runs.
-            </div>
-"@
+                        "<div style=`"background: linear-gradient(135deg, #95a5a6 0%, #7f8c8d 100%); color: white; padding: 12px 20px; border-radius: 6px; margin-top: 15px; font-size: 0.95em;`">" +
+                        "<strong>📊 First Run:</strong> No previous run available yet. Run again to see changes between runs." +
+                        "</div>"
                     }
                 } else {
                     ""
