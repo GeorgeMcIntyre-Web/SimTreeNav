@@ -90,6 +90,12 @@ if (Test-Path $credManagerPath) {
     Write-Warning "Credential manager not found. Using default password."
 }
 
+# SQL*Plus helper (optional fallback for tree scope counts)
+$sqlHelperPath = Join-Path $PSScriptRoot "..\utilities\SqlPlusHelper-Simple.ps1"
+if (Test-Path $sqlHelperPath) {
+    . $sqlHelperPath
+}
+
 # Import evidence and snapshot libraries
 $evidenceLibPath = Join-Path $PSScriptRoot "..\..\..\scripts\lib\EvidenceClassifier.ps1"
 if (Test-Path $evidenceLibPath) {
@@ -1237,8 +1243,140 @@ if ($results.studySummary -and $results.studySummary.Count -gt 0) {
     }
 }
 
-# Work Type Summary metadata (definitions + Study Nodes breakdown)
+# Study summary count (proxy scope)
 $studyTotal = if ($results.studySummary) { $results.studySummary.Count } else { 0 }
+
+# Tree scope total (REL_COMMON descendants of projectId, REL_TYPE = 4)
+$treeScopeTotal = 0
+try {
+    $treeScopeQuery = @"
+WITH tree_collections AS (
+    SELECT DISTINCT c.OBJECT_ID
+    FROM $Schema.REL_COMMON r
+    INNER JOIN $Schema.COLLECTION_ c ON r.OBJECT_ID = c.OBJECT_ID
+    WHERE r.REL_TYPE = 4
+    START WITH r.FORWARD_OBJECT_ID = $ProjectId
+    CONNECT BY NOCYCLE PRIOR r.OBJECT_ID = r.FORWARD_OBJECT_ID
+)
+SELECT COUNT(DISTINCT rs.OBJECT_ID) AS TOTAL_COUNT
+FROM $Schema.ROBCADSTUDY_ rs
+INNER JOIN $Schema.REL_COMMON r ON r.OBJECT_ID = rs.OBJECT_ID AND r.REL_TYPE = 4
+INNER JOIN tree_collections tc ON r.FORWARD_OBJECT_ID = tc.OBJECT_ID
+"@
+
+    $treeScopeResult = Invoke-OracleQuery -Connection $connection -Query $treeScopeQuery -TimeoutSeconds 300
+    if ($treeScopeResult -and $treeScopeResult.Count -gt 0) {
+        $treeScopeRow = $treeScopeResult | Select-Object -First 1
+        if ($treeScopeRow.PSObject.Properties.Name -contains 'TOTAL_COUNT') {
+            $treeScopeTotal = [int]$treeScopeRow.TOTAL_COUNT
+        } elseif ($treeScopeRow.PSObject.Properties.Name -contains 'total_count') {
+            $treeScopeTotal = [int]$treeScopeRow.total_count
+        } elseif ($treeScopeRow.PSObject.Properties.Name -contains 'totalcount') {
+            $treeScopeTotal = [int]$treeScopeRow.totalcount
+        }
+    }
+} catch {
+    Write-Warning "  Tree scope total query failed: $_"
+    $treeScopeTotal = 0
+}
+
+# Fallback to SQL*Plus if tree scope is unexpectedly empty while proxy scope has data
+if ($treeScopeTotal -eq 0 -and $studyTotal -gt 0) {
+    if (Get-Command -Name sqlplus -ErrorAction SilentlyContinue) {
+        if (-not (Get-Command -Name Invoke-SqlPlusQuery -ErrorAction SilentlyContinue)) {
+            if (Test-Path $sqlHelperPath) {
+                . $sqlHelperPath
+            }
+        }
+
+        if (Get-Command -Name Invoke-SqlPlusQuery -ErrorAction SilentlyContinue) {
+            try {
+                Write-Warning "  Tree scope total empty via Oracle driver; retrying via SQL*Plus..."
+                $treeScopeResultSql = Invoke-SqlPlusQuery -TNSName $TNSName -Username $username -Password $password -Query $treeScopeQuery -DBAPrivilege $dbaPrivilege -TimeoutSeconds 120
+                if ($treeScopeResultSql -and $treeScopeResultSql.Count -gt 0) {
+                    $treeScopeRowSql = $treeScopeResultSql | Select-Object -First 1
+                    if ($treeScopeRowSql.PSObject.Properties.Name -contains 'TOTAL_COUNT') {
+                        $treeScopeTotal = [int]$treeScopeRowSql.TOTAL_COUNT
+                    } elseif ($treeScopeRowSql.PSObject.Properties.Name -contains 'total_count') {
+                        $treeScopeTotal = [int]$treeScopeRowSql.total_count
+                    } elseif ($treeScopeRowSql.PSObject.Properties.Name -contains 'totalcount') {
+                        $treeScopeTotal = [int]$treeScopeRowSql.totalcount
+                    } else {
+                        $props = $treeScopeRowSql.PSObject.Properties
+                        if ($props -and $props.Count -gt 0) {
+                            $candidate = $props[0].Value
+                            if ($candidate -match '\d+') {
+                                $treeScopeTotal = [int]$Matches[0]
+                            }
+                        }
+                    }
+                }
+
+                if ($treeScopeTotal -eq 0) {
+                    $rawText = $null
+                    if ($treeScopeResultSql -is [string]) {
+                        $rawText = $treeScopeResultSql
+                    } elseif ($treeScopeResultSql -is [System.Array] -and $treeScopeResultSql.Count -gt 0 -and $treeScopeResultSql[0] -is [string]) {
+                        $rawText = ($treeScopeResultSql -join "`n")
+                    }
+                    if ($rawText -and $rawText -match '(\d+)') {
+                        $treeScopeTotal = [int]$Matches[1]
+                    }
+                }
+
+                if ($treeScopeTotal -eq 0) {
+                    try {
+                        $connString = "${username}/${password}@${TNSName}"
+                        if ($dbaPrivilege -ne "None") {
+                            $connString += " as $dbaPrivilege"
+                        }
+
+                        $tempSql = [System.IO.Path]::GetTempFileName() + ".sql"
+                        $queryText = $treeScopeQuery.Trim()
+                        if (-not $queryText.EndsWith(';')) {
+                            $queryText += ';'
+                        }
+
+                        $sqlContent = @"
+SET PAGESIZE 50000
+SET FEEDBACK OFF
+SET HEADING ON
+SET LINESIZE 32767
+SET COLSEP '|'
+SET UNDERLINE OFF
+$queryText
+EXIT;
+"@
+                        $sqlContent | Out-File $tempSql -Encoding ASCII -Force
+
+                        $output = & sqlplus -S $connString "@$tempSql" 2>&1
+                        $outputText = ($output | Out-String).Trim()
+
+                        if ($outputText -match 'ORA-\d+' -or $outputText -match 'ERROR') {
+                            Write-Warning "  SQL*Plus direct fallback error: $outputText"
+                        } elseif ($outputText -match '(\d+)') {
+                            $treeScopeTotal = [int]$Matches[1]
+                        }
+                    } catch {
+                        Write-Warning "  SQL*Plus direct fallback failed: $_"
+                    } finally {
+                        if ($tempSql -and (Test-Path $tempSql)) {
+                            Remove-Item $tempSql -Force -ErrorAction SilentlyContinue
+                        }
+                    }
+                }
+            } catch {
+                Write-Warning "  SQL*Plus tree scope fallback failed: $_"
+            }
+        } else {
+            Write-Warning "  SQL*Plus helper not available; tree scope total remains 0"
+        }
+    } else {
+        Write-Warning "  sqlplus not found; tree scope total remains 0"
+    }
+}
+
+# Work Type Summary metadata (definitions + Study Nodes breakdown)
 $studyCheckedOutCount = 0
 $studyModifiedInRangeCount = 0
 $studyModifiedButNotCheckedOutCount = 0
@@ -1264,11 +1402,15 @@ $results.workTypeSummaryMeta = @{
     dateRangeStart = $startDateStr
     dateRangeEnd = $endDateStr
     studyNodes = @{
-        totalStudiesInScope = $studyTotal
+        totalStudiesTreeScope = $treeScopeTotal
+        totalStudiesProxyScope = $studyTotal
         checkedOutCount = $studyCheckedOutCount
         modifiedInRangeCount = $studyModifiedInRangeCount
         modifiedButNotCheckedOutCount = $studyModifiedButNotCheckedOutCount
         checkedOutButNotModifiedInRangeCount = $studyCheckedOutButNotModifiedCount
+        dateRangeStart = $startDateStr
+        dateRangeEnd = $endDateStr
+        modifiedTimestampColumn = "ROBCADSTUDY_.MODIFICATIONDATE_DA_"
     }
 }
 

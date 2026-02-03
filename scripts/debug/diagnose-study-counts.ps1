@@ -168,52 +168,96 @@ Write-Host "Project ID: $ProjectId" -ForegroundColor Gray
 Write-Host "Date Range: $startDateStr to $endDateStr" -ForegroundColor Gray
 Write-Host ""
 
-# Find DES_Studies container(s) under the project
-$desQuery = @"
-SELECT DISTINCT c.OBJECT_ID
-FROM $Schema.COLLECTION_ c
-INNER JOIN $Schema.REL_COMMON r ON c.OBJECT_ID = r.OBJECT_ID
-WHERE c.NAME_S_ = 'DES_Studies'
-  AND r.FORWARD_OBJECT_ID = $ProjectId
-UNION
-SELECT DISTINCT c.OBJECT_ID
-FROM $Schema.COLLECTION_ c
-INNER JOIN $Schema.REL_COMMON r ON c.OBJECT_ID = r.FORWARD_OBJECT_ID
-WHERE c.NAME_S_ = 'DES_Studies'
-  AND r.OBJECT_ID = $ProjectId
-"@
-
-$desNodes = Invoke-SqlPlusQuery -TNSName $TNSName -Username "sys" -Password $password -Query $desQuery -DBAPrivilege "SYSDBA" -TimeoutSeconds 60
-$scopeLabel = "DES_Studies"
-if (-not $desNodes -or $desNodes.Count -eq 0) {
-    Write-Warning "No DES_Studies containers found under project $ProjectId. Falling back to project scope."
-    $desIds = "$ProjectId"
-    $scopeLabel = "Project"
-} else {
-    $desIds = ($desNodes | ForEach-Object { $_.OBJECT_ID }) -join ','
+function Parse-Date {
+    param([string]$Value)
+    if ([string]::IsNullOrWhiteSpace($Value)) { return [datetime]::MinValue }
+    [datetime]::ParseExact($Value, 'yyyy-MM-dd HH:mm:ss', [System.Globalization.CultureInfo]::InvariantCulture)
 }
 
-# Pull study list (REL_COMMON descendants of DES_Studies)
-$studyQuery = @"
+function Dedup-Studies {
+    param([object[]]$Rows)
+
+    if (-not $Rows) { return @() }
+
+    $studyMap = @{}
+    foreach ($row in $Rows) {
+        $id = $row.STUDY_ID
+        if (-not $studyMap.ContainsKey($id)) {
+            $studyMap[$id] = $row
+            continue
+        }
+
+        $existing = $studyMap[$id]
+        $existingDate = Parse-Date $existing.LAST_MODIFIED
+        $rowDate = Parse-Date $row.LAST_MODIFIED
+        $existingWv = [int]$existing.WORKING_VERSION_ID
+        $rowWv = [int]$row.WORKING_VERSION_ID
+
+        if ($rowDate -gt $existingDate) {
+            $existing.LAST_MODIFIED = $row.LAST_MODIFIED
+        }
+        if ($rowWv -gt $existingWv) {
+            $existing.WORKING_VERSION_ID = $row.WORKING_VERSION_ID
+        }
+    }
+    return $studyMap.Values
+}
+
+function Build-Counts {
+    param([object[]]$Rows)
+
+    $rows = Dedup-Studies -Rows $Rows
+    $modified = @()
+    $checkedOut = @()
+
+    foreach ($study in $rows) {
+        $modifiedDate = Parse-Date $study.LAST_MODIFIED
+        if ($modifiedDate -ge $StartDate -and $modifiedDate -le $EndDate) {
+            $modified += $study
+        }
+        if ([int]$study.WORKING_VERSION_ID -gt 0) {
+            $checkedOut += $study
+        }
+    }
+
+    return @{
+        total = $rows.Count
+        modified = $modified
+        checkedOut = $checkedOut
+        rows = $rows
+    }
+}
+
+# Tree scope: REL_COMMON descendants of projectId (REL_TYPE = 4)
+$treeQuery = @"
+WITH tree_nodes AS (
+    SELECT DISTINCT c.OBJECT_ID
+    FROM $Schema.REL_COMMON r
+    INNER JOIN $Schema.COLLECTION_ c ON r.OBJECT_ID = c.OBJECT_ID
+    WHERE r.REL_TYPE = 4
+    START WITH r.FORWARD_OBJECT_ID = $ProjectId
+    CONNECT BY NOCYCLE PRIOR r.OBJECT_ID = r.FORWARD_OBJECT_ID
+),
+tree_collections AS (
+    SELECT OBJECT_ID FROM tree_nodes
+)
 SELECT DISTINCT
     rs.OBJECT_ID as STUDY_ID,
     rs.NAME_S_ as STUDY_NAME,
     TO_CHAR(rs.MODIFICATIONDATE_DA_, 'YYYY-MM-DD HH24:MI:SS') as LAST_MODIFIED,
     NVL(p.WORKING_VERSION_ID, 0) as WORKING_VERSION_ID
 FROM $Schema.ROBCADSTUDY_ rs
-INNER JOIN $Schema.REL_COMMON r
-    ON (r.OBJECT_ID = rs.OBJECT_ID AND r.FORWARD_OBJECT_ID IN ($desIds))
-    OR (r.FORWARD_OBJECT_ID = rs.OBJECT_ID AND r.OBJECT_ID IN ($desIds))
+INNER JOIN $Schema.REL_COMMON r ON r.OBJECT_ID = rs.OBJECT_ID AND r.REL_TYPE = 4
+INNER JOIN tree_collections tc ON r.FORWARD_OBJECT_ID = tc.OBJECT_ID
 LEFT JOIN $Schema.PROXY p ON rs.OBJECT_ID = p.OBJECT_ID AND p.PROJECT_ID = $ProjectId
 ORDER BY rs.NAME_S_
 "@
 
-$studies = Invoke-SqlPlusQuery -TNSName $TNSName -Username "sys" -Password $password -Query $studyQuery -DBAPrivilege "SYSDBA" -TimeoutSeconds 120
+$treeStudies = Invoke-SqlPlusQuery -TNSName $TNSName -Username "sys" -Password $password -Query $treeQuery -DBAPrivilege "SYSDBA" -TimeoutSeconds 300
+$treeCounts = Build-Counts -Rows $treeStudies
 
-if (-not $studies -or $studies.Count -eq 0) {
-    Write-Warning "No studies returned for project $ProjectId using REL_COMMON scope. Falling back to PROXY."
-    $scopeLabel = "PROXY"
-    $proxyQuery = @"
+# Proxy scope: ROBCADSTUDY_ joined to PROXY project
+$proxyQuery = @"
 SELECT DISTINCT
     rs.OBJECT_ID as STUDY_ID,
     rs.NAME_S_ as STUDY_NAME,
@@ -223,70 +267,30 @@ FROM $Schema.ROBCADSTUDY_ rs
 INNER JOIN $Schema.PROXY p ON rs.OBJECT_ID = p.OBJECT_ID AND p.PROJECT_ID = $ProjectId
 ORDER BY rs.NAME_S_
 "@
-    $studies = Invoke-SqlPlusQuery -TNSName $TNSName -Username "sys" -Password $password -Query $proxyQuery -DBAPrivilege "SYSDBA" -TimeoutSeconds 120
-}
 
-if (-not $studies -or $studies.Count -eq 0) {
-    Write-Warning "No studies returned for project $ProjectId."
-    exit 1
-}
+$proxyStudies = Invoke-SqlPlusQuery -TNSName $TNSName -Username "sys" -Password $password -Query $proxyQuery -DBAPrivilege "SYSDBA" -TimeoutSeconds 120
+$proxyCounts = Build-Counts -Rows $proxyStudies
 
-function Parse-Date {
-    param([string]$Value)
-    if ([string]::IsNullOrWhiteSpace($Value)) { return [datetime]::MinValue }
-    [datetime]::ParseExact($Value, 'yyyy-MM-dd HH:mm:ss', [System.Globalization.CultureInfo]::InvariantCulture)
-}
+Write-Host "Counts (tree scope):" -ForegroundColor Cyan
+Write-Host "  Total studies in scope:      $($treeCounts.total)" -ForegroundColor Gray
+Write-Host "  Modified in range:           $($treeCounts.modified.Count)" -ForegroundColor Gray
+Write-Host "  Checked out:                 $($treeCounts.checkedOut.Count)" -ForegroundColor Gray
 
-# Deduplicate by STUDY_ID (retain latest modified and max working version)
-$studyMap = @{}
-foreach ($row in $studies) {
-    $id = $row.STUDY_ID
-    if (-not $studyMap.ContainsKey($id)) {
-        $studyMap[$id] = $row
-        continue
-    }
+Write-Host "Counts (proxy scope):" -ForegroundColor Cyan
+Write-Host "  Total studies in scope:      $($proxyCounts.total)" -ForegroundColor Gray
+Write-Host "  Modified in range:           $($proxyCounts.modified.Count)" -ForegroundColor Gray
+Write-Host "  Checked out:                 $($proxyCounts.checkedOut.Count)" -ForegroundColor Gray
 
-    $existing = $studyMap[$id]
-    $existingDate = Parse-Date $existing.LAST_MODIFIED
-    $rowDate = Parse-Date $row.LAST_MODIFIED
-    $existingWv = [int]$existing.WORKING_VERSION_ID
-    $rowWv = [int]$row.WORKING_VERSION_ID
+Write-Host "`nTree scope: first 20 modified in range:" -ForegroundColor Cyan
+$treeCounts.modified | Select-Object -First 20 STUDY_ID, STUDY_NAME, LAST_MODIFIED | Format-Table -AutoSize
 
-    if ($rowDate -gt $existingDate) {
-        $existing.LAST_MODIFIED = $row.LAST_MODIFIED
-    }
-    if ($rowWv -gt $existingWv) {
-        $existing.WORKING_VERSION_ID = $row.WORKING_VERSION_ID
-    }
-}
-$studies = $studyMap.Values
+Write-Host "`nTree scope: first 20 checked out:" -ForegroundColor Cyan
+$treeCounts.checkedOut | Select-Object -First 20 STUDY_ID, STUDY_NAME, WORKING_VERSION_ID | Format-Table -AutoSize
 
-$modified = @()
-$checkedOut = @()
+Write-Host "`nProxy scope: first 20 modified in range:" -ForegroundColor Cyan
+$proxyCounts.modified | Select-Object -First 20 STUDY_ID, STUDY_NAME, LAST_MODIFIED | Format-Table -AutoSize
 
-foreach ($study in $studies) {
-    $modifiedDate = Parse-Date $study.LAST_MODIFIED
-    if ($modifiedDate -ge $StartDate -and $modifiedDate -le $EndDate) {
-        $modified += $study
-    }
-    if ([int]$study.WORKING_VERSION_ID -gt 0) {
-        $checkedOut += $study
-    }
-}
-
-$totalCount = $studies.Count
-$modifiedCount = $modified.Count
-$checkedOutCount = $checkedOut.Count
-
-Write-Host "Counts ($scopeLabel scope):" -ForegroundColor Cyan
-Write-Host "  Total studies in scope:      $totalCount" -ForegroundColor Gray
-Write-Host "  Modified in range:           $modifiedCount" -ForegroundColor Gray
-Write-Host "  Checked out:                 $checkedOutCount" -ForegroundColor Gray
-
-Write-Host "`nFirst 20 modified in range:" -ForegroundColor Cyan
-$modified | Select-Object -First 20 STUDY_ID, STUDY_NAME, LAST_MODIFIED | Format-Table -AutoSize
-
-Write-Host "`nFirst 20 checked out:" -ForegroundColor Cyan
-$checkedOut | Select-Object -First 20 STUDY_ID, STUDY_NAME, WORKING_VERSION_ID | Format-Table -AutoSize
+Write-Host "`nProxy scope: first 20 checked out:" -ForegroundColor Cyan
+$proxyCounts.checkedOut | Select-Object -First 20 STUDY_ID, STUDY_NAME, WORKING_VERSION_ID | Format-Table -AutoSize
 
 Write-Host "`nDiagnostics complete." -ForegroundColor Green

@@ -1887,15 +1887,15 @@ $html = @"
             const workTypeMeta = dashboardData.workTypeSummaryMeta || {};
             const checkedOutRule = workTypeMeta.checkedOutRule || workTypeMeta.checkedoutrule || 'PROXY.WORKING_VERSION_ID > 0';
             const modifiedRule = workTypeMeta.modifiedRule || workTypeMeta.modifiedrule || 'last_modified in date range';
-            const rangeLabel = startDateValue && endDateValue ? `${startDateValue} to ${endDateValue}` : 'selected range';
+            const rangeLabel = (startDateValue && endDateValue) ? (startDateValue + ' to ' + endDateValue) : 'selected range';
 
             const checkedOutHeader = document.getElementById('workTypeCheckedOutHeader');
             if (checkedOutHeader) {
-                checkedOutHeader.title = `Checked Out = ${checkedOutRule}`;
+                checkedOutHeader.title = 'Checked Out = ' + checkedOutRule;
             }
             const modifiedHeader = document.getElementById('workTypeModifiedHeader');
             if (modifiedHeader) {
-                modifiedHeader.title = `Modified (Range) = ${modifiedRule} between ${rangeLabel}`;
+                modifiedHeader.title = 'Modified (Range) = ' + modifiedRule + ' between ' + rangeLabel;
             }
 
             const workTypes = [
@@ -1908,18 +1908,23 @@ $html = @"
 
             workTypes.forEach(workType => {
                 const items = workType.items;
-                const activeCount = items.filter(item => item.status === 'Checked Out' || item.status === 'Active').length;
-                const modifiedCount = items.filter(item => isInRange(parseDateTime(item.last_modified))).length;
-                const totalCount = items.length;
+                let activeCount = items.filter(item => item.status === 'Checked Out' || item.status === 'Active').length;
+                let modifiedCount = items.filter(item => isInRange(parseDateTime(item.last_modified))).length;
+                let totalCount = items.length;
                 const uniqueUsers = [...new Set(items.map(item => item.modified_by || item.checked_out_by_user_name).filter(Boolean))];
 
-                let changeSummary = modifiedCount > 0 ? `${modifiedCount} items in range` : 'No activity in range';
+                let changeSummary = modifiedCount > 0 ? (modifiedCount + ' items in range') : 'No activity in range';
                 if (workType.key === 'studySummary' && workTypeMeta.studyNodes) {
                     const studyMeta = workTypeMeta.studyNodes;
-                    const totalStudies = studyMeta.totalStudiesInScope ?? studyMeta.totalstudiesinscope ?? totalCount;
+                    const proxyTotal = studyMeta.totalStudiesProxyScope ?? studyMeta.totalstudiesproxyscope ?? totalCount;
+                    const treeTotal = studyMeta.totalStudiesTreeScope ?? studyMeta.totalstudiestreescope ?? proxyTotal;
                     const checkedOutStudies = studyMeta.checkedOutCount ?? studyMeta.checkedoutcount ?? activeCount;
                     const modifiedStudies = studyMeta.modifiedInRangeCount ?? studyMeta.modifiedinrangecount ?? modifiedCount;
-                    changeSummary = `${checkedOutStudies} checked out • ${modifiedStudies} modified in range • ${totalStudies} total`;
+
+                    activeCount = checkedOutStudies;
+                    modifiedCount = modifiedStudies;
+                    totalCount = proxyTotal;
+                    changeSummary = 'Tree total: ' + treeTotal + ' / Proxy total: ' + proxyTotal;
                 }
 
                 const row = tbody.insertRow();
