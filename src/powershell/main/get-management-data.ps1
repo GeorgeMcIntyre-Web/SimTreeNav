@@ -1425,6 +1425,7 @@ function Compute-StudyHealth {
         [Parameter(Mandatory=$true)]
         $Study,
         [hashtable]$TreeSnapshotIndex,
+        [hashtable]$SnapshotStatusIndex,
         [hashtable]$ResourceCountsIndex,
         [hashtable]$PanelCountsIndex,
         [hashtable]$OperationCountsIndex
@@ -1436,6 +1437,8 @@ function Compute-StudyHealth {
     # Initialize health signals
     $signals = @{
         nodeCount = 0
+        snapshotStatus = "unknown"
+        nodeCountSource = "unknown"
         rootResourceCount = 0
         structureUnreadable = $false
         hasResourcesLoaded = $false
@@ -1453,11 +1456,17 @@ function Compute-StudyHealth {
         robotLinkedOperationCount = 0
     }
 
+    # Determine snapshot status
+    if ($SnapshotStatusIndex.ContainsKey($studyId)) {
+        $signals.snapshotStatus = $SnapshotStatusIndex[$studyId]
+    }
+
     # Get node count from tree snapshot if available
     if ($TreeSnapshotIndex.ContainsKey($studyId)) {
         $snapshot = $TreeSnapshotIndex[$studyId]
         if ($snapshot.meta -and $snapshot.meta.nodeCount) {
             $signals.nodeCount = [int]$snapshot.meta.nodeCount
+            $signals.nodeCountSource = "snapshot"
         }
     }
 
@@ -1484,6 +1493,16 @@ function Compute-StudyHealth {
         $signals.hasOperations = ($opInfo.totalCount -gt 0)
     }
 
+    # Fallback nodeCount if snapshot is missing or has error
+    if ($signals.snapshotStatus -ne "ok" -and $signals.nodeCount -eq 0) {
+        # Compute proxy count from existing data collections
+        $fallbackCount = $signals.resourceCount + $signals.panelCount + $signals.operationCount
+        if ($fallbackCount -gt 0) {
+            $signals.nodeCount = $fallbackCount
+            $signals.nodeCountSource = "fallback_proxy"
+        }
+    }
+
     # Determine structure readability (using study name heuristics)
     # A structure is "unreadable" if name suggests it's poorly organized
     $nameLower = $studyName.ToLowerInvariant()
@@ -1495,11 +1514,22 @@ function Compute-StudyHealth {
     $score = 100
     $reasons = @()
 
-    # Rule 1: Hard fail if no nodes
-    if ($signals.nodeCount -eq 0) {
+    # Rule 1: Hard fail ONLY if snapshot is OK but nodeCount is 0
+    if ($signals.snapshotStatus -eq "ok" -and $signals.nodeCount -eq 0) {
         $score = 0
         $reasons += "no_nodes"
-    } else {
+    } elseif ($signals.snapshotStatus -eq "missing") {
+        # Snapshot missing - start at low Warning range (40-79)
+        $score = 45
+        $reasons += "snapshot_missing"
+    } elseif ($signals.snapshotStatus -eq "error") {
+        # Snapshot error - start at low Warning range
+        $score = 40
+        $reasons += "snapshot_error"
+    }
+
+    # Continue scoring if not hard-failed
+    if ($score -gt 0) {
         # Rule 2: Root resources penalty
         if ($signals.rootResourceCount -gt 0) {
             $score -= 10
@@ -1562,6 +1592,10 @@ function Compute-StudyHealth {
 # Build indexes for health computation
 Write-Host "  Building data indexes..." -ForegroundColor Gray
 
+# Snapshot status index (track which studies have snapshots, missing, or errors)
+# This will be populated during snapshot collection
+$snapshotStatusIndex = @{}
+
 # Tree snapshot index (nodeCount from snapshots)
 $treeSnapshotIndex = @{}
 $treeSnapshotDir = Join-Path (Get-Location).Path "data\tree-snapshots"
@@ -1572,8 +1606,10 @@ if (Test-Path $treeSnapshotDir) {
             try {
                 $snapshot = Get-Content $_.FullName -Raw | ConvertFrom-Json
                 $treeSnapshotIndex[$studyId] = $snapshot
+                $snapshotStatusIndex[$studyId] = "ok"
             } catch {
-                # Ignore invalid snapshots
+                # Mark as error if snapshot file exists but is invalid
+                $snapshotStatusIndex[$studyId] = "error"
             }
         }
     }
@@ -1635,9 +1671,16 @@ $warningCount = 0
 $unhealthyCount = 0
 
 foreach ($study in $results.studySummary) {
+    $studyId = [string]$study.study_id
+    # Mark as missing if no snapshot status was set (meaning no snapshot exists)
+    if (-not $snapshotStatusIndex.ContainsKey($studyId)) {
+        $snapshotStatusIndex[$studyId] = "missing"
+    }
+    
     $health = Compute-StudyHealth `
         -Study $study `
         -TreeSnapshotIndex $treeSnapshotIndex `
+        -SnapshotStatusIndex $snapshotStatusIndex `
         -ResourceCountsIndex $resourceCountsIndex `
         -PanelCountsIndex $panelCountsIndex `
         -OperationCountsIndex $operationCountsIndex
@@ -1959,13 +2002,31 @@ if ($SkipTreeSnapshots) {
         }
 
         try {
-            & $treeExportScript -TNSName $TNSName -Schema $Schema -ProjectId $ProjectId -StudyId $studyId -OutputFile $snapshotPath -ErrorAction Stop
-            if (Test-Path $snapshotPath) {
+            # Export to temp dir then move to target location for consistent naming
+            $tempDir = Join-Path $env:TEMP "study-snapshots-$(Get-Random)"
+            New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
+            
+            & $treeExportScript -TNSName $TNSName -Schema $Schema -ProjectId $ProjectId -StudyId $studyId -OutputDir $tempDir -ErrorAction Stop
+            
+            # Find the generated snapshot file and move it to the target location
+            $generatedFiles = Get-ChildItem -Path $tempDir -Filter "study-tree-snapshot-*.json" -ErrorAction SilentlyContinue
+            if ($generatedFiles -and $generatedFiles.Count -gt 0) {
+                $latestFile = $generatedFiles | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+                Move-Item -Path $latestFile.FullName -Destination $snapshotPath -Force
                 $currentSnapshot = Get-Content $snapshotPath -Raw | ConvertFrom-Json
+                $snapshotStatusIndex[$studyId] = "ok"
+            } else {
+                Write-Warning "    No snapshot file generated"
+                $snapshotErrors++
+                $snapshotStatusIndex[$studyId] = "error"
             }
+            
+            # Clean up temp directory
+            Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
         } catch {
             Write-Warning "    Failed to export tree snapshot: $_"
             $snapshotErrors++
+            $snapshotStatusIndex[$studyId] = "error"
             if ($TreeSnapshotErrorLimit -gt 0 -and $snapshotErrors -ge $TreeSnapshotErrorLimit) {
                 Write-Warning "Tree snapshot error limit reached ($TreeSnapshotErrorLimit). Stopping snapshot collection."
                 break

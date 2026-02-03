@@ -57,8 +57,11 @@ Each study in the `studySummary` array must include the following health fields:
 
 **`healthSignals`** (object)
 - Detailed counts and flags used to compute the score
-- All fields are observable facts from the database
+- All fields are observable facts from the database or snapshots
 - UI can display these for transparency
+- **New fields (v1.1)**:
+  - `snapshotStatus`: "ok" | "missing" | "error" | "unknown"
+  - `nodeCountSource`: "snapshot" | "fallback_proxy" | "unknown"
 
 ---
 
@@ -81,13 +84,40 @@ Health scores guide sorting and highlight issues, but are not strict gates.
 
 ---
 
-## Scoring Algorithm (v1)
+## Scoring Algorithm (v1.1 - Resilient to Missing Snapshots)
+
+### Snapshot Resilience
+
+**Snapshot Status Handling**
+- `snapshotStatus = "ok"`: Snapshot exists and is valid
+- `snapshotStatus = "missing"`: No snapshot available (not yet generated or skipped)
+- `snapshotStatus = "error"`: Snapshot generation failed or file is corrupted
+- `snapshotStatus = "unknown"`: Status could not be determined
+
+**Node Count Fallback**
+- If snapshot is not available (`snapshotStatus != "ok"`), use fallback proxy count
+- Fallback proxy: `nodeCount = resourceCount + panelCount + operationCount`
+- Set `nodeCountSource = "fallback_proxy"` when using fallback
+- This provides approximate node count without requiring expensive tree traversal
 
 ### Hard Fail Rules
 
-**Rule 1: Zero Nodes**
-- If `nodeCount == 0`, set `score = 0`, `status = "Unhealthy"`, add reason `"no_nodes"`
+**Rule 1: Zero Nodes (Only with Valid Snapshot)**
+- If `snapshotStatus == "ok"` AND `nodeCount == 0`, set `score = 0`, `status = "Unhealthy"`, add reason `"no_nodes"`
 - This is a critical failure - study cannot function without nodes
+- **Important**: Hard fail only triggers when we have confirmed zero nodes via snapshot
+
+### Snapshot Missing/Error Handling
+
+**Rule 1b: Snapshot Missing**
+- If `snapshotStatus == "missing"`, start at score 45 (Warning range)
+- Add reason: `"snapshot_missing"`
+- Continue with other scoring rules from this base
+
+**Rule 1c: Snapshot Error**
+- If `snapshotStatus == "error"`, start at score 40 (Warning range)
+- Add reason: `"snapshot_error"`
+- Continue with other scoring rules from this base
 
 ### Penalty Rules
 
@@ -137,7 +167,9 @@ These signals reflect study maturity but use **gentle penalties**:
 
 | Condition | Points | Reason Code |
 |-----------|--------|-------------|
-| Zero nodes | 0 (hard fail) | `no_nodes` |
+| Zero nodes (with valid snapshot) | 0 (hard fail) | `no_nodes` |
+| Snapshot missing | 45 (base) | `snapshot_missing` |
+| Snapshot error | 40 (base) | `snapshot_error` |
 | Root resources > 0 | -10 | `root_resources` |
 | Structure unreadable | -20 | `structure_unreadable` |
 | No resources (if nodes exist) | -5 | `no_resources` |
@@ -146,7 +178,7 @@ These signals reflect study maturity but use **gentle penalties**:
 | Locations not assigned (if locations exist) | -5 | `locations_not_assigned` |
 | Operations not robot-linked (if ops exist) | -5 | `operations_not_linked` |
 
-**Base score**: 100
+**Base score**: 100 (or 45/40 for missing/error snapshots)
 **Final score**: `max(0, base - penalties)`
 
 ---
@@ -204,4 +236,5 @@ Potential v2 enhancements:
 
 ## Change History
 
-- **2026-02-03**: Initial v1 specification (Phase 2 deliverable)
+- **2026-02-03**: v1.1 - Added snapshot resilience (snapshotStatus, nodeCountSource, fallback proxy count)
+- **2026-02-03**: v1.0 - Initial specification (Phase 2 deliverable)
