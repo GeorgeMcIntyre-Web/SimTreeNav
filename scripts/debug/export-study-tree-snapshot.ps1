@@ -1,6 +1,19 @@
 # Export Study Tree Snapshot
 # Purpose: Deterministic snapshot of study tree structure, naming, and locations
 # Date: 2026-01-30
+# Updated: 2026-02-04 - Expanded shortcut target resolution
+#
+# Shortcut Target Resolution (v1.2.0):
+#   SHORTCUT_.LINKEXTERNALID_S_ can point to multiple target systems:
+#   1. RESOURCE_        - via RESOURCE_.EXTERNALID_S_ (robots, fixtures, tools)
+#   2. ROBOTICPROGRAM_  - via ROBOTICPROGRAM_.EXTERNALID_S_ (robot programs)
+#   3. PROXY            - via PROXY.EXTERNAL_ID (PP-DESIGN* references, TxProcessAssembly)
+#                         Caption resolved via DESIGN12.COLLECTION_ on PROXY.OBJECT_ID
+#                         (no cross-schema dependency)
+#   4. UNKNOWN          - LINKEXTERNALID_S_ present but no match in known tables
+#   5. LOCAL            - no LINKEXTERNALID_S_ (local shortcut)
+#
+# Resolution order: RESOURCE_ > ROBOTICPROGRAM_ > PROXY > UNKNOWN
 
 param(
     [Parameter(Mandatory=$true)]
@@ -214,6 +227,13 @@ foreach ($row in $treeRows) {
             name_provenance = $null
             coord_provenance = $null
             mapping_type = "none"
+            # New fields for expanded shortcut target resolution
+            link_external_id = $null
+            resolved_type = $null
+            resolved_object_id = $null
+            resolved_caption = $null
+            robotic_program = $null  # Object: {object_id, class_id, caption, name, external_id}
+            proxy = $null            # Object: {object_id, class_id, external_id, project_id, context_name, collection_caption}
         }
     }
 }
@@ -315,66 +335,178 @@ foreach ($node in $nodes) {
 
 Write-Host "  Resolved names for $($nodes.Count) nodes" -ForegroundColor Green
 
-Write-Host "`n[4/6] Resolving resource mappings for shortcuts..." -ForegroundColor Yellow
+Write-Host "`n[4/6] Resolving shortcut targets (RESOURCE_, ROBOTICPROGRAM_, PROXY)..." -ForegroundColor Yellow
 
-# Resolve resources for shortcuts
+# Resolve targets for shortcuts - expanded to check RESOURCE_, ROBOTICPROGRAM_, PROXY
+# Resolution order: RESOURCE_ > ROBOTICPROGRAM_ > PROXY > UNKNOWN
+# PROXY caption resolved via DESIGN12.COLLECTION_ on PROXY.OBJECT_ID; no cross-schema dependency
 if ($shortcutNodeIds) {
-    $sqlResources = @"
+    $sqlTargets = @"
 SET PAGESIZE 50000
-SET LINESIZE 500
+SET LINESIZE 800
 SET FEEDBACK OFF
 SET HEADING OFF
 
 SELECT
-    'RES|' || s.OBJECT_ID || '|' ||
-    NVL(res.OBJECT_ID, 0) || '|' ||
-    NVL(res.NAME_S_, '') || '|' ||
-    NVL(cd.NICE_NAME, '') || '|' ||
+    'TGT|' ||
+    s.OBJECT_ID || '|' ||
+    NVL(s.CAPTION_S_, '') || '|' ||
+    NVL(s.NAME_S_, '') || '|' ||
     NVL(s.LINKEXTERNALID_S_, '') || '|' ||
-    NVL(res.EXTERNALID_S_, '')
+    NVL(TO_CHAR(res.OBJECT_ID), '') || '|' ||
+    NVL(TO_CHAR(res.CLASS_ID), '') || '|' ||
+    NVL(res.NAME_S_, '') || '|' ||
+    NVL(cd_res.NICE_NAME, '') || '|' ||
+    NVL(TO_CHAR(rp.OBJECT_ID), '') || '|' ||
+    NVL(TO_CHAR(rp.CLASS_ID), '') || '|' ||
+    NVL(rp.CAPTION_S_, '') || '|' ||
+    NVL(rp.NAME_S_, '') || '|' ||
+    NVL(rp.EXTERNALID_S_, '') || '|' ||
+    NVL(TO_CHAR(p.OBJECT_ID), '') || '|' ||
+    NVL(TO_CHAR(p.CLASS_ID), '') || '|' ||
+    NVL(p.EXTERNAL_ID, '') || '|' ||
+    NVL(TO_CHAR(p.PROJECT_ID), '') || '|' ||
+    NVL(p.CONTEXT_NAME, '') || '|' ||
+    NVL(pc.CAPTION_S_, '')
 FROM $Schema.SHORTCUT_ s
 LEFT JOIN $Schema.RESOURCE_ res
-    ON (s.LINKEXTERNALID_S_ IS NOT NULL AND s.LINKEXTERNALID_S_ = res.EXTERNALID_S_)
-    OR (s.LINKEXTERNALID_S_ IS NULL AND s.NAME_S_ = res.NAME_S_)
-LEFT JOIN $Schema.CLASS_DEFINITIONS cd ON res.CLASS_ID = cd.TYPE_ID
+    ON s.LINKEXTERNALID_S_ IS NOT NULL
+   AND res.EXTERNALID_S_ = s.LINKEXTERNALID_S_
+   AND res.OBJECT_VERSION_ID = (SELECT MAX(r2.OBJECT_VERSION_ID) FROM $Schema.RESOURCE_ r2 WHERE r2.OBJECT_ID = res.OBJECT_ID)
+LEFT JOIN $Schema.CLASS_DEFINITIONS cd_res ON res.CLASS_ID = cd_res.TYPE_ID
+LEFT JOIN $Schema.ROBOTICPROGRAM_ rp
+    ON s.LINKEXTERNALID_S_ IS NOT NULL
+   AND rp.EXTERNALID_S_ = s.LINKEXTERNALID_S_
+   AND rp.OBJECT_VERSION_ID = (SELECT MAX(rp2.OBJECT_VERSION_ID) FROM $Schema.ROBOTICPROGRAM_ rp2 WHERE rp2.OBJECT_ID = rp.OBJECT_ID)
+LEFT JOIN $Schema.PROXY p
+    ON s.LINKEXTERNALID_S_ IS NOT NULL
+   AND p.EXTERNAL_ID = s.LINKEXTERNALID_S_
+LEFT JOIN $Schema.COLLECTION_ pc
+    ON p.OBJECT_ID IS NOT NULL
+   AND pc.OBJECT_ID = p.OBJECT_ID
+   AND pc.OBJECT_VERSION_ID = (SELECT MAX(pc2.OBJECT_VERSION_ID) FROM $Schema.COLLECTION_ pc2 WHERE pc2.OBJECT_ID = pc.OBJECT_ID)
 WHERE s.OBJECT_ID IN ($shortcutNodeIds)
-  AND s.OBJECT_VERSION_ID = (SELECT MAX(s2.OBJECT_VERSION_ID) FROM $Schema.SHORTCUT_ s2 WHERE s2.OBJECT_ID = s.OBJECT_ID)
-  AND res.OBJECT_ID IS NOT NULL
-  AND res.OBJECT_VERSION_ID = (SELECT MAX(r2.OBJECT_VERSION_ID) FROM $Schema.RESOURCE_ r2 WHERE r2.OBJECT_ID = res.OBJECT_ID);
+  AND s.OBJECT_VERSION_ID = (SELECT MAX(s2.OBJECT_VERSION_ID) FROM $Schema.SHORTCUT_ s2 WHERE s2.OBJECT_ID = s.OBJECT_ID);
 
 EXIT;
 "@
 
-    $resRows = Invoke-SqlLines -SqlText $sqlResources
+    $targetRows = Invoke-SqlLines -SqlText $sqlTargets
     $resourceCount = 0
+    $roboticProgramCount = 0
+    $proxyCount = 0
+    $unknownCount = 0
 
-    foreach ($row in $resRows) {
-        if ($row -match '^RES\|') {
+    foreach ($row in $targetRows) {
+        if ($row -match '^TGT\|') {
             $parts = $row -split '\|'
             $shortcutId = $parts[1].Trim()
-            $resourceId = $parts[2].Trim()
-            $resourceName = $parts[3].Trim()
-            $resourceType = $parts[4].Trim()
+            $shortcutCaption = $parts[2].Trim()
+            $shortcutName = $parts[3].Trim()
+            $linkExtId = $parts[4].Trim()
+            # RESOURCE_ fields
+            $resOid = $parts[5].Trim()
+            $resClassId = $parts[6].Trim()
+            $resName = $parts[7].Trim()
+            $resType = $parts[8].Trim()
+            # ROBOTICPROGRAM_ fields
+            $rpOid = $parts[9].Trim()
+            $rpClassId = $parts[10].Trim()
+            $rpCaption = $parts[11].Trim()
+            $rpName = $parts[12].Trim()
+            $rpExtId = $parts[13].Trim()
+            # PROXY fields
+            $pxOid = $parts[14].Trim()
+            $pxClassId = $parts[15].Trim()
+            $pxExtId = $parts[16].Trim()
+            $pxProjId = $parts[17].Trim()
+            $pxCtx = $parts[18].Trim()
+            $pxCap = $parts[19].Trim()
 
             $node = $nodes | Where-Object { $_.node_id -eq $shortcutId } | Select-Object -First 1
             if ($node) {
-                $node.resource_id = $resourceId
-                $node.resource_name = $resourceName
-                $node.resource_type = $resourceType
-                $node.mapping_type = "deterministic"
+                # Store the link external ID on all shortcuts
+                $node.link_external_id = $linkExtId
 
-                # Update display name to resource name (ALWAYS prefer resource name for shortcuts)
-                if ($resourceName) {
-                    $node.display_name = $resourceName
+                # Determine resolved target type (priority: RESOURCE_ > ROBOTICPROGRAM_ > PROXY > UNKNOWN)
+                if ($resOid) {
+                    # RESOURCE_ match
+                    $node.resolved_type = "RESOURCE_"
+                    $node.resolved_object_id = $resOid
+                    $node.resolved_caption = if ($resName) { $resName } else { $shortcutCaption }
+                    $node.resource_id = $resOid
+                    $node.resource_name = $resName
+                    $node.resource_type = $resType
+                    $node.mapping_type = "deterministic"
+                    $node.display_name = $resName
                     $node.name_provenance = "RESOURCE_.NAME_S_"
+                    $resourceCount++
                 }
-
-                $resourceCount++
+                elseif ($rpOid) {
+                    # ROBOTICPROGRAM_ match
+                    $node.resolved_type = "ROBOTICPROGRAM_"
+                    $node.resolved_object_id = $rpOid
+                    $node.resolved_caption = if ($rpCaption) { $rpCaption } elseif ($rpName) { $rpName } else { $shortcutCaption }
+                    $node.robotic_program = @{
+                        object_id = $rpOid
+                        class_id = $rpClassId
+                        caption = $rpCaption
+                        name = $rpName
+                        external_id = $rpExtId
+                    }
+                    $node.mapping_type = "deterministic"
+                    $node.display_name = $node.resolved_caption
+                    $node.name_provenance = "ROBOTICPROGRAM_.CAPTION_S_"
+                    $roboticProgramCount++
+                }
+                elseif ($pxOid) {
+                    # PROXY match - caption from COLLECTION_ via PROXY.OBJECT_ID
+                    $node.resolved_type = "PROXY"
+                    $node.resolved_object_id = $pxOid
+                    $node.resolved_caption = if ($pxCap) { $pxCap } elseif ($shortcutCaption) { $shortcutCaption } else { $shortcutName }
+                    $node.proxy = @{
+                        object_id = $pxOid
+                        class_id = $pxClassId
+                        external_id = $pxExtId
+                        project_id = $pxProjId
+                        context_name = $pxCtx
+                        collection_caption = $pxCap
+                    }
+                    $node.mapping_type = "deterministic"
+                    $node.display_name = $node.resolved_caption
+                    if ($pxCap) {
+                        $node.name_provenance = "PROXY->COLLECTION_.CAPTION_S_"
+                    } else {
+                        $node.name_provenance = "SHORTCUT_.CAPTION_S_ (PROXY fallback)"
+                    }
+                    $proxyCount++
+                }
+                elseif ($linkExtId) {
+                    # Has LINKEXTERNALID_S_ but no match found
+                    $node.resolved_type = "UNKNOWN"
+                    $node.resolved_object_id = $null
+                    $node.resolved_caption = if ($shortcutCaption) { $shortcutCaption } else { $shortcutName }
+                    $node.mapping_type = "unknown_target"
+                    $node.display_name = $node.resolved_caption
+                    $node.name_provenance = "SHORTCUT_.CAPTION_S_ (unknown target)"
+                    $unknownCount++
+                }
+                else {
+                    # No LINKEXTERNALID_S_ at all - local shortcut
+                    $node.resolved_type = "LOCAL"
+                    $node.resolved_object_id = $null
+                    $node.resolved_caption = if ($shortcutCaption) { $shortcutCaption } else { $shortcutName }
+                    $node.mapping_type = "local"
+                }
             }
         }
     }
 
-    Write-Host "  Resolved $resourceCount resource mappings" -ForegroundColor Green
+    Write-Host "  Resolved shortcut targets:" -ForegroundColor Green
+    Write-Host "    RESOURCE_:       $resourceCount" -ForegroundColor Gray
+    Write-Host "    ROBOTICPROGRAM_: $roboticProgramCount" -ForegroundColor Gray
+    Write-Host "    PROXY:           $proxyCount" -ForegroundColor Gray
+    Write-Host "    UNKNOWN:         $unknownCount" -ForegroundColor $(if ($unknownCount -gt 0) { 'Yellow' } else { 'Gray' })
 }
 
 Write-Host "`n[5/6] Resolving layout coordinates..." -ForegroundColor Yellow
@@ -509,7 +641,7 @@ Write-Host "`n[6/6] Building snapshot output..." -ForegroundColor Yellow
 # Build snapshot object
 $snapshot = @{
     meta = @{
-        schemaVersion = "1.1.0"
+        schemaVersion = "1.2.0"  # Bumped for expanded shortcut target resolution
         capturedAt = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
         schema = $Schema
         projectId = $ProjectId
@@ -520,14 +652,23 @@ $snapshot = @{
         studyModifiedBy = $metaData.modifiedBy
         sqlplusVersion = (& sqlplus -version 2>&1 | Select-Object -First 1)
         nodeCount = $nodes.Count
+        shortcutCount = ($nodes | Where-Object { $_.is_shortcut }).Count
         nodesWithNames = ($nodes | Where-Object { $_.name_provenance }).Count
         nodesWithCoords = ($nodes | Where-Object { $_.x -ne $null }).Count
         deterministicMappings = ($nodes | Where-Object { $_.mapping_type -match "^deterministic" }).Count
         heuristicMappings = ($nodes | Where-Object { $_.mapping_type -match "heuristic" }).Count
         ambiguousMappings = ($nodes | Where-Object { $_.mapping_type -match "ambiguous" }).Count
+        # Shortcut target resolution breakdown
+        shortcutResolution = @{
+            resource = ($nodes | Where-Object { $_.resolved_type -eq "RESOURCE_" }).Count
+            roboticProgram = ($nodes | Where-Object { $_.resolved_type -eq "ROBOTICPROGRAM_" }).Count
+            proxy = ($nodes | Where-Object { $_.resolved_type -eq "PROXY" }).Count
+            unknown = ($nodes | Where-Object { $_.resolved_type -eq "UNKNOWN" }).Count
+            local = ($nodes | Where-Object { $_.resolved_type -eq "LOCAL" }).Count
+        }
     }
     nodes = $nodes | ForEach-Object {
-        [PSCustomObject]@{
+        $nodeObj = [ordered]@{
             node_id = $_.node_id
             parent_node_id = $_.parent_node_id
             depth = $_.depth
@@ -538,9 +679,16 @@ $snapshot = @{
             external_id = $_.external_id
             display_name = $_.display_name
             is_shortcut = $_.is_shortcut
+            # Shortcut target resolution fields
+            link_external_id = $_.link_external_id
+            resolved_type = $_.resolved_type
+            resolved_object_id = $_.resolved_object_id
+            resolved_caption = $_.resolved_caption
+            # Legacy resource fields (for backward compatibility)
             resource_id = $_.resource_id
             resource_name = $_.resource_name
             resource_type = $_.resource_type
+            # Coordinate fields
             layout_id = $_.layout_id
             x = $_.x
             y = $_.y
@@ -550,6 +698,15 @@ $snapshot = @{
             coord_provenance = $_.coord_provenance
             mapping_type = $_.mapping_type
         }
+        # Add robotic_program object if present
+        if ($_.robotic_program) {
+            $nodeObj.robotic_program = $_.robotic_program
+        }
+        # Add proxy object if present
+        if ($_.proxy) {
+            $nodeObj.proxy = $_.proxy
+        }
+        [PSCustomObject]$nodeObj
     }
 }
 
@@ -573,11 +730,19 @@ if ($IncludeCSV) {
 Write-Host ""
 Write-Host "  Statistics:" -ForegroundColor White
 Write-Host "    Total nodes:              $($snapshot.meta.nodeCount)" -ForegroundColor Gray
+Write-Host "    Shortcuts:                $($snapshot.meta.shortcutCount)" -ForegroundColor Gray
 Write-Host "    Nodes with names:         $($snapshot.meta.nodesWithNames)" -ForegroundColor Gray
 Write-Host "    Nodes with coordinates:   $($snapshot.meta.nodesWithCoords)" -ForegroundColor Gray
 Write-Host "    Deterministic mappings:   $($snapshot.meta.deterministicMappings)" -ForegroundColor Green
 Write-Host "    Heuristic mappings:       $($snapshot.meta.heuristicMappings)" -ForegroundColor Yellow
 Write-Host "    Ambiguous mappings:       $($snapshot.meta.ambiguousMappings)" -ForegroundColor Magenta
+Write-Host ""
+Write-Host "  Shortcut Target Resolution:" -ForegroundColor White
+Write-Host "    RESOURCE_:       $($snapshot.meta.shortcutResolution.resource)" -ForegroundColor Gray
+Write-Host "    ROBOTICPROGRAM_: $($snapshot.meta.shortcutResolution.roboticProgram)" -ForegroundColor Gray
+Write-Host "    PROXY:           $($snapshot.meta.shortcutResolution.proxy)" -ForegroundColor Gray
+Write-Host "    UNKNOWN:         $($snapshot.meta.shortcutResolution.unknown)" -ForegroundColor $(if ($snapshot.meta.shortcutResolution.unknown -gt 0) { 'Yellow' } else { 'Gray' })
+Write-Host "    LOCAL:           $($snapshot.meta.shortcutResolution.local)" -ForegroundColor Gray
 Write-Host ""
 
 exit 0
