@@ -2,6 +2,8 @@
 
 This guide will help you install and configure Oracle 12c Instant Client to connect to the Siemens Process Simulation database via terminal.
 
+> **Local development:** For a **local Oracle 19c database** (native Windows at `F:\Oracle\`, TNS `ORACLE_LOCAL`), see **[../docker/oracle/README.md](../docker/oracle/README.md)** and **[../AGENTS.md](../AGENTS.md)**. This file covers the **remote** client and TNS setup (e.g. SIEMENS_PS_DB).
+
 ## Prerequisites
 
 - Windows 10/11 (64-bit)

@@ -21,6 +21,10 @@ Last Updated: January 20, 2026
 - [QUICK-START-DEPLOYMENT.md](QUICK-START-DEPLOYMENT.md) - Step-by-step guide
 - [ORACLE-LOAD-TESTING-PLAN.md](ORACLE-LOAD-TESTING-PLAN.md) - Database safety validation
 
+**Developers / AI / local Oracle:**
+- [AGENTS.md](../AGENTS.md) - AI and developer reference (local DB, paths, switching)
+- [../docker/oracle/README.md](../docker/oracle/README.md) - Full local Oracle 19c setup and troubleshooting
+
 ---
 
 ## 📖 All Documents by Category

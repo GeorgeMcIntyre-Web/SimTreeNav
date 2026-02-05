@@ -69,3 +69,7 @@ management-data-*.json
 docker/oracle/.env
 docker/volumes/
 config/database-target.json
+
+# Oracle DBCA/tooling temp and logs (do not commit)
+docker/oracle/**/cfgtoollogs/
+**/SlfOpen failed/
