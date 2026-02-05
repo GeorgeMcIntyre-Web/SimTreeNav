@@ -24,6 +24,8 @@ Last Updated: January 20, 2026
 **Developers / AI / local Oracle:**
 - [AGENTS.md](../AGENTS.md) - AI and developer reference (local DB, paths, switching)
 - [../docker/oracle/README.md](../docker/oracle/README.md) - Full local Oracle 19c setup and troubleshooting
+- [SIEMENS-TABLES-CONNECTION.md](SIEMENS-TABLES-CONNECTION.md) - How Siemens tables connect (COLLECTION_, REL_COMMON, CLASS_DEFINITIONS, etc.)
+- [NODE-TYPES-AND-PARENT-CHILD.md](NODE-TYPES-AND-PARENT-CHILD.md) - Node types, TYPE_IDs, and parent-child tree structure
 
 ---
 

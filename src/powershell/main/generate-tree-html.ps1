@@ -495,7 +495,7 @@ ORDER BY
 -- Output: LEVEL|PARENT_ID|OBJECT_ID|CAPTION|NAME|EXTERNAL_ID|SEQ_NUMBER|CLASS_NAME|NICE_NAME|TYPE_ID
 SELECT
     LEVEL || '|' ||
-    PRIOR c.OBJECT_ID || '|' ||
+    NVL(TO_CHAR(PRIOR c.OBJECT_ID), TO_CHAR(r.FORWARD_OBJECT_ID)) || '|' ||
     c.OBJECT_ID || '|' ||
     NVL(c.CAPTION_S_, 'Unnamed') || '|' ||
     NVL(c.CAPTION_S_, 'Unnamed') || '|' ||

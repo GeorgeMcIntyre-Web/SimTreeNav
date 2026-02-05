@@ -50,6 +50,14 @@ sqlplus EMP_ADMIN/EMP_ADMIN@ORACLE_LOCAL   # verify
 sqlplus EMP_ADMIN/EMP_ADMIN@ORACLE_LOCAL
 ```
 
+### No dump? Seed schema (run tree locally without a dump)
+
+```powershell
+.\docker\oracle\Run-SeedSchema.ps1
+```
+
+Creates schema **DESIGN1** with one project (ID 100, "Local Dev Project") and a small tree. Then switch target to LOCAL and run the tree launcher with schema DESIGN1. See [docker/oracle/scripts/seed/README.md](docker/oracle/scripts/seed/README.md).
+
 ### Switching app between local and remote DB
 
 Connection target is controlled by `config/database-target.json` (gitignored). Script:
@@ -109,6 +117,9 @@ EXIT;
 ## 7. Key docs
 
 - **Local Oracle (full):** [docker/oracle/README.md](docker/oracle/README.md)
+- **Siemens tables (how they connect):** [docs/SIEMENS-TABLES-CONNECTION.md](docs/SIEMENS-TABLES-CONNECTION.md)
+- **Node types & parent-child tree:** [docs/NODE-TYPES-AND-PARENT-CHILD.md](docs/NODE-TYPES-AND-PARENT-CHILD.md)
 - **Docs index:** [docs/README.md](docs/README.md)
 - **Credentials:** [docs/CREDENTIAL-MANAGEMENT.md](docs/CREDENTIAL-MANAGEMENT.md), [docs/CREDENTIAL-SETUP-GUIDE.md](docs/CREDENTIAL-SETUP-GUIDE.md)
 - **System design:** [docs/SYSTEM-ARCHITECTURE.md](docs/SYSTEM-ARCHITECTURE.md)
+- **Database schema (detailed):** [DATABASE-SCHEMA.md](DATABASE-SCHEMA.md)

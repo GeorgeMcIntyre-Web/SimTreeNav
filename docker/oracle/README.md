@@ -76,6 +76,21 @@ $env:ORACLE_SID = "localdb01"
 sqlplus EMP_ADMIN/EMP_ADMIN
 ```
 
+### No Dump? Use Seed Schema
+
+If you don't have a Data Pump dump, you can still run the tree viewer locally using a **minimal seed schema**:
+
+```powershell
+.\Run-SeedSchema.ps1
+```
+
+This creates schema **DESIGN1** with one project ("Local Dev Project", ID 100) and a small tree. Then:
+
+1. `.\src\powershell\database\docker\Switch-DatabaseTarget.ps1 -Target LOCAL`
+2. Run tree launcher; choose schema **DESIGN1**, project **Local Dev Project**
+
+See [scripts/seed/README.md](scripts/seed/README.md) for details.
+
 ### Files Created
 
 | File | Purpose | Location |
