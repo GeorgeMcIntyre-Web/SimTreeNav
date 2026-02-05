@@ -1,0 +1,5 @@
+﻿If you wish to use Oracle DB 12.2.0.1 - this is allowed. But the client has to be 12.1.0.2 - otherwise the application won't work. It's up to you to decide what combination you would like to choose:
+
+1. Client/server - 12.1.0.2
+
+2. Client - 12.1.0.2, Server - 12.2.0.1

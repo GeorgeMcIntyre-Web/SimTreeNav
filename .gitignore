@@ -64,3 +64,8 @@ tnsnames.ora
 # Investigation files
 investigate-*.sql
 management-data-*.json
+
+# Docker Oracle local development
+docker/oracle/.env
+docker/volumes/
+config/database-target.json

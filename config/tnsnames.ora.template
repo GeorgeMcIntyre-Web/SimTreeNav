@@ -26,6 +26,22 @@ SIEMENS_PS_DB =
 #     )
 #   )
 
+# ============================================================================
+# Local Oracle 19c (Development)
+# Database Name: localdb01
+# Start with: docker\oracle\Execute-OracleSetup.ps1
+# Switch to:  src\powershell\database\docker\Switch-DatabaseTarget.ps1 -Target LOCAL
+# ============================================================================
+ORACLE_LOCAL =
+  (DESCRIPTION =
+    (ADDRESS = (PROTOCOL = TCP)(HOST = localhost)(PORT = 1521))
+    (CONNECT_DATA =
+      (SERVER = DEDICATED)
+      (SID = localdb01)
+    )
+  )
+
 # Connection string format examples:
 # sqlplus username/password@SIEMENS_PS_DB
+# sqlplus username/password@ORACLE_LOCAL as sysdba
 # sqlplus username/password@"(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=hostname)(PORT=1521))(CONNECT_DATA=(SERVICE_NAME=servicename)))"

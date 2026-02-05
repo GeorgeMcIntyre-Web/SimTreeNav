@@ -16,7 +16,30 @@
       "Bash(then echo \"=== File exists ===\")",
       "Bash(else echo \"File not created yet\")",
       "Bash(fi)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(copy \"C:\\\\Users\\\\George\\\\Downloads\\\\dbca_EMSDB12_12201_win.dbt\" \"c:\\\\Users\\\\George\\\\source\\\\repos\\\\SimTreeNav\\\\docker\\\\oracle\\\\siemens-scripts\"\" && copy \"C:UsersGeorgeDownloadsafter_install.sql\" \"c:UsersGeorgesourcereposSimTreeNavdockeroraclesiemens-scripts\"\")",
+      "Bash(copy \"C:\\\\Users\\\\George\\\\Downloads\\\\after_install_pluggable.sql\" \"c:\\\\Users\\\\George\\\\source\\\\repos\\\\SimTreeNav\\\\docker\\\\oracle\\\\siemens-scripts\"\" && copy \"C:UsersGeorgeDownloadsbuild_db.pl\" \"c:UsersGeorgesourcereposSimTreeNavdockeroraclesiemens-scripts\"\")",
+      "Bash(copy \"C:\\\\Users\\\\George\\\\Downloads\\\\build_files.pl\" \"c:\\\\Users\\\\George\\\\source\\\\repos\\\\SimTreeNav\\\\docker\\\\oracle\\\\siemens-scripts\"\" && copy \"C:UsersGeorgeDownloadsbuild_files_pluggable_db.pl\" \"c:UsersGeorgesourcereposSimTreeNavdockeroraclesiemens-scripts\"\")",
+      "Bash(copy \"C:\\\\Users\\\\George\\\\Downloads\\\\runInstall12.2.txt\" \"c:\\\\Users\\\\George\\\\source\\\\repos\\\\SimTreeNav\\\\docker\\\\oracle\\\\siemens-scripts\"\" && copy \"C:UsersGeorgeDownloadsrunInstall12.2_example_windows.txt\" \"c:UsersGeorgesourcereposSimTreeNavdockeroraclesiemens-scripts\"\")",
+      "Bash(copy \"C:\\\\Users\\\\George\\\\Downloads\\\\read-me_first.txt\" \"c:\\\\Users\\\\George\\\\source\\\\repos\\\\SimTreeNav\\\\docker\\\\oracle\\\\siemens-scripts\"\")",
+      "Bash(docker mcp client connect claude-code)",
+      "Bash(docker mcp tools:*)",
+      "Bash(test:*)",
+      "Bash(docker version:*)",
+      "Bash(docker info:*)",
+      "Bash(sc query:*)",
+      "Bash(F:OracleWINDOWS.X64_193000_db_homebinsqlplus.exe -v)",
+      "Bash(\"/f/Oracle/WINDOWS.X64_193000_db_home/bin/sqlplus.exe\" -v)",
+      "Bash(./sqlplus.exe:*)",
+      "Bash(powershell:*)",
+      "Bash(cmd.exe:*)",
+      "Bash(tee:*)",
+      "Bash(./create-database.bat)",
+      "Bash(export:*)",
+      "Bash(export PATH=$ORACLE_HOME/bin:$PATH)",
+      "Bash(./dbca.bat:*)",
+      "Bash(./create-database-cmd.bat:*)",
+      "Bash(git checkout:*)"
     ]
   }
 }

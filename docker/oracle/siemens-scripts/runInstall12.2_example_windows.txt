@@ -1,0 +1,48 @@
+﻿################# DB Instance Creation
+set PATH=%ORACLE_HOME%\perl\bin;%PATH%
+perl -l FULL_PATH_TO\build_files.pl %ORACLE_BASE% %ORACLE_HOME% %DB_NAME% %WINDOWS_SERVER_NAME% 1521 %DATA_FILES_LOCATION%
+perl -l FULL_PATH_TO\build_db.pl %ORACLE_BASE% %ORACLE_HOME% %DB_NAME% 
+
+################# EXAMPLE
+set PATH=c:\apps\oracle\product\12.2.0\perl\bin;%PATH%
+perl -l D:\Oracle\scripts\Oracle12c\build_files.pl D:\Oracle D:\Oracle\Ora12 ppdb my_server 1521 D:\Oracle\oradata\ppdb
+perl -l D:\Oracle\scripts\Oracle12c\build_db.pl D:\Oracle D:\Oracle\Ora12 ppdb D:\Oracle\oradata\ppdb
+
+################# DB Instance Creation with Pluggable database
+set PATH=%ORACLE_HOME%\perl\bin;%PATH%
+perl -l FULL_PATH_TO\build_files_pluggable_db.pl %ORACLE_BASE% %ORACLE_HOME% %DB_NAME% %PLUGGABLE_DB_NAME% %WINDOWS_SERVER_NAME% 1521 %DATA_FILES_LOCATION%
+perl -l FULL_PATH_TO\build_db.pl %ORACLE_BASE% %ORACLE_HOME% %DB_NAME% %DATA_FILES_LOCATION%
+
+################# EXAMPLE PLUGGABLE
+set PATH=c:\apps\oracle\product\12.2.0\perl\bin;%PATH%
+perl -l D:\Oracle\scripts\Oracle12c\build_files_pluggable_db.pl D:\Oracle D:\Oracle\Ora12 EMSCDB EMSPDB1 my_server 1521 D:\Oracle\oradata\EMSCDB
+perl -l D:\Oracle\scripts\Oracle12c\build_db.pl D:\Oracle D:\Oracle\Ora12 EMSCDB D:\Oracle\oradata\EMSCDB
+
+################# AFTER INSTALL
+There are 2 scripts to run after the install:
+after_install.sql  - from sys account
+after_install_pluggable.sql - from sys account of CDB$ROOT 
+
+# In order to install the Oracle database from templates (regular database), make sure that the template dbca_EMSDB12_12201_win.dbt exists in %ORACLE_HOME%\assistants\dbca\templates
+# as well as after_install.sql.
+
+################# Notes: 
+Do not change sys and system passwords at least until the eMServer installation has completed successfully.
+The AL32UTF8 characterSet is the modern character set, instead of the out-of-date UTF8 character set.
+datafile Destination is the location of the database data files. It can be on the same disk as an installation or on separate disk if needed.
+The db name can be changed by changing gdbName and the sid parameter.
+Listener on the machine should not be running. If there is a listener already running from previous versions, it should be deleted by the sc delete command from the command prompt, or by removing -createListener from the -createDatabase command above for manual listener creation.
+Pay attention to the location of after_install.sql script.
+
+
+dbca -silent -createDatabase -templateName dbca_EMSDB12_12201_win.dbt ^
+-gdbName EMS12 ^
+-sid EMS12  ^
+-characterSet AL32UTF8 ^
+-createAsContainerDatabase false ^
+-databaseType MULTIPURPOSE ^
+-sysPassword change_on_install ^
+-systemPassword manager ^
+-datafileDestination c:\apps\oracle\oradata ^
+-createListener LISTENER:1521 ^
+-customScripts C:\apps\oracle\product\12.2.0\assistants\dbca\templates\after_install.sql

@@ -1,0 +1,48 @@
+# Docker Compose for Local Oracle 12c Tecnomatix Development Database
+# Usage:
+#   docker-compose up -d          # Start container
+#   docker-compose down            # Stop container (preserves data)
+#   docker-compose down -v         # Stop and remove all data
+#
+# First startup creates the Oracle database instance (~10-15 min).
+# Subsequent starts are fast (~30 seconds).
+#
+# Prerequisites:
+#   docker login container-registry.oracle.com
+
+version: '3.8'
+
+services:
+  oracle-tecnomatix:
+    image: container-registry.oracle.com/database/enterprise:12.2.0.1
+    container_name: oracle-tecnomatix-12c
+    shm_size: 4g
+    environment:
+      - ORACLE_SID=${ORACLE_SID:-EMS12}
+      - ORACLE_PWD=${ORACLE_PWD:-change_on_install}
+      - ORACLE_CHARACTERSET=${ORACLE_CHARACTERSET:-AL32UTF8}
+    ports:
+      - "${ORACLE_PORT:-1521}:1521"
+      - "${EM_PORT:-5500}:5500"
+    volumes:
+      - oradata:/opt/oracle/oradata
+      - ./scripts/setup:/opt/oracle/scripts/setup:ro
+      - ./siemens-scripts:/opt/oracle/siemens-scripts:ro
+      - ../volumes/dump:/opt/oracle/admin/dump
+    healthcheck:
+      test: ["CMD-SHELL", "echo 'SELECT 1 FROM DUAL;' | sqlplus -S sys/$${ORACLE_PWD}@localhost:1521/$${ORACLE_SID} as sysdba || exit 1"]
+      interval: 60s
+      timeout: 30s
+      retries: 10
+      start_period: 600s
+    restart: unless-stopped
+    networks:
+      - tecnomatix-net
+
+volumes:
+  oradata:
+    driver: local
+
+networks:
+  tecnomatix-net:
+    driver: bridge

@@ -1,0 +1,3 @@
+# DB Instance Creation
+perl -l <scripts_path>\build_files.pl C:\app\oracle  C:\app\oracle\product\12.1.0\dbhome_1 UDIDB iltlvehud 1521 C:\app\oracle
+perl -l <scripts_path>\build_db.pl C:\app\oracle  C:\app\oracle\product\12.1.0\dbhome_1 UDIDB

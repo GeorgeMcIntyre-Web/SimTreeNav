@@ -24,6 +24,53 @@
     $connStr = Get-DbConnectionString -TNSName "SIEMENS_PS_DB" -AsSysDBA
 #>
 
+# Get current database target (LOCAL or REMOTE)
+function Get-DatabaseTarget {
+    <#
+    .SYNOPSIS
+        Gets the current database target from database-target.json.
+    .DESCRIPTION
+        Returns the configured target (LOCAL/REMOTE) and its TNS name.
+        If no target is configured, defaults to REMOTE (SIEMENS_PS_DB).
+    .EXAMPLE
+        $target = Get-DatabaseTarget
+        Write-Host "Using: $($target.TNSName)"
+    #>
+
+    $targetFile = Join-Path $PSScriptRoot "..\..\..\config\database-target.json"
+
+    if (Test-Path $targetFile) {
+        try {
+            $target = Get-Content $targetFile -Raw | ConvertFrom-Json
+            return $target
+        } catch {
+            Write-Warning "Failed to read database-target.json: $_"
+        }
+    }
+
+    # Default to REMOTE if no target configured
+    return [PSCustomObject]@{
+        Target  = "REMOTE"
+        TNSName = "SIEMENS_PS_DB"
+    }
+}
+
+# Get TNS name based on configured database target
+function Get-DefaultTNSName {
+    <#
+    .SYNOPSIS
+        Returns the TNS name based on the active database target.
+    .DESCRIPTION
+        LOCAL target: returns ORACLE_LOCAL
+        REMOTE target: returns SIEMENS_PS_DB
+    .EXAMPLE
+        $tns = Get-DefaultTNSName
+    #>
+
+    $target = Get-DatabaseTarget
+    return $target.TNSName
+}
+
 # Determine environment mode
 function Get-EnvironmentMode {
     <#
@@ -356,6 +403,10 @@ function Get-DbConnectionString {
     .PARAMETER ForcePrompt
         Force credential prompt even if cached credentials exist
     .EXAMPLE
+        # Auto-detect TNS from database target (LOCAL/REMOTE)
+        $connStr = Get-DbConnectionString -AsSysDBA
+
+    .EXAMPLE
         # DEV mode (auto-uses sys with SYSDBA)
         $connStr = Get-DbConnectionString -TNSName "SIEMENS_PS_DB" -AsSysDBA
 
@@ -368,7 +419,7 @@ function Get-DbConnectionString {
         $connStr = Get-DbConnectionString -TNSName "SIEMENS_PS_DB" -Username "simtreenav_readonly"
     #>
     param(
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory=$false)]
         [string]$TNSName,
 
         [string]$Username,  # Now optional - auto-detected
@@ -377,6 +428,13 @@ function Get-DbConnectionString {
 
         [switch]$ForcePrompt
     )
+
+    # Auto-detect TNS name from database target if not provided
+    if (-not $TNSName) {
+        $TNSName = Get-DefaultTNSName
+        $target = Get-DatabaseTarget
+        Write-Host "  Auto-detected database target: $($target.Target) ($TNSName)" -ForegroundColor Gray
+    }
 
     # Auto-detect username if not provided
     if (-not $Username) {

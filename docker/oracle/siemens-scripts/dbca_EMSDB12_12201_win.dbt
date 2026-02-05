@@ -1,0 +1,500 @@
+<DatabaseTemplate name="dbca EMSDB12 12201 win" description=" " version="12.2.0.1.0">
+   <CommonAttributes>
+      <option name="OMS" value="false"/>
+      <option name="JSERVER" value="false"/>
+      <option name="SPATIAL" value="false"/>
+      <option name="IMEDIA" value="false"/>
+      <option name="ORACLE_TEXT" value="false"/>
+      <option name="SAMPLE_SCHEMA" value="false"/>
+      <option name="CWMLITE" value="false"/>
+      <option name="APEX" value="false"/>
+      <option name="DV" value="false"/>
+      <option name="NET_EXTENSIONS" value="false"/>
+   </CommonAttributes>
+   <Variables/>
+   <CustomScripts Execute="false"/>
+   <InitParamAttributes>
+      <InitParams>
+         <initParam name="db_file_multiblock_read_count" value="8"/>
+         <initParam name="db_name" value=""/>
+         <initParam name="db_domain" value=""/>
+         <initParam name="optimizer_index_cost_adj" value="10"/>
+         <initParam name="os_authent_prefix" value=""/>
+         <initParam name="compatible" value="12.2.0"/>
+         <initParam name="remote_login_passwordfile" value="EXCLUSIVE"/>
+         <initParam name="job_queue_processes" value="1000"/>
+         <initParam name="sga_target" value="3154116608"/>
+         <initParam name="processes" value="500"/>
+         <initParam name="deferred_segment_creation" value="FALSE"/>
+         <initParam name="log_buffer" value="1720320"/>
+         <initParam name="undo_tablespace" value="UNDOTBS1"/>
+         <initParam name="control_files" value="(&quot;{ORACLE_BASE}\oradata\{DB_UNIQUE_NAME}\CONTROL01.CTL&quot;, &quot;{ORACLE_BASE}\fast_recovery_area\{DB_UNIQUE_NAME}\CONTROL02.CTL&quot;, &quot;{ORACLE_BASE}\oradata\{DB_UNIQUE_NAME}\CONTROL03.CTL&quot;)"/>
+         <initParam name="diagnostic_dest" value="C:\APPS\ORACLE\DIAG"/>
+         <initParam name="timed_statistics" value="TRUE"/>
+         <initParam name="query_rewrite_enabled" value="FALSE"/>
+         <initParam name="fast_start_mttr_target" value="300"/>
+         <initParam name="db_files" value="1024"/>
+         <initParam name="db_block_size" value="8192"/>
+         <initParam name="recyclebin" value="off"/>
+         <initParam name="open_cursors" value="400"/>
+         <initParam name="global_names" value="FALSE"/>
+         <initParam name="pga_aggregate_target" value="838860800"/>
+      </InitParams>
+      <MiscParams>
+         <customSGA>false</customSGA>
+         <characterSet>AL32UTF8</characterSet>
+         <nationalCharacterSet>UTF8</nationalCharacterSet>
+         <archiveLogMode>false</archiveLogMode>
+         <initParamFileName>{ORACLE_BASE}\admin\{DB_UNIQUE_NAME}\pfile\init.ora</initParamFileName>
+      </MiscParams>
+      <SPfile useSPFile="false">{ORACLE_HOME}\database\spfile{SID}.ora</SPfile>
+   </InitParamAttributes>
+   <StorageAttributes>
+      <ControlfileAttributes id="Controlfile">
+         <maxDatafiles>254</maxDatafiles>
+         <maxLogfiles>32</maxLogfiles>
+         <maxLogMembers>2</maxLogMembers>
+         <maxLogHistory>292</maxLogHistory>
+         <maxInstances>1</maxInstances>
+         <image name="CONTROL01.CTL" filepath="{ORACLE_BASE}\oradata\{DB_UNIQUE_NAME}\"/>
+         <image name="CONTROL02.CTL" filepath="{ORACLE_BASE}\fast_recovery_area\{DB_UNIQUE_NAME}\"/>
+         <image name="CONTROL03.CTL" filepath="{ORACLE_BASE}\oradata\{DB_UNIQUE_NAME}\"/>
+      </ControlfileAttributes>
+      <DatafileAttributes id="{ORACLE_BASE}\oradata\{DB_UNIQUE_NAME}\AQ01.DBF" con_id="0">
+         <tablespace>AQ_DATA</tablespace>
+         <temporary>false</temporary>
+         <online>true</online>
+         <status>0</status>
+         <size unit="MB">200</size>
+         <reuse>true</reuse>
+         <autoExtend>true</autoExtend>
+         <increment unit="KB">20480</increment>
+         <maxSize unit="MB">32767</maxSize>
+      </DatafileAttributes>
+      <DatafileAttributes id="{ORACLE_BASE}\oradata\{DB_UNIQUE_NAME}\PERFSTAT_DATA_01.DBF" con_id="0">
+         <tablespace>PERFSTAT_DATA</tablespace>
+         <temporary>false</temporary>
+         <online>true</online>
+         <status>0</status>
+         <size unit="MB">200</size>
+         <reuse>true</reuse>
+         <autoExtend>true</autoExtend>
+         <increment unit="KB">20480</increment>
+         <maxSize unit="MB">32767</maxSize>
+      </DatafileAttributes>
+      <DatafileAttributes id="{ORACLE_BASE}\oradata\{DB_UNIQUE_NAME}\PP_DATA_10M_01.DBF" con_id="0">
+         <tablespace>PP_DATA_10M</tablespace>
+         <temporary>false</temporary>
+         <online>true</online>
+         <status>0</status>
+         <size unit="MB">500</size>
+         <reuse>true</reuse>
+         <autoExtend>true</autoExtend>
+         <increment unit="MB">100</increment>
+         <maxSize unit="MB">32767</maxSize>
+      </DatafileAttributes>
+      <DatafileAttributes id="{ORACLE_BASE}\oradata\{DB_UNIQUE_NAME}\PP_DATA_128K_01.DBF" con_id="0">
+         <tablespace>PP_DATA_128K</tablespace>
+         <temporary>false</temporary>
+         <online>true</online>
+         <status>0</status>
+         <size unit="MB">200</size>
+         <reuse>true</reuse>
+         <autoExtend>true</autoExtend>
+         <increment unit="KB">20480</increment>
+         <maxSize unit="MB">32767</maxSize>
+      </DatafileAttributes>
+      <DatafileAttributes id="{ORACLE_BASE}\oradata\{DB_UNIQUE_NAME}\PP_DATA_1M_01.DBF" con_id="0">
+         <tablespace>PP_DATA_1M</tablespace>
+         <temporary>false</temporary>
+         <online>true</online>
+         <status>0</status>
+         <size unit="MB">300</size>
+         <reuse>true</reuse>
+         <autoExtend>true</autoExtend>
+         <increment unit="KB">30720</increment>
+         <maxSize unit="MB">32767</maxSize>
+      </DatafileAttributes>
+      <DatafileAttributes id="{ORACLE_BASE}\oradata\{DB_UNIQUE_NAME}\PP_INDEX_10M_01.DBF" con_id="0">
+         <tablespace>PP_INDEX_10M</tablespace>
+         <temporary>false</temporary>
+         <online>true</online>
+         <status>0</status>
+         <size unit="MB">500</size>
+         <reuse>true</reuse>
+         <autoExtend>true</autoExtend>
+         <increment unit="MB">100</increment>
+         <maxSize unit="MB">32767</maxSize>
+      </DatafileAttributes>
+      <DatafileAttributes id="{ORACLE_BASE}\oradata\{DB_UNIQUE_NAME}\PP_INDEX_128K_01.DBF" con_id="0">
+         <tablespace>PP_INDEX_128K</tablespace>
+         <temporary>false</temporary>
+         <online>true</online>
+         <status>0</status>
+         <size unit="MB">200</size>
+         <reuse>true</reuse>
+         <autoExtend>true</autoExtend>
+         <increment unit="KB">20480</increment>
+         <maxSize unit="MB">32767</maxSize>
+      </DatafileAttributes>
+      <DatafileAttributes id="{ORACLE_BASE}\oradata\{DB_UNIQUE_NAME}\PP_INDEX_1M_01.DBF" con_id="0">
+         <tablespace>PP_INDEX_1M</tablespace>
+         <temporary>false</temporary>
+         <online>true</online>
+         <status>0</status>
+         <size unit="MB">300</size>
+         <reuse>true</reuse>
+         <autoExtend>true</autoExtend>
+         <increment unit="KB">30720</increment>
+         <maxSize unit="MB">32767</maxSize>
+      </DatafileAttributes>
+      <DatafileAttributes id="{ORACLE_BASE}\oradata\{DB_UNIQUE_NAME}\SYSAUX01.DBF" con_id="0">
+         <tablespace>SYSAUX</tablespace>
+         <temporary>false</temporary>
+         <online>true</online>
+         <status>0</status>
+         <size unit="MB">500</size>
+         <reuse>true</reuse>
+         <autoExtend>true</autoExtend>
+         <increment unit="KB">5120</increment>
+         <maxSize unit="MB">32767</maxSize>
+      </DatafileAttributes>
+      <DatafileAttributes id="{ORACLE_BASE}\oradata\{DB_UNIQUE_NAME}\SYSTEM01.DBF" con_id="0">
+         <tablespace>SYSTEM</tablespace>
+         <temporary>false</temporary>
+         <online>true</online>
+         <status>0</status>
+         <size unit="MB">500</size>
+         <reuse>true</reuse>
+         <autoExtend>true</autoExtend>
+         <increment unit="KB">5120</increment>
+         <maxSize unit="MB">32767</maxSize>
+      </DatafileAttributes>
+      <DatafileAttributes id="{ORACLE_BASE}\oradata\{DB_UNIQUE_NAME}\TEMP01.DBF" con_id="0">
+         <tablespace>TEMP</tablespace>
+         <temporary>true</temporary>
+         <online>true</online>
+         <status>0</status>
+         <size unit="MB">300</size>
+         <reuse>true</reuse>
+         <autoExtend>true</autoExtend>
+         <increment unit="KB">30720</increment>
+         <maxSize unit="MB">32767</maxSize>
+      </DatafileAttributes>
+      <DatafileAttributes id="{ORACLE_BASE}\oradata\{DB_UNIQUE_NAME}\UNDOTBS01.DBF" con_id="0">
+         <tablespace>UNDOTBS1</tablespace>
+         <temporary>false</temporary>
+         <online>true</online>
+         <status>0</status>
+         <size unit="MB">500</size>
+         <reuse>true</reuse>
+         <autoExtend>true</autoExtend>
+         <increment unit="KB">5120</increment>
+         <maxSize unit="MB">32767</maxSize>
+      </DatafileAttributes>
+      <TablespaceAttributes id="AQ_DATA" con_id="0">
+         <temporary>false</temporary>
+         <defaultTemp>false</defaultTemp>
+         <undo>false</undo>
+         <local>true</local>
+         <blockSize>8192</blockSize>
+         <allocation>2</allocation>
+         <uniAllocSize unit="KB">128</uniAllocSize>
+         <initSize unit="KB">128</initSize>
+         <increment unit="KB">128</increment>
+         <incrementPercent>0</incrementPercent>
+         <minExtends>1</minExtends>
+         <maxExtends>2147483645</maxExtends>
+         <minExtendsSize unit="KB">128</minExtendsSize>
+         <logging>true</logging>
+         <recoverable>false</recoverable>
+         <maxFreeSpace>0</maxFreeSpace>
+         <autoSegmentMgmt>true</autoSegmentMgmt>
+         <bigfile>false</bigfile>
+         <datafilesList>
+            <TablespaceDatafileAttributes id="{ORACLE_BASE}\oradata\{DB_UNIQUE_NAME}\AQ01.DBF"/>
+         </datafilesList>
+      </TablespaceAttributes>
+      <TablespaceAttributes id="PERFSTAT_DATA" con_id="0">
+         <temporary>false</temporary>
+         <defaultTemp>false</defaultTemp>
+         <undo>false</undo>
+         <local>true</local>
+         <blockSize>8192</blockSize>
+         <allocation>1</allocation>
+         <uniAllocSize unit="KB">-1</uniAllocSize>
+         <initSize unit="KB">64</initSize>
+         <increment unit="KB">0</increment>
+         <incrementPercent>0</incrementPercent>
+         <minExtends>1</minExtends>
+         <maxExtends>2147483645</maxExtends>
+         <minExtendsSize unit="KB">64</minExtendsSize>
+         <logging>true</logging>
+         <recoverable>false</recoverable>
+         <maxFreeSpace>0</maxFreeSpace>
+         <autoSegmentMgmt>true</autoSegmentMgmt>
+         <bigfile>false</bigfile>
+         <datafilesList>
+            <TablespaceDatafileAttributes id="{ORACLE_BASE}\oradata\{DB_UNIQUE_NAME}\PERFSTAT_DATA_01.DBF"/>
+         </datafilesList>
+      </TablespaceAttributes>
+      <TablespaceAttributes id="PP_DATA_10M" con_id="0">
+         <temporary>false</temporary>
+         <defaultTemp>false</defaultTemp>
+         <undo>false</undo>
+         <local>true</local>
+         <blockSize>8192</blockSize>
+         <allocation>2</allocation>
+         <uniAllocSize unit="KB">10240</uniAllocSize>
+         <initSize unit="KB">10240</initSize>
+         <increment unit="KB">10240</increment>
+         <incrementPercent>0</incrementPercent>
+         <minExtends>1</minExtends>
+         <maxExtends>2147483645</maxExtends>
+         <minExtendsSize unit="KB">10240</minExtendsSize>
+         <logging>true</logging>
+         <recoverable>false</recoverable>
+         <maxFreeSpace>0</maxFreeSpace>
+         <autoSegmentMgmt>true</autoSegmentMgmt>
+         <bigfile>false</bigfile>
+         <datafilesList>
+            <TablespaceDatafileAttributes id="{ORACLE_BASE}\oradata\{DB_UNIQUE_NAME}\PP_DATA_10M_01.DBF"/>
+         </datafilesList>
+      </TablespaceAttributes>
+      <TablespaceAttributes id="PP_DATA_128K" con_id="0">
+         <temporary>false</temporary>
+         <defaultTemp>false</defaultTemp>
+         <undo>false</undo>
+         <local>true</local>
+         <blockSize>8192</blockSize>
+         <allocation>2</allocation>
+         <uniAllocSize unit="KB">128</uniAllocSize>
+         <initSize unit="KB">128</initSize>
+         <increment unit="KB">128</increment>
+         <incrementPercent>0</incrementPercent>
+         <minExtends>1</minExtends>
+         <maxExtends>2147483645</maxExtends>
+         <minExtendsSize unit="KB">128</minExtendsSize>
+         <logging>true</logging>
+         <recoverable>false</recoverable>
+         <maxFreeSpace>0</maxFreeSpace>
+         <autoSegmentMgmt>true</autoSegmentMgmt>
+         <bigfile>false</bigfile>
+         <datafilesList>
+            <TablespaceDatafileAttributes id="{ORACLE_BASE}\oradata\{DB_UNIQUE_NAME}\PP_DATA_128K_01.DBF"/>
+         </datafilesList>
+      </TablespaceAttributes>
+      <TablespaceAttributes id="PP_DATA_1M" con_id="0">
+         <temporary>false</temporary>
+         <defaultTemp>false</defaultTemp>
+         <undo>false</undo>
+         <local>true</local>
+         <blockSize>8192</blockSize>
+         <allocation>2</allocation>
+         <uniAllocSize unit="KB">1024</uniAllocSize>
+         <initSize unit="KB">1024</initSize>
+         <increment unit="KB">1024</increment>
+         <incrementPercent>0</incrementPercent>
+         <minExtends>1</minExtends>
+         <maxExtends>2147483645</maxExtends>
+         <minExtendsSize unit="KB">1024</minExtendsSize>
+         <logging>true</logging>
+         <recoverable>false</recoverable>
+         <maxFreeSpace>0</maxFreeSpace>
+         <autoSegmentMgmt>true</autoSegmentMgmt>
+         <bigfile>false</bigfile>
+         <datafilesList>
+            <TablespaceDatafileAttributes id="{ORACLE_BASE}\oradata\{DB_UNIQUE_NAME}\PP_DATA_1M_01.DBF"/>
+         </datafilesList>
+      </TablespaceAttributes>
+      <TablespaceAttributes id="PP_INDEX_10M" con_id="0">
+         <temporary>false</temporary>
+         <defaultTemp>false</defaultTemp>
+         <undo>false</undo>
+         <local>true</local>
+         <blockSize>8192</blockSize>
+         <allocation>2</allocation>
+         <uniAllocSize unit="KB">10240</uniAllocSize>
+         <initSize unit="KB">10240</initSize>
+         <increment unit="KB">10240</increment>
+         <incrementPercent>0</incrementPercent>
+         <minExtends>1</minExtends>
+         <maxExtends>2147483645</maxExtends>
+         <minExtendsSize unit="KB">10240</minExtendsSize>
+         <logging>true</logging>
+         <recoverable>false</recoverable>
+         <maxFreeSpace>0</maxFreeSpace>
+         <autoSegmentMgmt>true</autoSegmentMgmt>
+         <bigfile>false</bigfile>
+         <datafilesList>
+            <TablespaceDatafileAttributes id="{ORACLE_BASE}\oradata\{DB_UNIQUE_NAME}\PP_INDEX_10M_01.DBF"/>
+         </datafilesList>
+      </TablespaceAttributes>
+      <TablespaceAttributes id="PP_INDEX_128K" con_id="0">
+         <temporary>false</temporary>
+         <defaultTemp>false</defaultTemp>
+         <undo>false</undo>
+         <local>true</local>
+         <blockSize>8192</blockSize>
+         <allocation>2</allocation>
+         <uniAllocSize unit="KB">128</uniAllocSize>
+         <initSize unit="KB">128</initSize>
+         <increment unit="KB">128</increment>
+         <incrementPercent>0</incrementPercent>
+         <minExtends>1</minExtends>
+         <maxExtends>2147483645</maxExtends>
+         <minExtendsSize unit="KB">128</minExtendsSize>
+         <logging>true</logging>
+         <recoverable>false</recoverable>
+         <maxFreeSpace>0</maxFreeSpace>
+         <autoSegmentMgmt>true</autoSegmentMgmt>
+         <bigfile>false</bigfile>
+         <datafilesList>
+            <TablespaceDatafileAttributes id="{ORACLE_BASE}\oradata\{DB_UNIQUE_NAME}\PP_INDEX_128K_01.DBF"/>
+         </datafilesList>
+      </TablespaceAttributes>
+      <TablespaceAttributes id="PP_INDEX_1M" con_id="0">
+         <temporary>false</temporary>
+         <defaultTemp>false</defaultTemp>
+         <undo>false</undo>
+         <local>true</local>
+         <blockSize>8192</blockSize>
+         <allocation>2</allocation>
+         <uniAllocSize unit="KB">1024</uniAllocSize>
+         <initSize unit="KB">1024</initSize>
+         <increment unit="KB">1024</increment>
+         <incrementPercent>0</incrementPercent>
+         <minExtends>1</minExtends>
+         <maxExtends>2147483645</maxExtends>
+         <minExtendsSize unit="KB">1024</minExtendsSize>
+         <logging>true</logging>
+         <recoverable>false</recoverable>
+         <maxFreeSpace>0</maxFreeSpace>
+         <autoSegmentMgmt>true</autoSegmentMgmt>
+         <bigfile>false</bigfile>
+         <datafilesList>
+            <TablespaceDatafileAttributes id="{ORACLE_BASE}\oradata\{DB_UNIQUE_NAME}\PP_INDEX_1M_01.DBF"/>
+         </datafilesList>
+      </TablespaceAttributes>
+      <TablespaceAttributes id="SYSAUX" con_id="0">
+         <temporary>false</temporary>
+         <defaultTemp>false</defaultTemp>
+         <undo>false</undo>
+         <local>true</local>
+         <blockSize>8192</blockSize>
+         <allocation>1</allocation>
+         <uniAllocSize unit="KB">-1</uniAllocSize>
+         <initSize unit="KB">64</initSize>
+         <increment unit="KB">0</increment>
+         <incrementPercent>0</incrementPercent>
+         <minExtends>1</minExtends>
+         <maxExtends>2147483645</maxExtends>
+         <minExtendsSize unit="KB">64</minExtendsSize>
+         <logging>true</logging>
+         <recoverable>false</recoverable>
+         <maxFreeSpace>0</maxFreeSpace>
+         <autoSegmentMgmt>true</autoSegmentMgmt>
+         <bigfile>false</bigfile>
+         <datafilesList>
+            <TablespaceDatafileAttributes id="{ORACLE_BASE}\oradata\{DB_UNIQUE_NAME}\SYSAUX01.DBF"/>
+         </datafilesList>
+      </TablespaceAttributes>
+      <TablespaceAttributes id="SYSTEM" con_id="0">
+         <temporary>false</temporary>
+         <defaultTemp>false</defaultTemp>
+         <undo>false</undo>
+         <local>true</local>
+         <blockSize>8192</blockSize>
+         <allocation>1</allocation>
+         <uniAllocSize unit="KB">-1</uniAllocSize>
+         <initSize unit="KB">64</initSize>
+         <increment unit="KB">0</increment>
+         <incrementPercent>0</incrementPercent>
+         <minExtends>1</minExtends>
+         <maxExtends>2147483645</maxExtends>
+         <minExtendsSize unit="KB">64</minExtendsSize>
+         <logging>true</logging>
+         <recoverable>false</recoverable>
+         <maxFreeSpace>0</maxFreeSpace>
+         <autoSegmentMgmt>false</autoSegmentMgmt>
+         <bigfile>false</bigfile>
+         <datafilesList>
+            <TablespaceDatafileAttributes id="{ORACLE_BASE}\oradata\{DB_UNIQUE_NAME}\SYSTEM01.DBF"/>
+         </datafilesList>
+      </TablespaceAttributes>
+      <TablespaceAttributes id="TEMP" con_id="0">
+         <temporary>true</temporary>
+         <defaultTemp>true</defaultTemp>
+         <undo>false</undo>
+         <local>true</local>
+         <blockSize>8192</blockSize>
+         <allocation>2</allocation>
+         <uniAllocSize unit="KB">1024</uniAllocSize>
+         <initSize unit="KB">1024</initSize>
+         <increment unit="KB">1024</increment>
+         <incrementPercent>0</incrementPercent>
+         <minExtends>1</minExtends>
+         <maxExtends>-1</maxExtends>
+         <minExtendsSize unit="KB">1024</minExtendsSize>
+         <logging>false</logging>
+         <recoverable>false</recoverable>
+         <maxFreeSpace>0</maxFreeSpace>
+         <autoSegmentMgmt>false</autoSegmentMgmt>
+         <bigfile>false</bigfile>
+         <datafilesList>
+            <TablespaceDatafileAttributes id="{ORACLE_BASE}\oradata\{DB_UNIQUE_NAME}\TEMP01.DBF"/>
+         </datafilesList>
+      </TablespaceAttributes>
+      <TablespaceAttributes id="UNDOTBS1" con_id="0">
+         <temporary>false</temporary>
+         <defaultTemp>false</defaultTemp>
+         <undo>true</undo>
+         <local>true</local>
+         <blockSize>8192</blockSize>
+         <allocation>1</allocation>
+         <uniAllocSize unit="KB">-1</uniAllocSize>
+         <initSize unit="KB">64</initSize>
+         <increment unit="KB">0</increment>
+         <incrementPercent>0</incrementPercent>
+         <minExtends>1</minExtends>
+         <maxExtends>2147483645</maxExtends>
+         <minExtendsSize unit="KB">64</minExtendsSize>
+         <logging>true</logging>
+         <recoverable>false</recoverable>
+         <maxFreeSpace>0</maxFreeSpace>
+         <autoSegmentMgmt>false</autoSegmentMgmt>
+         <bigfile>false</bigfile>
+         <datafilesList>
+            <TablespaceDatafileAttributes id="{ORACLE_BASE}\oradata\{DB_UNIQUE_NAME}\UNDOTBS01.DBF"/>
+         </datafilesList>
+      </TablespaceAttributes>
+      <RedoLogGroupAttributes id="1">
+         <reuse>false</reuse>
+         <fileSize unit="KB">102400</fileSize>
+         <Thread>1</Thread>
+         <member ordinal="0" memberName="PPDB_G1_M1.RDO" filepath="{ORACLE_BASE}\oradata\{DB_UNIQUE_NAME}\"/>
+         <member ordinal="1" memberName="PPDB_G1_M2.RDO" filepath="{ORACLE_BASE}\oradata\{DB_UNIQUE_NAME}\"/>
+      </RedoLogGroupAttributes>
+      <RedoLogGroupAttributes id="2">
+         <reuse>false</reuse>
+         <fileSize unit="KB">102400</fileSize>
+         <Thread>1</Thread>
+         <member ordinal="0" memberName="PPDB_G2_M1.RDO" filepath="{ORACLE_BASE}\oradata\{DB_UNIQUE_NAME}\"/>
+         <member ordinal="1" memberName="PPDB_G2_M2.RDO" filepath="{ORACLE_BASE}\oradata\{DB_UNIQUE_NAME}\"/>
+      </RedoLogGroupAttributes>
+      <RedoLogGroupAttributes id="3">
+         <reuse>false</reuse>
+         <fileSize unit="KB">102400</fileSize>
+         <Thread>1</Thread>
+         <member ordinal="0" memberName="PPDB_G3_M1.RDO" filepath="{ORACLE_BASE}\oradata\{DB_UNIQUE_NAME}\"/>
+         <member ordinal="1" memberName="PPDB_G3_M2.RDO" filepath="{ORACLE_BASE}\oradata\{DB_UNIQUE_NAME}\"/>
+      </RedoLogGroupAttributes>
+      <RedoLogGroupAttributes id="4">
+         <reuse>false</reuse>
+         <fileSize unit="KB">102400</fileSize>
+         <Thread>1</Thread>
+         <member ordinal="0" memberName="PPDB_G4_M1.RDO" filepath="{ORACLE_BASE}\oradata\{DB_UNIQUE_NAME}\"/>
+         <member ordinal="1" memberName="PPDB_G4_M2.RDO" filepath="{ORACLE_BASE}\oradata\{DB_UNIQUE_NAME}\"/>
+      </RedoLogGroupAttributes>
+   </StorageAttributes>
+</DatabaseTemplate>
